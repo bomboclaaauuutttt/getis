@@ -1,0 +1,19 @@
+/Build/*.data.gz
+  Content-Encoding: gzip
+  Content-Type: application/octet-stream
+
+/Build/*.wasm.gz
+  Content-Encoding: gzip
+  Content-Type: application/wasm
+
+/Build/*.framework.js.gz
+  Content-Encoding: gzip
+  Content-Type: application/javascript
+
+/Build/*.js.gz
+  Content-Encoding: gzip
+  Content-Type: application/javascript
+
+/*
+  Cross-Origin-Opener-Policy: same-origin
+  Cross-Origin-Embedder-Policy: require-corp

@@ -1,0 +1,21 @@
+*.cs text eol=crlf
+*.json text eol=lf
+*.asset text eol=lf
+*.meta text eol=lf
+*.unity text eol=lf
+*.prefab text eol=lf
+*.mat text eol=lf
+*.controller text eol=lf
+*.anim text eol=lf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.fbx binary
+*.obj text
+*.mtl text
+*.dll binary
+*.wasm binary
+*.gz binary
