@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Police Getaway</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <canvas id="game"></canvas>
+
+    <div id="hud">
+      <div id="money">$0</div>
+      <div id="hint">WASD / arrows drive</div>
+    </div>
+
+    <div id="gameCode" class="game-code hidden">
+      <span>Server</span>
+      <strong>000000</strong>
+      <small>Waiting for players</small>
+    </div>
+
+    <div id="minimap"></div>
+
+    <div id="arrestFx"></div>
+
+    <div id="menu" class="menu-screen">
+      <div class="menu-flash"></div>
+      <div class="arrest-scanlines"></div>
+      <div class="menu-card">
+        <div class="menu-kicker">Wanted level rising</div>
+        <h1>Police Getaway</h1>
+        <div class="menu-rule"></div>
+        <p>Escape cops. Drift through traffic. Get paid for reckless driving.</p>
+        <div class="menu-actions">
+          <button id="singleplayerButton">Singleplayer</button>
+          <button id="createGameButton">Create game</button>
+          <button id="joinGameButton" class="secondary-button">Join game</button>
+        </div>
+        <form id="joinForm" class="join-form hidden">
+          <input id="joinCodeInput" inputmode="numeric" maxlength="6" autocomplete="off" placeholder="Game code" />
+          <button id="joinConfirmButton" type="submit">Join</button>
+        </form>
+        <div id="menuStatus" class="menu-status"></div>
+      </div>
+    </div>
+
+    <div id="gameOver" class="arrest-screen hidden">
+      <div class="arrest-flash"></div>
+      <div class="arrest-scanlines"></div>
+      <div class="arrest-card">
+        <div class="arrest-kicker">Busted by the LSPD</div>
+        <h1>Arrested</h1>
+        <div class="arrest-rule"></div>
+        <p>You lost the chase</p>
+        <button id="restartButton">Restart</button>
+      </div>
+    </div>
+
+    <script src="https://unpkg.com/peerjs@1.5.5/dist/peerjs.min.js"></script>
+    <script type="module" src="game.js"></script>
+  </body>
+</html>

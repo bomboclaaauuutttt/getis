@@ -1,24 +1,16 @@
-# Mini GTA Web Deploy
+# Police Getaway Browser
 
-## Update the website files
+A lightweight no-Unity 3D browser version of the Unity police getaway game.
 
-1. Build the game in Unity as Web/WebGL into `WebGL`.
-2. Run:
+Double-click `start-game.bat` to play locally.
 
-```powershell
-.\scripts\Publish-WebGL.ps1
-```
+The game vendors Three.js in `assets/three.module.js`, so it does not need a CDN while running.
 
-3. Commit and push the repository to GitHub.
+Controls:
 
-## Cloudflare Pages settings
+- `W` / `Arrow Up`: accelerate
+- `S` / `Arrow Down`: brake / reverse
+- `A` / `Arrow Left`: steer left
+- `D` / `Arrow Right`: steer right
 
-Use these settings:
-
-```text
-Framework preset: None
-Build command: leave empty
-Build output directory: web-dist
-```
-
-Cloudflare will give you a free `*.pages.dev` address. You can connect a custom domain later.
+To publish on Cloudflare Pages, use this folder as the site root and leave the build command empty.

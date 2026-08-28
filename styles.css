@@ -1,0 +1,513 @@
+html,
+body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: #121412;
+  color: white;
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+#game {
+  display: block;
+  width: 100vw;
+  height: 100vh;
+  background: #5b8d58;
+}
+
+#hud {
+  position: fixed;
+  left: 18px;
+  top: 14px;
+  z-index: 5;
+  pointer-events: none;
+  text-shadow: 0 2px 5px rgba(0, 0, 0, 0.75);
+}
+
+#money {
+  font-size: 24px;
+  font-weight: 900;
+}
+
+#hint {
+  margin-top: 4px;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.hidden {
+  display: none !important;
+}
+
+.game-code {
+  position: fixed;
+  left: 50%;
+  top: 14px;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 42px;
+  padding: 7px 14px 7px 16px;
+  color: white;
+  background: rgba(11, 13, 13, 0.78);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 6px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.36);
+  transform: translateX(-50%) skewX(-8deg);
+  pointer-events: none;
+  text-transform: uppercase;
+}
+
+.game-code span,
+.game-code strong,
+.game-code small {
+  display: block;
+  transform: skewX(8deg);
+  text-shadow: 0 3px 0 rgba(0, 0, 0, 0.55);
+}
+
+.game-code span {
+  color: rgba(255, 255, 255, 0.68);
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.game-code strong {
+  color: #f4f4f4;
+  font-size: 24px;
+  font-weight: 900;
+}
+
+.game-code small {
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+#minimap {
+  position: fixed;
+  right: 18px;
+  top: 18px;
+  width: 154px;
+  height: 154px;
+  border-radius: 50%;
+  border: 4px solid rgba(255, 255, 255, 0.85);
+  background: rgba(20, 27, 22, 0.82);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.35);
+  overflow: hidden;
+  z-index: 5;
+  pointer-events: none;
+}
+
+#arrestFx {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 4;
+  opacity: 0;
+  backdrop-filter: grayscale(1) contrast(1.2) blur(1px);
+  background:
+    radial-gradient(circle at 50% 45%, rgba(255, 255, 255, 0.06), rgba(0, 0, 0, 0.82) 62%),
+    linear-gradient(90deg, rgba(128, 0, 14, 0.16), transparent 28%, transparent 72%, rgba(128, 0, 14, 0.16));
+  transition: opacity 120ms linear;
+}
+
+.screen {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  z-index: 10;
+  background: rgba(5, 7, 8, 0.68);
+}
+
+.screen.hidden {
+  display: none;
+}
+
+.menu-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 50% 56%, rgba(255, 255, 255, 0.08), rgba(0, 0, 0, 0.62) 46%, rgba(0, 0, 0, 0.9)),
+    linear-gradient(115deg, rgba(140, 0, 20, 0.22), rgba(0, 0, 0, 0.22) 42%, rgba(0, 0, 0, 0.68));
+  backdrop-filter: grayscale(0.35) contrast(1.16) blur(1px);
+}
+
+.menu-screen.hidden {
+  display: none;
+}
+
+.menu-flash {
+  position: absolute;
+  inset: 0;
+  background: rgba(255, 255, 255, 0.54);
+  animation: arrestFlash 720ms ease-out both;
+}
+
+.menu-card {
+  position: relative;
+  width: min(820px, calc(100vw - 34px));
+  padding-top: 16px;
+  text-align: center;
+  transform: rotate(-2.5deg);
+  animation: menuCardIn 920ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.menu-kicker {
+  margin-bottom: 4px;
+  color: rgba(255, 255, 255, 0.75);
+  font-size: clamp(13px, 1.7vw, 20px);
+  font-weight: 900;
+  letter-spacing: 0;
+  text-transform: uppercase;
+  text-shadow: 0 3px 0 rgba(0, 0, 0, 0.55);
+  animation: arrestDetailIn 820ms ease-out 420ms both;
+}
+
+.menu-card h1 {
+  width: min-content;
+  min-width: min(780px, calc(100vw - 34px));
+  margin: 0 auto;
+  color: #f6f6f6;
+  font-size: clamp(52px, 11vw, 124px);
+  line-height: 0.88;
+  letter-spacing: 0;
+  text-transform: uppercase;
+  text-shadow:
+    0 5px 0 #101010,
+    0 12px 24px rgba(0, 0, 0, 0.7),
+    5px 0 0 rgba(207, 0, 22, 0.65);
+}
+
+.menu-rule {
+  width: min(560px, 82vw);
+  height: 9px;
+  margin: 22px auto 15px;
+  background: #d50019;
+  box-shadow: 0 5px 0 rgba(0, 0, 0, 0.55);
+  transform: skewX(-22deg);
+  animation: arrestRuleIn 520ms ease-out 320ms both;
+}
+
+.menu-card p {
+  max-width: min(620px, calc(100vw - 44px));
+  margin: 0 auto 28px;
+  color: rgba(255, 255, 255, 0.78);
+  font-size: clamp(15px, 2.1vw, 21px);
+  font-weight: 800;
+  line-height: 1.3;
+  text-transform: uppercase;
+  text-shadow: 0 3px 0 rgba(0, 0, 0, 0.5);
+  animation: arrestDetailIn 900ms ease-out 540ms both;
+}
+
+.menu-card button {
+  min-width: 176px;
+  height: 54px;
+  box-shadow:
+    0 7px 0 #7f000e,
+    0 18px 28px rgba(0, 0, 0, 0.42);
+  transform: translateY(0);
+  animation: restartIn 520ms ease-out 780ms both;
+}
+
+.menu-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 12px;
+  animation: restartIn 520ms ease-out 780ms both;
+}
+
+.menu-card .secondary-button {
+  background: #252929;
+  box-shadow:
+    0 7px 0 #101313,
+    0 18px 28px rgba(0, 0, 0, 0.42);
+}
+
+.menu-card .secondary-button:hover {
+  background: #333a3a;
+}
+
+.menu-card button:active {
+  transform: translateY(5px);
+  box-shadow:
+    0 2px 0 #7f000e,
+    0 10px 18px rgba(0, 0, 0, 0.38);
+}
+
+.join-form {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  width: min(520px, calc(100vw - 42px));
+  margin: 18px auto 0;
+  animation: arrestDetailIn 260ms ease-out both;
+}
+
+.join-form input {
+  width: 188px;
+  height: 50px;
+  box-sizing: border-box;
+  padding: 0 16px;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-radius: 6px;
+  color: white;
+  background: rgba(6, 8, 8, 0.78);
+  font-size: 24px;
+  font-weight: 900;
+  letter-spacing: 0;
+  text-align: center;
+  outline: none;
+}
+
+.join-form input:focus {
+  border-color: #ffdf54;
+}
+
+.join-form button {
+  min-width: 104px;
+}
+
+.menu-status {
+  min-height: 18px;
+  margin-top: 14px;
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 13px;
+  font-weight: 800;
+  text-transform: uppercase;
+  text-shadow: 0 3px 0 rgba(0, 0, 0, 0.5);
+}
+
+.panel {
+  width: min(420px, calc(100vw - 34px));
+  padding: 26px;
+  background: rgba(18, 21, 20, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 8px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
+  text-align: center;
+}
+
+.panel h1 {
+  margin: 0 0 8px;
+  font-size: 40px;
+  line-height: 1;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.panel p {
+  margin: 0 0 22px;
+  color: rgba(255, 255, 255, 0.75);
+  line-height: 1.4;
+}
+
+button {
+  min-width: 160px;
+  height: 46px;
+  border: 0;
+  border-radius: 6px;
+  background: #e20718;
+  color: white;
+  font-weight: 900;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+button:hover {
+  background: #ff1d2d;
+}
+
+.arrest-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 12;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  pointer-events: auto;
+  background:
+    radial-gradient(circle at 50% 50%, rgba(255, 255, 255, 0.08), rgba(0, 0, 0, 0.78) 50%, rgba(0, 0, 0, 0.96)),
+    linear-gradient(105deg, rgba(120, 0, 20, 0.32), rgba(10, 10, 10, 0.52) 45%, rgba(0, 0, 0, 0.88));
+  backdrop-filter: grayscale(1) contrast(1.35) blur(2px);
+  animation: arrestBackdrop 1800ms ease-out both;
+}
+
+.arrest-screen.hidden {
+  display: none;
+}
+
+.arrest-flash {
+  position: absolute;
+  inset: 0;
+  background: rgba(255, 255, 255, 0.9);
+  animation: arrestFlash 820ms ease-out both;
+}
+
+.arrest-scanlines {
+  position: absolute;
+  inset: -20%;
+  opacity: 0.24;
+  background: repeating-linear-gradient(
+    0deg,
+    rgba(255, 255, 255, 0.1) 0,
+    rgba(255, 255, 255, 0.1) 1px,
+    transparent 1px,
+    transparent 7px
+  );
+  transform: rotate(-7deg);
+  animation: scanDrift 2400ms linear infinite;
+}
+
+.arrest-card {
+  position: relative;
+  width: min(760px, calc(100vw - 34px));
+  text-align: center;
+  transform: rotate(-3deg);
+  animation: arrestCardIn 1100ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.arrest-kicker {
+  margin-bottom: 4px;
+  color: rgba(255, 255, 255, 0.76);
+  font-size: clamp(13px, 1.8vw, 20px);
+  font-weight: 900;
+  letter-spacing: 0;
+  text-transform: uppercase;
+  text-shadow: 0 3px 0 rgba(0, 0, 0, 0.55);
+  animation: arrestDetailIn 900ms ease-out 650ms both;
+}
+
+.arrest-card h1 {
+  margin: 0;
+  color: #f2f2f2;
+  font-size: clamp(58px, 13vw, 148px);
+  line-height: 0.86;
+  letter-spacing: 0;
+  text-transform: uppercase;
+  text-shadow:
+    0 5px 0 #111,
+    0 12px 22px rgba(0, 0, 0, 0.68),
+    5px 0 0 rgba(196, 0, 22, 0.62);
+}
+
+.arrest-rule {
+  width: min(520px, 80vw);
+  height: 9px;
+  margin: 22px auto 13px;
+  background: #c70017;
+  box-shadow: 0 5px 0 rgba(0, 0, 0, 0.55);
+  transform: skewX(-22deg);
+  animation: arrestRuleIn 520ms ease-out 420ms both;
+}
+
+.arrest-card p {
+  margin: 0 0 26px;
+  color: rgba(255, 255, 255, 0.78);
+  font-size: clamp(15px, 2.2vw, 22px);
+  font-weight: 800;
+  text-transform: uppercase;
+  text-shadow: 0 3px 0 rgba(0, 0, 0, 0.5);
+  animation: arrestDetailIn 900ms ease-out 760ms both;
+}
+
+.arrest-card button {
+  opacity: 0;
+  transform: translateY(12px);
+  animation: restartIn 520ms ease-out 1250ms both;
+}
+
+body.arrested #game {
+  animation: arrestedGameFreeze 1400ms ease-out both;
+}
+
+body.arrested #hud,
+body.arrested #minimap {
+  animation: hudDropOut 420ms ease-in both;
+}
+
+@keyframes arrestFlash {
+  0% { opacity: 0; }
+  16% { opacity: 0.95; }
+  100% { opacity: 0; }
+}
+
+@keyframes arrestBackdrop {
+  0% { opacity: 0; }
+  100% { opacity: 1; }
+}
+
+@keyframes arrestCardIn {
+  0% {
+    opacity: 0;
+    transform: translateX(-120vw) rotate(-10deg) scale(1.25);
+    filter: blur(4px);
+  }
+  58% {
+    opacity: 1;
+    transform: translateX(3vw) rotate(-3deg) scale(1.02);
+    filter: blur(0);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0) rotate(-3deg) scale(1);
+    filter: blur(0);
+  }
+}
+
+@keyframes menuCardIn {
+  0% {
+    opacity: 0;
+    transform: translateX(-80vw) rotate(-8deg) scale(1.12);
+    filter: blur(3px);
+  }
+  64% {
+    opacity: 1;
+    transform: translateX(2vw) rotate(-2.5deg) scale(1.01);
+    filter: blur(0);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0) rotate(-2.5deg) scale(1);
+    filter: blur(0);
+  }
+}
+
+@keyframes arrestRuleIn {
+  0% { opacity: 0; transform: scaleX(0) skewX(-22deg); }
+  100% { opacity: 1; transform: scaleX(1) skewX(-22deg); }
+}
+
+@keyframes arrestDetailIn {
+  0% { opacity: 0; transform: translateY(10px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes restartIn {
+  0% { opacity: 0; transform: translateY(12px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes scanDrift {
+  0% { transform: translateY(-18px) rotate(-7deg); }
+  100% { transform: translateY(18px) rotate(-7deg); }
+}
+
+@keyframes arrestedGameFreeze {
+  0% { filter: grayscale(0) contrast(1) saturate(1); transform: scale(1); }
+  100% { filter: grayscale(1) contrast(1.22) saturate(0.15); transform: scale(1.025); }
+}
+
+@keyframes hudDropOut {
+  0% { opacity: 1; transform: translateY(0); }
+  100% { opacity: 0; transform: translateY(-12px); }
+}

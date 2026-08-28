@@ -1,32 +1,4 @@
-# Unity generated folders
-/Library/
-/Temp/
-/Logs/
-/Obj/
-/Build/
-/Builds/
-/UserSettings/
-/MemoryCaptures/
-
-# IDE and generated project files
-/.vs/
-/.vscode/
-*.csproj
-*.sln
-*.slnx
-*.user
-*.userprefs
-*.pidb
-*.booproj
-*.svd
-
-# Unity generated files
-*.apk
-*.aab
-*.unitypackage
-*.app
-
-# Keep the deployable WebGL output small and explicit.
-# Use scripts/Publish-WebGL.ps1 to copy WebGL -> web-dist before pushing.
-/WebGL/
-!/web-dist/
+node_modules/
+*.log
+.DS_Store
+Thumbs.db
