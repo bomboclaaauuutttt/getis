@@ -453,6 +453,7 @@ function roadDistanceForAxis(axis, x, z) {
 }
 
 function isRoad(x, z) {
+  if (inSpawnRoadKeepout(x, z)) return false;
   return nearestRoad(x, z).distance < ROAD * 0.5;
 }
 
@@ -469,7 +470,7 @@ function laneCenterFor(axis, dir, x, z, id = null) {
 }
 
 function isParking(x, z) {
-  return x > -660 && x < 500 && z > -150 && z < 204;
+  return x > -900 && x < 520 && z > -210 && z < 250;
 }
 
 function playerSurfaceTuning() {
@@ -525,13 +526,14 @@ function randomOffRoadSpot(baseX, baseZ, halfW, halfD, rng) {
   for (let i = 0; i < 16; i++) {
     const x = baseX + (rng() - 0.5) * (CHUNK - halfW * 2 - 16);
     const z = baseZ + (rng() - 0.5) * (CHUNK - halfD * 2 - 16);
+    if (inSpawnRoadKeepout(x, z)) continue;
     if (!areaTouchesRoad(x, z, halfW * 2, halfD * 2, 16)) return { x, z };
   }
   return null;
 }
 
 function inSpawnRoadKeepout(x, z) {
-  return x > -690 && x < 520 && z > -170 && z < 224;
+  return x > -930 && x < 540 && z > -230 && z < 270;
 }
 
 function makePlane(w, d, material, y) {
@@ -1005,67 +1007,87 @@ function addSpawnStore(parent, x, z) {
 }
 
 function addSMarket(parent, x, z) {
-  const pad = makePlane(360, 250, mats.parking, 0.155);
-  pad.position.set(x, 0.155, z - 8);
+  const pad = makePlane(680, 340, mats.parking, 0.155);
+  pad.position.set(x, 0.155, z - 10);
   pad.renderOrder = 1;
   parent.add(pad);
 
-  addCurb(parent, x - 184, z - 8, 4, 250);
-  addCurb(parent, x + 184, z - 8, 4, 250);
-  addCurb(parent, x, z - 135, 360, 4);
-  addCurb(parent, x, z + 119, 360, 4);
+  const driveway = makePlane(250, 110, mats.parking, 0.165);
+  driveway.position.set(x + 340, 0.165, z - 18);
+  driveway.renderOrder = 1;
+  parent.add(driveway);
 
-  const building = makeBox(250, 58, 86, mats.marketBrick);
-  building.position.set(x + 18, 29, z + 46);
-  const frontTower = makeBox(86, 92, 92, mats.marketWall);
-  frontTower.position.set(x - 86, 46, z + 42);
-  const roof = makeBox(266, 8, 102, mats.roof);
-  roof.position.set(x + 18, 64, z + 46);
-  const towerRoof = makeBox(100, 8, 106, mats.roof);
-  towerRoof.position.set(x - 86, 96, z + 42);
-  parent.add(building, frontTower, roof, towerRoof);
+  addCurb(parent, x - 344, z - 10, 4, 340);
+  addCurb(parent, x + 344, z - 10, 4, 340);
+  addCurb(parent, x, z - 182, 680, 4);
+  addCurb(parent, x, z + 162, 680, 4);
 
-  const glassRow = makeBox(132, 25, 2, mats.glass);
-  glassRow.position.set(x - 72, 17, z - 3);
-  const entryGlass = makeBox(42, 34, 2.2, mats.glass);
-  entryGlass.position.set(x - 106, 18, z - 4);
-  const entryFrame = makeBox(54, 38, 3, mats.marketBlue);
-  entryFrame.position.set(x - 106, 20, z - 6);
-  const signBack = makeBox(138, 28, 3.4, mats.marketGlow);
-  signBack.position.set(x - 86, 73, z - 5.5);
-  const sign = new THREE.Mesh(new THREE.PlaneGeometry(122, 38), makeMarketSign());
-  sign.position.set(x - 86, 76, z - 8.2);
+  const building = makeBox(440, 76, 132, mats.marketBrick);
+  building.position.set(x + 42, 38, z + 82);
+  const frontHall = makeBox(172, 108, 140, mats.marketWall);
+  frontHall.position.set(x - 176, 54, z + 76);
+  const rightWing = makeBox(190, 62, 120, mats.stationWall);
+  rightWing.position.set(x + 338, 31, z + 74);
+  const roof = makeBox(466, 10, 154, mats.roof);
+  roof.position.set(x + 42, 83, z + 82);
+  const hallRoof = makeBox(194, 10, 160, mats.roof);
+  hallRoof.position.set(x - 176, 113, z + 76);
+  const wingRoof = makeBox(206, 9, 138, mats.roof);
+  wingRoof.position.set(x + 338, 67, z + 74);
+  parent.add(building, frontHall, rightWing, roof, hallRoof, wingRoof);
+
+  const blueFacade = makeBox(186, 46, 5, mats.marketBlue);
+  blueFacade.position.set(x - 176, 74, z + 3);
+  const signBack = makeBox(190, 56, 4, mats.marketGlow);
+  signBack.position.set(x - 176, 75, z - 0.5);
+  const sign = new THREE.Mesh(new THREE.PlaneGeometry(170, 52), makeMarketSign());
+  sign.position.set(x - 176, 77, z - 3.2);
   sign.renderOrder = 8;
-  parent.add(entryFrame, glassRow, entryGlass, signBack, sign);
+  parent.add(blueFacade, signBack, sign);
 
-  for (let i = 0; i < 7; i++) {
-    const window = makeBox(18, 22, 1.4, mats.glass);
-    window.position.set(x + 10 + i * 28, 22, z - 0.5);
+  const entryPad = makePlane(170, 70, mats.concrete, 0.22);
+  entryPad.position.set(x - 176, 0.22, z - 46);
+  entryPad.renderOrder = 3;
+  parent.add(entryPad);
+
+  const entryFrame = makeBox(104, 42, 5, mats.marketBlue);
+  entryFrame.position.set(x - 176, 22, z + 0.5);
+  const entryGlassLeft = makeBox(42, 34, 2.2, mats.glass);
+  entryGlassLeft.position.set(x - 205, 18, z - 3.2);
+  const entryGlassRight = makeBox(42, 34, 2.2, mats.glass);
+  entryGlassRight.position.set(x - 147, 18, z - 3.2);
+  parent.add(entryFrame, entryGlassLeft, entryGlassRight);
+
+  for (let i = 0; i < 12; i++) {
+    const window = makeBox(22, 24, 1.4, mats.glass);
+    window.position.set(x - 64 + i * 32, 24, z + 12);
     parent.add(window);
   }
 
-  for (let row = 0; row < 3; row++) {
-    const rowZ = z - 96 + row * 39;
-    addParkingStripe(parent, x - 126, rowZ, 4, 58);
-    addParkingStripe(parent, x - 82, rowZ, 4, 58);
-    addParkingStripe(parent, x - 38, rowZ, 4, 58);
-    addParkingStripe(parent, x + 6, rowZ, 4, 58);
-    addParkingStripe(parent, x + 50, rowZ, 4, 58);
-    addParkingStripe(parent, x + 94, rowZ, 4, 58);
-    addParkingStripe(parent, x - 16, rowZ + 29, 250, 3.5);
+  for (let row = 0; row < 4; row++) {
+    const rowZ = z - 142 + row * 42;
+    for (let col = -6; col <= 6; col++) {
+      addParkingStripe(parent, x + col * 42, rowZ, 4, 62);
+    }
+    addParkingStripe(parent, x, rowZ + 31, 560, 3.8);
   }
 
-  const hangout = makePlane(92, 42, mats.concrete, 0.2);
-  hangout.position.set(x - 118, 0.2, z - 31);
+  const hangout = makePlane(210, 82, mats.concrete, 0.23);
+  hangout.position.set(x - 176, 0.23, z - 58);
   hangout.renderOrder = 2;
   parent.add(hangout);
-  for (const bx of [x - 154, x - 122, x - 90]) {
+  addParkingStripe(parent, x - 176, z - 86, 170, 4);
+  addParkingStripe(parent, x - 176, z - 31, 170, 4);
+
+  for (const bx of [x - 260, x - 222, x - 184, x - 146, x - 108, x - 70]) {
     const bollard = new THREE.Mesh(new THREE.CylinderGeometry(1.35, 1.35, 12, 8), mats.marketBlue);
-    bollard.position.set(bx, 6, z - 52);
+    bollard.position.set(bx, 6, z - 93);
     parent.add(bollard);
   }
 
-  colliders.push({ type: "building", x: x + 18, z: z + 46, w: 266, d: 104, r: 146, chunkKey: parent.userData.chunkKey });
+  colliders.push({ type: "building", x: x + 42, z: z + 82, w: 466, d: 154, r: 250, chunkKey: parent.userData.chunkKey });
+  colliders.push({ type: "building", x: x - 176, z: z + 76, w: 194, d: 160, r: 126, chunkKey: parent.userData.chunkKey });
+  colliders.push({ type: "building", x: x + 338, z: z + 74, w: 206, d: 138, r: 124, chunkKey: parent.userData.chunkKey });
 }
 
 function biomeForChunk(cx, cz) {
