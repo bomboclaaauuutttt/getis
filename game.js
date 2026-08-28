@@ -4,6 +4,10 @@ const canvas = document.getElementById("game");
 const moneyEl = document.getElementById("money");
 const hintEl = document.getElementById("hint");
 const wantedStarsEl = document.getElementById("wantedStars");
+const notificationFeedEl = document.getElementById("notificationFeed");
+const nameScreenEl = document.getElementById("nameScreen");
+const nameFormEl = document.getElementById("nameForm");
+const playerNameInput = document.getElementById("playerNameInput");
 const deviceChoiceEl = document.getElementById("deviceChoice");
 const phoneButton = document.getElementById("phoneButton");
 const computerButton = document.getElementById("computerButton");
@@ -160,6 +164,8 @@ let backupTime = 0;
 let idleHeat = 0;
 let lastPlayerX = 0;
 let lastPlayerZ = 48;
+let playerName = localStorage.getItem("policeGetawayName") || "";
+let lastWantedNoticeLevel = 0;
 
 const cameraState = {
   position: new THREE.Vector3(0, 136, 190),
@@ -2142,6 +2148,16 @@ function updateWantedMeter() {
   for (let i = 0; i < wantedStarEls.length; i++) {
     wantedStarEls[i].classList.toggle("active", i < level);
   }
+
+  if (!running || gameOver) {
+    lastWantedNoticeLevel = 0;
+    return;
+  }
+
+  if (level >= 3 && level > lastWantedNoticeLevel) {
+    showNotification(level >= 5 ? `${playerName} is max wanted` : `${playerName} reached ${level} stars`, true);
+  }
+  lastWantedNoticeLevel = level;
 }
 
 function updateCollisions(dt, fullWorldCollisions = true) {
@@ -2303,6 +2319,37 @@ function setMenuStatus(text) {
   menuStatusEl.textContent = text || "";
 }
 
+function cleanPlayerName(value) {
+  const cleaned = String(value || "")
+    .replace(/[^\w \-]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 16);
+  return cleaned || "Driver";
+}
+
+function showNotification(text, hot = false) {
+  const item = document.createElement("div");
+  item.className = `notification${hot ? " hot" : ""}`;
+  const label = document.createElement("span");
+  label.textContent = text;
+  item.appendChild(label);
+  notificationFeedEl.appendChild(item);
+
+  while (notificationFeedEl.children.length > 5) notificationFeedEl.firstElementChild.remove();
+
+  window.setTimeout(() => item.classList.add("fade-out"), 4300);
+  window.setTimeout(() => item.remove(), 4700);
+}
+
+function submitPlayerName() {
+  playerName = cleanPlayerName(playerNameInput.value);
+  localStorage.setItem("policeGetawayName", playerName);
+  nameScreenEl.classList.add("hidden");
+  deviceChoiceEl.classList.remove("hidden");
+  showNotification(`${playerName} entered the city`);
+}
+
 function setMultiplayerStatus(text) {
   multiplayer.status = text || "";
   const label = gameCodeEl.querySelector("small");
@@ -2336,15 +2383,16 @@ function broadcastNetworkMessage(message, exceptPeer = "") {
   }
 }
 
-function removeRemotePlayer(peerId) {
+function removeRemotePlayer(peerId, announce = true) {
   const remote = remotePlayers.get(peerId);
   if (!remote) return;
   scene.remove(remote.group);
   remotePlayers.delete(peerId);
+  if (announce && running && !gameOver) showNotification(`${remote.playerName || "Driver"} left the city`);
 }
 
 function clearRemotePlayers() {
-  for (const peerId of remotePlayers.keys()) removeRemotePlayer(peerId);
+  for (const peerId of remotePlayers.keys()) removeRemotePlayer(peerId, false);
 }
 
 function worldHostControlsSimulation() {
@@ -2353,6 +2401,7 @@ function worldHostControlsSimulation() {
 
 function localNetworkState() {
   return {
+    name: playerName,
     x: player.x,
     z: player.z,
     y: player.y || 0,
@@ -2360,6 +2409,8 @@ function localNetworkState() {
     vz: player.vz,
     angle: player.angle,
     money: Math.floor(money),
+    wanted: wantedLevel(),
+    gameOver,
   };
 }
 
@@ -2405,9 +2456,19 @@ function applyRemoteState(peerId, state) {
     remote = makeVehicle("remote", state.x || 0, state.z || 48, state.angle || 0);
     remote.remoteTarget = { ...state };
     remote.lastSeen = performance.now();
+    remote.playerName = state.name || "Driver";
+    remote.lastWantedNoticeLevel = 0;
     scene.add(remote.group);
     remotePlayers.set(peerId, remote);
+    showNotification(`${remote.playerName} joined the chase`);
   }
+  remote.playerName = state.name || remote.playerName || "Driver";
+  if (!remote.gameOver && state.gameOver) showNotification(`${remote.playerName} got arrested`, true);
+  if ((state.wanted || 0) >= 3 && (state.wanted || 0) > (remote.lastWantedNoticeLevel || 0)) {
+    showNotification((state.wanted || 0) >= 5 ? `${remote.playerName} is max wanted` : `${remote.playerName} reached ${state.wanted} stars`, true);
+  }
+  remote.gameOver = !!state.gameOver;
+  remote.lastWantedNoticeLevel = state.wanted || remote.lastWantedNoticeLevel || 0;
   remote.remoteTarget = { ...state };
   remote.lastSeen = performance.now();
 }
@@ -2534,8 +2595,15 @@ function handleNetworkMessage(fromPeer, message) {
     return;
   }
 
+  if (message.type === "event") {
+    if (message.event === "arrested") showNotification(`${message.name || "Driver"} got arrested`, true);
+    if (multiplayer.mode === "host") broadcastNetworkMessage(message, fromPeer);
+    return;
+  }
+
   if (message.type === "peer-left") {
-    removeRemotePlayer(message.peerId);
+    if (message.name) showNotification(`${message.name} left the city`);
+    removeRemotePlayer(message.peerId, !message.name);
   }
 }
 
@@ -2580,7 +2648,7 @@ function attachNetworkConnection(conn, options = {}) {
 }
 
 function stopMultiplayer() {
-  broadcastNetworkMessage({ type: "peer-left", peerId: multiplayer.peerId });
+  broadcastNetworkMessage({ type: "peer-left", peerId: multiplayer.peerId, name: playerName });
   for (const conn of multiplayer.connections.values()) {
     try { conn.close(); } catch {}
   }
@@ -2829,6 +2897,12 @@ function resetGame() {
 
 function loseGame() {
   if (gameOver) return;
+  showNotification(`${playerName} got arrested`, true);
+  if (multiplayer.mode === "host") {
+    broadcastNetworkMessage({ type: "event", event: "arrested", name: playerName });
+  } else if (multiplayer.mode === "client") {
+    sendToConnection(multiplayer.hostConnection, { type: "event", event: "arrested", name: playerName });
+  }
   gameOver = true;
   running = false;
   document.body.classList.add("arrested");
@@ -2871,6 +2945,11 @@ window.addEventListener("keydown", (event) => {
   if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", " "].includes(event.key)) event.preventDefault();
 });
 window.addEventListener("keyup", (event) => keys.delete(event.key.toLowerCase()));
+playerNameInput.value = playerName;
+nameFormEl.addEventListener("submit", (event) => {
+  event.preventDefault();
+  submitPlayerName();
+});
 phoneButton.addEventListener("click", () => chooseDevice("phone"));
 computerButton.addEventListener("click", () => chooseDevice("computer"));
 joystickEl.addEventListener("pointerdown", (event) => {
@@ -2905,6 +2984,8 @@ resize();
 updateChunks();
 updateCamera(0.016);
 if (new URLSearchParams(window.location.search).has("play")) {
+  playerName = cleanPlayerName(playerName || "Driver");
+  nameScreenEl.classList.add("hidden");
   chooseDevice("computer");
   resetGame();
 }

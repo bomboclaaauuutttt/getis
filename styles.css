@@ -113,6 +113,55 @@ body {
   font-weight: 800;
 }
 
+.notification-feed {
+  position: fixed;
+  left: 18px;
+  bottom: 18px;
+  z-index: 7;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 8px;
+  width: min(360px, calc(100vw - 36px));
+  max-height: 168px;
+  pointer-events: none;
+}
+
+.notification {
+  position: relative;
+  box-sizing: border-box;
+  min-height: 40px;
+  padding: 9px 13px 9px 15px;
+  overflow: hidden;
+  color: rgba(255, 255, 255, 0.9);
+  background: rgba(9, 12, 12, 0.74);
+  border-left: 5px solid #d50019;
+  border-radius: 4px;
+  box-shadow:
+    0 8px 18px rgba(0, 0, 0, 0.42),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+  font-size: 13px;
+  font-weight: 900;
+  line-height: 1.2;
+  text-transform: uppercase;
+  text-shadow: 0 2px 0 rgba(0, 0, 0, 0.58);
+  transform: skewX(-7deg);
+  animation: notificationIn 260ms ease-out both;
+}
+
+.notification span {
+  display: block;
+  transform: skewX(7deg);
+}
+
+.notification.hot {
+  border-left-color: #ffdf54;
+}
+
+.notification.fade-out {
+  animation: notificationOut 360ms ease-in both;
+}
+
 #minimap {
   position: fixed;
   right: 18px;
@@ -391,6 +440,42 @@ body {
   border-color: #ffdf54;
 }
 
+.name-form-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  width: min(580px, calc(100vw - 42px));
+  margin: 18px auto 0;
+  animation: arrestDetailIn 520ms ease-out 720ms both;
+}
+
+.name-form-row input {
+  width: min(260px, calc(100vw - 64px));
+  height: 54px;
+  box-sizing: border-box;
+  padding: 0 16px;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-radius: 6px;
+  color: white;
+  background: rgba(6, 8, 8, 0.78);
+  font-size: 22px;
+  font-weight: 900;
+  letter-spacing: 0;
+  text-align: center;
+  text-transform: uppercase;
+  outline: none;
+}
+
+.name-form-row input:focus {
+  border-color: #ffdf54;
+}
+
+.name-form-row button {
+  min-width: 148px;
+  height: 54px;
+}
+
 .join-form button {
   min-width: 104px;
 }
@@ -549,7 +634,8 @@ body.arrested #game {
 }
 
 body.arrested #hud,
-body.arrested #minimap {
+body.arrested #minimap,
+body.arrested #notificationFeed {
   animation: hudDropOut 420ms ease-in both;
 }
 
@@ -628,4 +714,13 @@ body.arrested #minimap {
 @keyframes hudDropOut {
   0% { opacity: 1; transform: translateY(0); }
   100% { opacity: 0; transform: translateY(-12px); }
+}
+
+@keyframes notificationIn {
+  0% { opacity: 0; transform: translateX(-24px) skewX(-7deg); }
+  100% { opacity: 1; transform: translateX(0) skewX(-7deg); }
+}
+
+@keyframes notificationOut {
+  100% { opacity: 0; transform: translateX(-18px) skewX(-7deg); }
 }

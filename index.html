@@ -21,11 +21,28 @@
       <small>Waiting for players</small>
     </div>
 
+    <div id="notificationFeed" class="notification-feed" aria-live="polite"></div>
+
     <div id="minimap"></div>
 
     <div id="arrestFx"></div>
 
-    <div id="deviceChoice" class="device-screen">
+    <div id="nameScreen" class="device-screen">
+      <div class="menu-flash"></div>
+      <div class="arrest-scanlines"></div>
+      <form id="nameForm" class="device-card">
+        <div class="menu-kicker">Driver identity</div>
+        <h1>Police Getaway</h1>
+        <div class="menu-rule"></div>
+        <p>What is your game name?</p>
+        <div class="name-form-row">
+          <input id="playerNameInput" maxlength="16" autocomplete="nickname" placeholder="Your name" />
+          <button id="nameConfirmButton" type="submit">Continue</button>
+        </div>
+      </form>
+    </div>
+
+    <div id="deviceChoice" class="device-screen hidden">
       <div class="menu-flash"></div>
       <div class="arrest-scanlines"></div>
       <div class="device-card">
