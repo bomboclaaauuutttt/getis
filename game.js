@@ -106,6 +106,10 @@ const mats = {
   curb: new THREE.MeshLambertMaterial({ color: 0xd8d3be }),
   stationWall: new THREE.MeshLambertMaterial({ color: 0xe7ddbd }),
   stationTrim: new THREE.MeshLambertMaterial({ color: 0xd62828 }),
+  marketWall: new THREE.MeshLambertMaterial({ color: 0xd8d1bf }),
+  marketBrick: new THREE.MeshLambertMaterial({ color: 0x9a5c45 }),
+  marketBlue: new THREE.MeshBasicMaterial({ color: 0x1b8fe8 }),
+  marketGlow: new THREE.MeshBasicMaterial({ color: 0x68cfff, transparent: true, opacity: 0.42, depthWrite: false }),
   pumpBlue: new THREE.MeshLambertMaterial({ color: 0x2a66c9 }),
   pumpRed: new THREE.MeshLambertMaterial({ color: 0xdc2f2f }),
   pumpDark: new THREE.MeshLambertMaterial({ color: 0x1f2427 }),
@@ -465,7 +469,7 @@ function laneCenterFor(axis, dir, x, z, id = null) {
 }
 
 function isParking(x, z) {
-  return x > -280 && x < 500 && z > -108 && z < 204;
+  return x > -660 && x < 500 && z > -150 && z < 204;
 }
 
 function playerSurfaceTuning() {
@@ -527,7 +531,7 @@ function randomOffRoadSpot(baseX, baseZ, halfW, halfD, rng) {
 }
 
 function inSpawnRoadKeepout(x, z) {
-  return x > -300 && x < 520 && z > -128 && z < 224;
+  return x > -690 && x < 520 && z > -170 && z < 224;
 }
 
 function makePlane(w, d, material, y) {
@@ -660,6 +664,30 @@ function setVehicleNameTag(v, name, color) {
   }
   v.nameTagText = cleanName;
   v.nameTagColor = tagColor;
+}
+
+function makeMarketSign() {
+  const canvas = document.createElement("canvas");
+  canvas.width = 512;
+  canvas.height = 160;
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#0f75c8";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = "rgba(255, 255, 255, 0.18)";
+  ctx.fillRect(0, 0, canvas.width, 12);
+  ctx.font = "900 58px Arial, Helvetica, sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.lineWidth = 8;
+  ctx.strokeStyle = "rgba(0, 34, 70, 0.8)";
+  ctx.strokeText("S MARKET", 256, 69);
+  ctx.fillStyle = "#ffffff";
+  ctx.fillText("S MARKET", 256, 69);
+  ctx.font = "900 25px Arial, Helvetica, sans-serif";
+  ctx.fillText("7-22  11-19", 256, 122);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.needsUpdate = true;
+  return new THREE.MeshBasicMaterial({ map: texture, transparent: true, side: THREE.DoubleSide });
 }
 
 function makeVehicle(kind, x, z, angle, paintColor = null) {
@@ -976,6 +1004,70 @@ function addSpawnStore(parent, x, z) {
   addParkingStripe(parent, x, z - 18, 130, 3.5);
 }
 
+function addSMarket(parent, x, z) {
+  const pad = makePlane(360, 250, mats.parking, 0.155);
+  pad.position.set(x, 0.155, z - 8);
+  pad.renderOrder = 1;
+  parent.add(pad);
+
+  addCurb(parent, x - 184, z - 8, 4, 250);
+  addCurb(parent, x + 184, z - 8, 4, 250);
+  addCurb(parent, x, z - 135, 360, 4);
+  addCurb(parent, x, z + 119, 360, 4);
+
+  const building = makeBox(250, 58, 86, mats.marketBrick);
+  building.position.set(x + 18, 29, z + 46);
+  const frontTower = makeBox(86, 92, 92, mats.marketWall);
+  frontTower.position.set(x - 86, 46, z + 42);
+  const roof = makeBox(266, 8, 102, mats.roof);
+  roof.position.set(x + 18, 64, z + 46);
+  const towerRoof = makeBox(100, 8, 106, mats.roof);
+  towerRoof.position.set(x - 86, 96, z + 42);
+  parent.add(building, frontTower, roof, towerRoof);
+
+  const glassRow = makeBox(132, 25, 2, mats.glass);
+  glassRow.position.set(x - 72, 17, z - 3);
+  const entryGlass = makeBox(42, 34, 2.2, mats.glass);
+  entryGlass.position.set(x - 106, 18, z - 4);
+  const entryFrame = makeBox(54, 38, 3, mats.marketBlue);
+  entryFrame.position.set(x - 106, 20, z - 6);
+  const signBack = makeBox(138, 28, 3.4, mats.marketGlow);
+  signBack.position.set(x - 86, 73, z - 5.5);
+  const sign = new THREE.Mesh(new THREE.PlaneGeometry(122, 38), makeMarketSign());
+  sign.position.set(x - 86, 76, z - 8.2);
+  sign.renderOrder = 8;
+  parent.add(entryFrame, glassRow, entryGlass, signBack, sign);
+
+  for (let i = 0; i < 7; i++) {
+    const window = makeBox(18, 22, 1.4, mats.glass);
+    window.position.set(x + 10 + i * 28, 22, z - 0.5);
+    parent.add(window);
+  }
+
+  for (let row = 0; row < 3; row++) {
+    const rowZ = z - 96 + row * 39;
+    addParkingStripe(parent, x - 126, rowZ, 4, 58);
+    addParkingStripe(parent, x - 82, rowZ, 4, 58);
+    addParkingStripe(parent, x - 38, rowZ, 4, 58);
+    addParkingStripe(parent, x + 6, rowZ, 4, 58);
+    addParkingStripe(parent, x + 50, rowZ, 4, 58);
+    addParkingStripe(parent, x + 94, rowZ, 4, 58);
+    addParkingStripe(parent, x - 16, rowZ + 29, 250, 3.5);
+  }
+
+  const hangout = makePlane(92, 42, mats.concrete, 0.2);
+  hangout.position.set(x - 118, 0.2, z - 31);
+  hangout.renderOrder = 2;
+  parent.add(hangout);
+  for (const bx of [x - 154, x - 122, x - 90]) {
+    const bollard = new THREE.Mesh(new THREE.CylinderGeometry(1.35, 1.35, 12, 8), mats.marketBlue);
+    bollard.position.set(bx, 6, z - 52);
+    parent.add(bollard);
+  }
+
+  colliders.push({ type: "building", x: x + 18, z: z + 46, w: 266, d: 104, r: 146, chunkKey: parent.userData.chunkKey });
+}
+
 function biomeForChunk(cx, cz) {
   const biomeRng = rngFor(Math.floor(cx / 3), Math.floor(cz / 3), 901);
   const roll = biomeRng();
@@ -1104,7 +1196,7 @@ function makeSpawnArea(parent) {
   priceSign.position.set(198, 48, 122);
   parent.add(priceSignPole, priceSign);
 
-  addSpawnStore(parent, -250, 72);
+  addSMarket(parent, -470, 42);
 }
 
 function generateChunk(cx, cz) {
