@@ -178,6 +178,7 @@ const multiplayer = {
   hostConnection: null,
   status: "",
   sendTimer: 0,
+  worldSendTimer: 0,
 };
 
 function makeTaperedBoxGeometry(width, height, depth, topScaleX = 0.72, topScaleZ = 0.82) {
@@ -587,16 +588,17 @@ function addRoadsForChunk(cx, cz, baseX, baseZ, parent) {
   }
 }
 
-function makeVehicle(kind, x, z, angle) {
+function makeVehicle(kind, x, z, angle, paintColor = null) {
   const group = new THREE.Group();
   const trafficPalette = [0xe39a42, 0x58a6d6, 0xe0d35b, 0x58b66d, 0xb86bd6, 0xe36b78];
+  const trafficColor = paintColor ?? trafficPalette[Math.floor(Math.random() * trafficPalette.length)];
   const mat =
     kind === "player" ? mats.redCar :
     kind === "cop" ? mats.copWhite :
     kind === "grandma" ? mats.grandma :
     kind === "drunk" ? mats.drunk :
     kind === "remote" ? mats.remoteCar :
-    new THREE.MeshLambertMaterial({ color: trafficPalette[Math.floor(Math.random() * trafficPalette.length)] });
+    new THREE.MeshLambertMaterial({ color: trafficColor });
 
   const addPart = (geometry, material, px, py, pz, rx = 0, ry = 0, rz = 0) => {
     const mesh = new THREE.Mesh(geometry, material);
@@ -707,6 +709,7 @@ function makeVehicle(kind, x, z, angle) {
     escapeSide: Math.random() < 0.5 ? -1 : 1,
     reverseTimer: 0,
     escapeCooldown: 0,
+    paintColor: kind === "normal" ? trafficColor : null,
   };
   syncVehicle(car);
   return car;
@@ -1247,7 +1250,7 @@ function findBlockingVehicle(v, range = 118, laneWidth = 34) {
   const right = vehicleRight(v);
   let best = null;
   let bestAhead = Infinity;
-  const candidates = [player, ...traffic, ...cops];
+  const candidates = [player, ...remotePlayers.values(), ...traffic, ...cops];
 
   for (const other of candidates) {
     if (other === v || other.airborne) continue;
@@ -1853,6 +1856,23 @@ function updateVehicleRagdoll(v, dt) {
   return true;
 }
 
+function playerChaseTargets() {
+  return [player, ...remotePlayers.values()].filter((target) => !target.airborne && !target.wrecked);
+}
+
+function nearestChaseTarget(from) {
+  let best = player;
+  let bestDistance = dist(from, player);
+  for (const target of remotePlayers.values()) {
+    const distance = dist(from, target);
+    if (distance < bestDistance) {
+      best = target;
+      bestDistance = distance;
+    }
+  }
+  return { target: best, distance: bestDistance };
+}
+
 function updatePoliceLights(dt) {
   for (const cop of cops) {
     const lights = cop.group.userData.policeLights;
@@ -1896,24 +1916,27 @@ function updateCops(dt) {
 
   for (let i = cops.length - 1; i >= 0; i--) {
     const cop = cops[i];
-    if (dist(cop, player) > COP_DESPAWN_DISTANCE) {
+    const chase = nearestChaseTarget(cop);
+    const targetPlayer = chase.target;
+    const distanceToPlayer = chase.distance;
+    const farFromAllPlayers = playerChaseTargets().every((target) => dist(cop, target) > COP_DESPAWN_DISTANCE);
+    if (farFromAllPlayers) {
       scene.remove(cop.group);
       cops.splice(i, 1);
       continue;
     }
     if (updateVehicleRagdoll(cop, dt)) continue;
-    const distanceToPlayer = dist(cop, player);
     if (vehicleSpeed(cop) < 16 && distanceToPlayer > 62) cop.jamTime += dt;
     else cop.jamTime = Math.max(0, cop.jamTime - dt * 1.5);
     if (cop.jamTime > 0.58 && cop.escapeTimer <= 0) {
       const blocker = findBlockingVehicle(cop, 110, ROAD * 0.5);
       beginEscapeManeuver(cop, blocker, 2.4);
-      if (!blocker) cop.escapeSide = angleDelta(cop.angle, Math.atan2(-(player.x - cop.x), -(player.z - cop.z))) > 0 ? 1 : -1;
+      if (!blocker) cop.escapeSide = angleDelta(cop.angle, Math.atan2(-(targetPlayer.x - cop.x), -(targetPlayer.z - cop.z))) > 0 ? 1 : -1;
     }
 
     const lead = distanceToPlayer > 180 ? 0.65 : cop.personality === "blocker" ? 0.48 : cop.personality === "aggressive" ? 0.32 : 0.22;
-    const targetX = player.x + player.vx * lead;
-    const targetZ = player.z + player.vz * lead;
+    const targetX = targetPlayer.x + targetPlayer.vx * lead;
+    const targetZ = targetPlayer.z + targetPlayer.vz * lead;
     const desired = Math.atan2(-(targetX - cop.x), -(targetZ - cop.z));
     const close = distanceToPlayer < 58;
     const angleError = Math.abs(angleDelta(cop.angle, desired));
@@ -1933,7 +1956,7 @@ function updateCops(dt) {
         steering = -cop.escapeSide * 0.55;
         throttle = -0.48;
       } else {
-        const towardPlayer = { x: player.x + player.vx * 0.22, z: player.z + player.vz * 0.22 };
+        const towardPlayer = { x: targetPlayer.x + targetPlayer.vx * 0.22, z: targetPlayer.z + targetPlayer.vz * 0.22 };
         const bypass = escapeTargetFor(cop, 120, ROAD * 0.96);
         const blend = clamp(distanceToPlayer / 220, 0.25, 0.82);
         const target = {
@@ -2121,12 +2144,17 @@ function updateWantedMeter() {
   }
 }
 
-function updateCollisions(dt) {
-  const vehicles = [player, ...cops, ...traffic];
-  for (let i = 0; i < vehicles.length; i++) {
-    for (let j = i + 1; j < vehicles.length; j++) {
-      collideVehicles(vehicles[i], vehicles[j]);
+function updateCollisions(dt, fullWorldCollisions = true) {
+  if (fullWorldCollisions) {
+    const vehicles = [player, ...cops, ...traffic];
+    for (let i = 0; i < vehicles.length; i++) {
+      for (let j = i + 1; j < vehicles.length; j++) {
+        collideVehicles(vehicles[i], vehicles[j]);
+      }
     }
+  } else {
+    for (const cop of cops) collideVehicles(player, cop);
+    for (const car of traffic) collideVehicles(player, car);
   }
   collideRemotePlayers();
 
@@ -2319,6 +2347,10 @@ function clearRemotePlayers() {
   for (const peerId of remotePlayers.keys()) removeRemotePlayer(peerId);
 }
 
+function worldHostControlsSimulation() {
+  return multiplayer.mode !== "client";
+}
+
 function localNetworkState() {
   return {
     x: player.x,
@@ -2328,6 +2360,41 @@ function localNetworkState() {
     vz: player.vz,
     angle: player.angle,
     money: Math.floor(money),
+  };
+}
+
+function vehicleNetworkState(v) {
+  return {
+    kind: v.kind,
+    x: v.x,
+    z: v.z,
+    y: v.y || 0,
+    vx: v.vx || 0,
+    vz: v.vz || 0,
+    vy: v.vy || 0,
+    angle: v.angle || 0,
+    roll: v.roll || 0,
+    pitch: v.pitch || 0,
+    roadAxis: v.roadAxis,
+    roadId: v.roadId,
+    dir: v.dir,
+    timer: v.timer || 0,
+    personality: v.personality,
+    paintColor: v.paintColor || null,
+    airborne: !!v.airborne,
+    wrecked: !!v.wrecked,
+    lightTimer: v.lightTimer || 0,
+  };
+}
+
+function worldNetworkState() {
+  return {
+    seed,
+    chaseTime,
+    backupTime,
+    idleHeat,
+    cops: cops.map(vehicleNetworkState),
+    traffic: traffic.map(vehicleNetworkState),
   };
 }
 
@@ -2343,6 +2410,86 @@ function applyRemoteState(peerId, state) {
   }
   remote.remoteTarget = { ...state };
   remote.lastSeen = performance.now();
+}
+
+function applyVehicleNetworkState(v, state, snap = false) {
+  v.kind = state.kind || v.kind;
+  v.remoteTarget = { ...state };
+  v.vx = state.vx || 0;
+  v.vz = state.vz || 0;
+  v.vy = state.vy || 0;
+  v.roadAxis = state.roadAxis || v.roadAxis;
+  v.roadId = state.roadId ?? v.roadId;
+  v.dir = state.dir ?? v.dir;
+  v.timer = state.timer || 0;
+  v.personality = state.personality || v.personality;
+  v.airborne = !!state.airborne;
+  v.wrecked = !!state.wrecked;
+  v.roll = state.roll || 0;
+  v.pitch = state.pitch || 0;
+  v.lightTimer = state.lightTimer || v.lightTimer || 0;
+  v.lastSeen = performance.now();
+
+  if (snap) {
+    v.x = state.x || 0;
+    v.z = state.z || 0;
+    v.y = state.y || 0;
+    v.angle = state.angle || 0;
+    v.group.position.set(v.x, v.y || 0, v.z);
+    v.group.rotation.set(v.pitch || 0, v.angle, v.roll || 0);
+  }
+}
+
+function syncNetworkVehicleList(list, states) {
+  while (list.length > states.length) {
+    const removed = list.pop();
+    scene.remove(removed.group);
+  }
+
+  for (let i = 0; i < states.length; i++) {
+    const state = states[i];
+    if (!list[i] || list[i].kind !== state.kind || list[i].paintColor !== (state.paintColor || null)) {
+      if (list[i]) scene.remove(list[i].group);
+      list[i] = makeVehicle(state.kind || "normal", state.x || 0, state.z || 48, state.angle || 0, state.paintColor || null);
+      scene.add(list[i].group);
+      applyVehicleNetworkState(list[i], state, true);
+    } else {
+      applyVehicleNetworkState(list[i], state);
+    }
+  }
+}
+
+function applyWorldState(state) {
+  if (!state || multiplayer.mode !== "client") return;
+  if (Number.isFinite(state.seed) && state.seed !== seed) {
+    seed = state.seed;
+    for (const chunk of chunks.values()) disposeChunk(chunk);
+    chunks.clear();
+    colliders.length = 0;
+    fallingTrees.length = 0;
+    updateChunks();
+  }
+  chaseTime = state.chaseTime || chaseTime;
+  backupTime = state.backupTime || backupTime;
+  idleHeat = state.idleHeat || idleHeat;
+  syncNetworkVehicleList(cops, Array.isArray(state.cops) ? state.cops : []);
+  syncNetworkVehicleList(traffic, Array.isArray(state.traffic) ? state.traffic : []);
+}
+
+function updateNetworkWorldVehicles(dt) {
+  const follow = 1 - Math.exp(-dt * 16);
+  for (const v of [...cops, ...traffic]) {
+    const target = v.remoteTarget;
+    if (!target) continue;
+    v.x = lerp(v.x, target.x || 0, follow);
+    v.z = lerp(v.z, target.z || 0, follow);
+    v.y = lerp(v.y || 0, target.y || 0, follow);
+    v.angle += angleDelta(v.angle, target.angle || 0) * follow;
+    v.roll = lerp(v.roll || 0, target.roll || 0, follow);
+    v.pitch = lerp(v.pitch || 0, target.pitch || 0, follow);
+    v.group.position.set(v.x, v.y || 0, v.z);
+    v.group.rotation.set(v.pitch || 0, v.angle, v.roll || 0);
+  }
 }
 
 function updateRemotePlayers(dt) {
@@ -2382,6 +2529,11 @@ function handleNetworkMessage(fromPeer, message) {
     return;
   }
 
+  if (message.type === "world-state") {
+    applyWorldState(message.state);
+    return;
+  }
+
   if (message.type === "peer-left") {
     removeRemotePlayer(message.peerId);
   }
@@ -2403,6 +2555,7 @@ function attachNetworkConnection(conn, options = {}) {
 
     if (multiplayer.mode === "host") {
       sendToConnection(conn, { type: "peer-state", peerId: multiplayer.peerId, state: localNetworkState() });
+      sendToConnection(conn, { type: "world-state", state: worldNetworkState() });
       for (const [otherPeer, remote] of remotePlayers) {
         if (otherPeer !== peerId && remote.remoteTarget) {
           sendToConnection(conn, { type: "peer-state", peerId: otherPeer, state: remote.remoteTarget });
@@ -2442,6 +2595,7 @@ function stopMultiplayer() {
   multiplayer.hostConnection = null;
   multiplayer.status = "";
   multiplayer.sendTimer = 0;
+  multiplayer.worldSendTimer = 0;
   clearRemotePlayers();
   updateGameCodeHud();
 }
@@ -2551,6 +2705,11 @@ function sendNetworkState(dt) {
   const state = localNetworkState();
   if (multiplayer.mode === "host") {
     broadcastNetworkMessage({ type: "peer-state", peerId: multiplayer.peerId, state });
+    multiplayer.worldSendTimer += 0.055;
+    if (multiplayer.worldSendTimer >= 0.11) {
+      multiplayer.worldSendTimer = 0;
+      broadcastNetworkMessage({ type: "world-state", state: worldNetworkState() });
+    }
   } else {
     sendToConnection(multiplayer.hostConnection, { type: "state", state });
   }
@@ -2681,9 +2840,13 @@ function update(dt) {
   updateChunks();
   if (running && !gameOver) {
     updatePlayer(dt);
-    updateTraffic(dt);
-    updateCops(dt);
-    updateCollisions(dt);
+    if (worldHostControlsSimulation()) {
+      updateTraffic(dt);
+      updateCops(dt);
+    } else {
+      updateNetworkWorldVehicles(dt);
+    }
+    updateCollisions(dt, worldHostControlsSimulation());
     sendNetworkState(dt);
     if (chaseTime > 3.2 && cops.length > 0) hintEl.textContent += ` | ${cops.length} cops`;
   }
