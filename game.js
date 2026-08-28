@@ -447,23 +447,29 @@ function playerSurfaceTuning() {
           reverseAccel: 105,
           maxSpeed: 330,
           reverseMax: 50,
-          grip: 7.9,
+          grip: 6.25,
+          driftSlip: 36,
+          driftThreshold: 78,
+          throttleGripLoss: 0.22,
           coast: 118,
-          turnRate: 2.7,
+          turnRate: 2.95,
           steerSharpness: 6.8,
           steerBuild: 2.25,
         }
       : {
-          accel: 112,
+          accel: 76,
           brake: 360,
           reverseAccel: 75,
-          maxSpeed: 172,
+          maxSpeed: 275,
           reverseMax: 38,
-          grip: 3.35,
-          coast: 150,
-          turnRate: 2.25,
-          steerSharpness: 5.8,
-          steerBuild: 1.9,
+          grip: 1.85,
+          driftSlip: 58,
+          driftThreshold: 42,
+          throttleGripLoss: 0.46,
+          coast: 76,
+          turnRate: 2.55,
+          steerSharpness: 5.2,
+          steerBuild: 1.75,
         },
   };
 }
@@ -712,6 +718,9 @@ function driveVehicle(v, input, dt, tune) {
   const turnRate = tune.turnRate ?? 2.45;
   const steerSharpness = tune.steerSharpness ?? 5.6;
   const steerBuild = tune.steerBuild ?? 2.35;
+  const driftSlip = tune.driftSlip ?? 22;
+  const driftThreshold = tune.driftThreshold ?? 74;
+  const throttleGripLoss = tune.throttleGripLoss ?? 0.18;
 
   let fx = -Math.sin(v.angle);
   let fz = -Math.cos(v.angle);
@@ -734,7 +743,16 @@ function driveVehicle(v, input, dt, tune) {
   }
 
   forwardSpeed = clamp(forwardSpeed, -reverseMax, maxSpeed);
-  sideSpeed *= Math.exp(-(tune.grip ?? 4.6) * dt);
+  const absForward = Math.abs(forwardSpeed);
+  const steerForce = Math.abs(v.steer);
+  const slipRamp = clamp((absForward - driftThreshold) / 110, 0, 1);
+  const throttleSlip = input.throttle > 0 ? input.throttle * throttleGripLoss : 0;
+  const effectiveGrip = Math.max(0.85, (tune.grip ?? 4.6) * (1 - slipRamp * steerForce * 0.55 - throttleSlip));
+  const driftDirection = Math.sign(v.steer || 0);
+  const driftPush = driftDirection * driftSlip * steerForce * slipRamp * (0.35 + v.steerCharge * 0.65) * dt;
+
+  sideSpeed += driftPush * Math.sign(forwardSpeed || 1);
+  sideSpeed *= Math.exp(-effectiveGrip * dt);
   if (Math.abs(input.steer) < 0.04 && Math.abs(sideSpeed) < 0.8) sideSpeed = 0;
 
   const turnSpeed = clamp(Math.abs(forwardSpeed) / 62, 0, 1);
@@ -751,9 +769,9 @@ function driveVehicle(v, input, dt, tune) {
   v.z += v.vz * dt;
 
   const total = Math.hypot(v.vx, v.vz);
-  v.group.rotation.z = -v.steer * clamp(total / maxSpeed, 0, 1) * 0.08;
+  v.group.rotation.z = -v.steer * clamp(total / maxSpeed, 0, 1) * 0.08 + clamp(sideSpeed / 180, -0.12, 0.12);
   syncVehicle(v);
-  return { speed: forwardSpeed, side: sideSpeed, total };
+  return { speed: forwardSpeed, side: sideSpeed, total, slip: slipRamp * steerForce };
 }
 
 function makeTree(x, z, scale, parent) {
@@ -1700,12 +1718,13 @@ function updatePlayer(dt) {
   if (motion.total > 95) money += (motion.total - 90) * dt * (surface.onRoad ? 0.18 : 0.11);
 
   const driftAmount = Math.abs(motion.side);
-  if (motion.total > 58 && driftAmount > 20) {
-    const intensity = clamp((driftAmount - 20) / 58, 0, 1);
+  const driftTrigger = motion.slip > 0.08 || driftAmount > (surface.onRoad ? 16 : 10);
+  if (motion.total > 48 && driftTrigger) {
+    const intensity = clamp(Math.max((driftAmount - 10) / 54, motion.slip * 1.35), 0, 1);
     money += driftAmount * dt * (surface.onRoad ? 0.42 : 0.24);
-    if (Math.random() < 0.92) makeTireSpray(player, 0.45 + intensity * 0.75, surface.onRoad);
-    if (Math.random() < 0.38) makeSmoke(player.x + Math.sin(player.angle) * 16, player.z + Math.cos(player.angle) * 16, 2.2 + intensity * 1.7, surface.onRoad ? 0xd0d0d0 : 0xbba36f, 0.34 + intensity * 0.16);
-    if (surface.onRoad && Math.random() < 0.7) makeSkidMarks(player, intensity);
+    if (Math.random() < (surface.onRoad ? 0.82 : 0.98)) makeTireSpray(player, 0.55 + intensity * 0.9, surface.onRoad);
+    if (Math.random() < (surface.onRoad ? 0.32 : 0.54)) makeSmoke(player.x + Math.sin(player.angle) * 16, player.z + Math.cos(player.angle) * 16, 2.2 + intensity * 1.7, surface.onRoad ? 0xd0d0d0 : 0xbba36f, 0.34 + intensity * 0.18);
+    if (surface.onRoad && Math.random() < 0.82) makeSkidMarks(player, intensity);
   } else if (throttle > 0 && motion.total > 18 && Math.random() < (surface.onRoad ? 0.16 : 0.36)) {
     const intensity = clamp(motion.total / 135, 0.18, surface.onRoad ? 0.62 : 0.9);
     makeTireSpray(player, intensity, surface.onRoad);
