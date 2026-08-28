@@ -165,6 +165,7 @@ let idleHeat = 0;
 let lastPlayerX = 0;
 let lastPlayerZ = 48;
 let playerName = localStorage.getItem("policeGetawayName") || "";
+let playerColor = colorForName(playerName || "Driver");
 let lastWantedNoticeLevel = 0;
 
 const cameraState = {
@@ -325,6 +326,16 @@ function angleDelta(a, b) {
 
 function dist(a, b) {
   return Math.hypot(a.x - b.x, a.z - b.z);
+}
+
+function colorForName(name) {
+  const palette = [0x18d2ff, 0xffd64f, 0xff58b7, 0x72f06a, 0xb276ff, 0xff8b3d, 0x40ffe2, 0xf0ff5c];
+  let h = 2166136261;
+  for (let i = 0; i < String(name || "").length; i++) {
+    h ^= String(name).charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return palette[(h >>> 0) % palette.length];
 }
 
 function hash(x, z, salt = 0) {
@@ -594,16 +605,64 @@ function addRoadsForChunk(cx, cz, baseX, baseZ, parent) {
   }
 }
 
+function makeNameTagTexture(name, color) {
+  const canvas = document.createElement("canvas");
+  canvas.width = 384;
+  canvas.height = 96;
+  const ctx = canvas.getContext("2d");
+  const text = cleanPlayerName(name);
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = "rgba(7, 9, 9, 0.78)";
+  ctx.strokeStyle = `#${color.toString(16).padStart(6, "0")}`;
+  ctx.lineWidth = 5;
+  ctx.beginPath();
+  ctx.roundRect(18, 18, 348, 54, 8);
+  ctx.fill();
+  ctx.stroke();
+  ctx.font = "900 30px Arial, Helvetica, sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.lineWidth = 6;
+  ctx.strokeStyle = "rgba(0, 0, 0, 0.9)";
+  ctx.strokeText(text.toUpperCase(), 192, 46);
+  ctx.fillStyle = "#ffffff";
+  ctx.fillText(text.toUpperCase(), 192, 46);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.needsUpdate = true;
+  return texture;
+}
+
+function setVehicleNameTag(v, name, color) {
+  const cleanName = cleanPlayerName(name);
+  const tagColor = color || colorForName(cleanName);
+  if (!v.nameTag) {
+    const material = new THREE.SpriteMaterial({ map: makeNameTagTexture(cleanName, tagColor), transparent: true, depthTest: false });
+    const sprite = new THREE.Sprite(material);
+    sprite.position.set(0, 56, 0);
+    sprite.scale.set(92, 23, 1);
+    sprite.renderOrder = 30;
+    v.group.add(sprite);
+    v.nameTag = sprite;
+  } else if (v.nameTagText !== cleanName || v.nameTagColor !== tagColor) {
+    const oldMap = v.nameTag.material.map;
+    v.nameTag.material.map = makeNameTagTexture(cleanName, tagColor);
+    if (oldMap) oldMap.dispose();
+  }
+  v.nameTagText = cleanName;
+  v.nameTagColor = tagColor;
+}
+
 function makeVehicle(kind, x, z, angle, paintColor = null) {
   const group = new THREE.Group();
   const trafficPalette = [0xe39a42, 0x58a6d6, 0xe0d35b, 0x58b66d, 0xb86bd6, 0xe36b78];
   const trafficColor = paintColor ?? trafficPalette[Math.floor(Math.random() * trafficPalette.length)];
+  const remoteColor = paintColor ?? 0x18d2ff;
   const mat =
     kind === "player" ? mats.redCar :
     kind === "cop" ? mats.copWhite :
     kind === "grandma" ? mats.grandma :
     kind === "drunk" ? mats.drunk :
-    kind === "remote" ? mats.remoteCar :
+    kind === "remote" ? new THREE.MeshLambertMaterial({ color: remoteColor }) :
     new THREE.MeshLambertMaterial({ color: trafficColor });
 
   const addPart = (geometry, material, px, py, pz, rx = 0, ry = 0, rz = 0) => {
@@ -715,7 +774,7 @@ function makeVehicle(kind, x, z, angle, paintColor = null) {
     escapeSide: Math.random() < 0.5 ? -1 : 1,
     reverseTimer: 0,
     escapeCooldown: 0,
-    paintColor: kind === "normal" ? trafficColor : null,
+    paintColor: kind === "remote" ? remoteColor : kind === "normal" ? trafficColor : null,
   };
   syncVehicle(car);
   return car;
@@ -1728,7 +1787,7 @@ function updatePlayer(dt) {
     : (keys.has("a") || keys.has("arrowleft") ? 1 : 0) + (keys.has("d") || keys.has("arrowright") ? -1 : 0);
   const throttle = inputState.mobile
     ? inputState.throttle
-    : (keys.has("w") || keys.has("arrowup") ? 1 : 0);
+    : (keys.has("w") || keys.has("arrowup") ? 1 : 0) + (keys.has("s") || keys.has("arrowdown") ? -1 : 0);
   const surface = playerSurfaceTuning();
   const motion = driveVehicle(player, { steer, throttle }, dt, surface.tune);
   collideWorld(player);
@@ -2344,6 +2403,7 @@ function showNotification(text, hot = false) {
 
 function submitPlayerName() {
   playerName = cleanPlayerName(playerNameInput.value);
+  playerColor = colorForName(playerName);
   localStorage.setItem("policeGetawayName", playerName);
   nameScreenEl.classList.add("hidden");
   deviceChoiceEl.classList.remove("hidden");
@@ -2402,6 +2462,7 @@ function worldHostControlsSimulation() {
 function localNetworkState() {
   return {
     name: playerName,
+    color: playerColor,
     x: player.x,
     z: player.z,
     y: player.y || 0,
@@ -2451,18 +2512,27 @@ function worldNetworkState() {
 
 function applyRemoteState(peerId, state) {
   if (!peerId || peerId === multiplayer.peerId || !state) return;
+  const remoteName = state.name || "Driver";
+  const remoteColor = state.color || colorForName(`${remoteName}-${peerId}`);
   let remote = remotePlayers.get(peerId);
+  if (remote && remote.paintColor !== remoteColor) {
+    scene.remove(remote.group);
+    remotePlayers.delete(peerId);
+    remote = null;
+  }
   if (!remote) {
-    remote = makeVehicle("remote", state.x || 0, state.z || 48, state.angle || 0);
+    remote = makeVehicle("remote", state.x || 0, state.z || 48, state.angle || 0, remoteColor);
     remote.remoteTarget = { ...state };
     remote.lastSeen = performance.now();
-    remote.playerName = state.name || "Driver";
+    remote.playerName = remoteName;
     remote.lastWantedNoticeLevel = 0;
+    setVehicleNameTag(remote, remote.playerName, remoteColor);
     scene.add(remote.group);
     remotePlayers.set(peerId, remote);
     showNotification(`${remote.playerName} joined the chase`);
   }
-  remote.playerName = state.name || remote.playerName || "Driver";
+  remote.playerName = remoteName || remote.playerName || "Driver";
+  setVehicleNameTag(remote, remote.playerName, remoteColor);
   if (!remote.gameOver && state.gameOver) showNotification(`${remote.playerName} got arrested`, true);
   if ((state.wanted || 0) >= 3 && (state.wanted || 0) > (remote.lastWantedNoticeLevel || 0)) {
     showNotification((state.wanted || 0) >= 5 ? `${remote.playerName} is max wanted` : `${remote.playerName} reached ${state.wanted} stars`, true);
@@ -2790,7 +2860,7 @@ function chooseDevice(device) {
   menuEl.classList.remove("hidden");
   mobileControlsEl.classList.toggle("hidden", !inputState.mobile);
   resetJoystick();
-  hintEl.textContent = inputState.mobile ? "Joystick: up to drive, left/right to turn" : "W / arrows drive forward, A/D turn";
+  hintEl.textContent = inputState.mobile ? "Joystick: up/down drive, left/right turn" : "W/S drive, A/D turn";
 }
 
 function resetJoystick() {
@@ -2815,7 +2885,7 @@ function updateJoystickFromPointer(event) {
   const ny = clamp(stickY / maxRadius, -1, 1);
 
   inputState.steer = Math.abs(nx) > 0.08 ? -nx : 0;
-  inputState.throttle = clamp(-ny, 0, 1);
+  inputState.throttle = clamp(-ny, -1, 1);
   joystickStickEl.style.transform = `translate(calc(-50% + ${stickX}px), calc(-50% + ${stickY}px))`;
 }
 
