@@ -20,6 +20,7 @@ const arrestFx = document.getElementById("arrestFx");
 const singleplayerButton = document.getElementById("singleplayerButton");
 const createGameButton = document.getElementById("createGameButton");
 const joinGameButton = document.getElementById("joinGameButton");
+const joinPublicButton = document.getElementById("joinPublicButton");
 const joinForm = document.getElementById("joinForm");
 const joinCodeInput = document.getElementById("joinCodeInput");
 const menuStatusEl = document.getElementById("menuStatus");
@@ -176,8 +177,12 @@ const cameraState = {
 };
 
 const PEER_PREFIX = "police-getaway-";
+const PUBLIC_SERVER_CODE = "PUBLIC";
+const PUBLIC_SERVER_PEER_ID = `${PEER_PREFIX}public`;
+const PUBLIC_SERVER_SEED = 735201;
 const multiplayer = {
   mode: "singleplayer",
+  publicServer: false,
   peer: null,
   code: "",
   peerId: "",
@@ -2726,6 +2731,7 @@ function stopMultiplayer() {
     try { multiplayer.peer.destroy(); } catch {}
   }
   multiplayer.mode = "singleplayer";
+  multiplayer.publicServer = false;
   multiplayer.peer = null;
   multiplayer.code = "";
   multiplayer.peerId = "";
@@ -2743,35 +2749,44 @@ function startSingleplayer() {
   resetGame();
 }
 
-function startHostPeer(attempt = 0) {
-  const code = randomGameCode();
-  const peerId = PEER_PREFIX + code;
+function startHostPeer(attempt = 0, options = {}) {
+  const publicServer = !!options.publicServer;
+  const code = publicServer ? PUBLIC_SERVER_CODE : randomGameCode();
+  const peerId = publicServer ? PUBLIC_SERVER_PEER_ID : PEER_PREFIX + code;
+  multiplayer.publicServer = publicServer;
   multiplayer.code = code;
   multiplayer.peerId = peerId;
-  multiplayer.status = "Creating game";
+  multiplayer.status = publicServer ? "Opening public server" : "Creating game";
   updateGameCodeHud();
-  setMenuStatus("Creating multiplayer game...");
+  setMenuStatus(publicServer ? "Joining public server..." : "Creating private game...");
 
   const peer = new window.Peer(peerId);
   multiplayer.peer = peer;
 
   peer.on("open", () => {
     multiplayer.mode = "host";
-    multiplayer.status = "Waiting for players";
-    seed = Number(code);
+    multiplayer.publicServer = publicServer;
+    multiplayer.status = publicServer ? "Public host" : "Waiting for players";
+    seed = publicServer ? PUBLIC_SERVER_SEED : Number(code);
     resetGame();
     updateGameCodeHud();
+    if (publicServer) showNotification(`${playerName} opened the public server`, true);
   });
 
   peer.on("connection", (conn) => attachNetworkConnection(conn));
 
   peer.on("error", (error) => {
-    if (error && error.type === "unavailable-id" && attempt < 4) {
+    if (publicServer && error && error.type === "unavailable-id") {
+      try { peer.destroy(); } catch {}
+      joinGame(PUBLIC_SERVER_CODE, { publicServer: true });
+      return;
+    }
+    if (!publicServer && error && error.type === "unavailable-id" && attempt < 4) {
       try { peer.destroy(); } catch {}
       startHostPeer(attempt + 1);
       return;
     }
-    setMenuStatus("Multiplayer failed. Try again or use Singleplayer.");
+    setMenuStatus(publicServer ? "Public server failed. Try again." : "Multiplayer failed. Try again or use Singleplayer.");
     setMultiplayerStatus("Network error");
     updateGameCodeHud();
   });
@@ -2784,7 +2799,7 @@ function createGame() {
   }
   stopMultiplayer();
   multiplayer.mode = "host";
-  startHostPeer();
+  startHostPeer(0, { publicServer: false });
 }
 
 function showJoinGame() {
@@ -2794,9 +2809,10 @@ function showJoinGame() {
   joinCodeInput.focus();
 }
 
-function joinGame(code) {
-  const cleanCode = String(code || "").replace(/\D/g, "").slice(0, 6);
-  if (cleanCode.length !== 6) {
+function joinGame(code, options = {}) {
+  const publicServer = !!options.publicServer;
+  const cleanCode = publicServer ? PUBLIC_SERVER_CODE : String(code || "").replace(/\D/g, "").slice(0, 6);
+  if (!publicServer && cleanCode.length !== 6) {
     setMenuStatus("Game code must be 6 numbers.");
     return;
   }
@@ -2807,31 +2823,47 @@ function joinGame(code) {
 
   stopMultiplayer();
   multiplayer.mode = "client";
+  multiplayer.publicServer = publicServer;
   multiplayer.code = cleanCode;
-  seed = Number(cleanCode);
+  seed = publicServer ? PUBLIC_SERVER_SEED : Number(cleanCode);
   multiplayer.status = "Joining";
   updateGameCodeHud();
-  setMenuStatus("Joining game...");
+  setMenuStatus(publicServer ? "Joining public server..." : "Joining private game...");
 
   const peer = new window.Peer();
   multiplayer.peer = peer;
   peer.on("open", (id) => {
     multiplayer.peerId = id;
-    const conn = peer.connect(PEER_PREFIX + cleanCode, { reliable: false });
+    const conn = peer.connect(publicServer ? PUBLIC_SERVER_PEER_ID : PEER_PREFIX + cleanCode, { reliable: false });
     attachNetworkConnection(conn, { hostConnection: true, startOnOpen: true });
     window.setTimeout(() => {
       if (multiplayer.mode === "client" && !conn.open) {
-        setMenuStatus("Could not join. Check the code and that host is still in game.");
-        setMultiplayerStatus("No host found");
-        updateGameCodeHud();
+        if (publicServer) {
+          try { peer.destroy(); } catch {}
+          multiplayer.mode = "host";
+          startHostPeer(0, { publicServer: true });
+        } else {
+          setMenuStatus("Could not join. Check the code and that host is still in game.");
+          setMultiplayerStatus("No host found");
+          updateGameCodeHud();
+        }
       }
     }, 6000);
   });
   peer.on("error", () => {
-    setMenuStatus("Could not connect to multiplayer. Try again.");
+    setMenuStatus(publicServer ? "Could not join public server. Try again." : "Could not connect to multiplayer. Try again.");
     setMultiplayerStatus("Network error");
     updateGameCodeHud();
   });
+}
+
+function joinPublicServer() {
+  if (!peerLibraryReady()) {
+    setMenuStatus("Multiplayer needs internet access. PeerJS did not load.");
+    return;
+  }
+  joinForm.classList.add("hidden");
+  joinGame(PUBLIC_SERVER_CODE, { publicServer: true });
 }
 
 function sendNetworkState(dt) {
@@ -3041,6 +3073,7 @@ joystickEl.addEventListener("pointercancel", (event) => {
 singleplayerButton.addEventListener("click", startSingleplayer);
 createGameButton.addEventListener("click", createGame);
 joinGameButton.addEventListener("click", showJoinGame);
+joinPublicButton.addEventListener("click", joinPublicServer);
 joinCodeInput.addEventListener("input", () => {
   joinCodeInput.value = joinCodeInput.value.replace(/\D/g, "").slice(0, 6);
 });
