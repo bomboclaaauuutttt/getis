@@ -77,6 +77,7 @@ const COP_SPAWN_MIN = 820;
 const COP_SPAWN_MAX = 1250;
 const TRAFFIC_DESPAWN_DISTANCE = 1900;
 const COP_DESPAWN_DISTANCE = 2100;
+const COP_ARREST_RADIUS = 76;
 
 const mats = {
   grass: new THREE.MeshLambertMaterial({ color: 0x5f9a57 }),
@@ -105,6 +106,7 @@ const mats = {
   light: new THREE.MeshBasicMaterial({ color: 0xffee80 }),
   skid: new THREE.MeshBasicMaterial({ color: 0x111111, transparent: true, opacity: 0.34, depthWrite: false }),
   speedLine: new THREE.MeshBasicMaterial({ color: 0xf8f2b6, transparent: true, opacity: 0.48, depthWrite: false }),
+  arrestZone: new THREE.MeshBasicMaterial({ color: 0xfff3a0, transparent: true, opacity: 0.28, depthWrite: false }),
   trunk: new THREE.MeshLambertMaterial({ color: 0x74502f }),
   leaves: new THREE.MeshLambertMaterial({ color: 0x23843c }),
   leaves2: new THREE.MeshLambertMaterial({ color: 0x34a853 }),
@@ -262,6 +264,7 @@ const carGeometry = {
   bumper: new THREE.BoxGeometry(22, 2.5, 2.2),
   policeBeacon: new THREE.BoxGeometry(7.4, 2.4, 4.2),
   policeGlow: new THREE.CircleGeometry(32, 24),
+  arrestZone: new THREE.RingGeometry(COP_ARREST_RADIUS - 2.8, COP_ARREST_RADIUS, 72),
   wheel: new THREE.CylinderGeometry(4.8, 4.8, 5.4, 20),
   hubcap: new THREE.CylinderGeometry(2.45, 2.45, 0.7, 18),
   fender: new THREE.BoxGeometry(5.4, 3.4, 10.8),
@@ -627,6 +630,7 @@ function makeVehicle(kind, x, z, angle) {
     const redBeacon = addPart(carGeometry.policeBeacon, redBeaconMat, 4, 31.2, -1.4);
     const blueGlow = addPart(carGeometry.policeGlow, blueGlowMat, -11, 0.55, -1.4, -Math.PI / 2);
     const redGlow = addPart(carGeometry.policeGlow, redGlowMat, 11, 0.58, -1.4, -Math.PI / 2);
+    const arrestZone = addPart(carGeometry.arrestZone, mats.arrestZone.clone(), 0, 0.72, 0, -Math.PI / 2);
     const blueLight = new THREE.PointLight(0x1b58ff, 0, 150, 2.1);
     blueLight.position.set(-6, 28, -1.4);
     const redLight = new THREE.PointLight(0xff1028, 0, 150, 2.1);
@@ -639,6 +643,7 @@ function makeVehicle(kind, x, z, angle) {
       redGlow,
       blueLight,
       redLight,
+      arrestZone,
       phase: Math.random() * Math.PI * 2,
     };
     addPart(carGeometry.policeTopStripe, mats.copBlue, 0, 18.05, 1.5);
@@ -1754,6 +1759,7 @@ function updatePoliceLights(dt) {
     lights.redGlow.scale.setScalar(0.78 + redPulse * 0.55);
     lights.blueLight.intensity = bluePulse * 2.6;
     lights.redLight.intensity = redPulse * 2.6;
+    lights.arrestZone.material.opacity = 0.16 + Math.max(bluePulse, redPulse) * 0.18;
   }
 }
 
@@ -1968,10 +1974,12 @@ function updateCollisions(dt) {
     if (cop.airborne || cop.wrecked) continue;
     const d = dist(player, cop);
     const contact = d < player.radius + cop.radius + 10;
+    const inArrestZone = d < COP_ARREST_RADIUS;
     const boxedIn = d < 55 && vehicleSpeed(player) < 78;
     const copStillPushing = d < 48 && vehicleSpeed(cop) > 8;
-    if (contact || boxedIn || copStillPushing) {
-      arrestPressure = Math.max(arrestPressure, boxedIn ? 1.35 : contact ? 1.05 : 0.72);
+    if (contact || inArrestZone || boxedIn || copStillPushing) {
+      const zonePressure = 0.68 + clamp((COP_ARREST_RADIUS - d) / COP_ARREST_RADIUS, 0, 1) * 0.48;
+      arrestPressure = Math.max(arrestPressure, boxedIn ? 1.35 : contact ? 1.12 : copStillPushing ? 0.9 : zonePressure);
     }
   }
 
