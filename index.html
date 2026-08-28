@@ -11,7 +11,7 @@
 
     <div id="hud">
       <div id="money">$0</div>
-      <div id="hint">WASD / arrows drive</div>
+      <div id="hint">Choose controls</div>
     </div>
 
     <div id="gameCode" class="game-code hidden">
@@ -24,7 +24,28 @@
 
     <div id="arrestFx"></div>
 
-    <div id="menu" class="menu-screen">
+    <div id="deviceChoice" class="device-screen">
+      <div class="menu-flash"></div>
+      <div class="arrest-scanlines"></div>
+      <div class="device-card">
+        <div class="menu-kicker">Choose controls</div>
+        <h1>Police Getaway</h1>
+        <div class="menu-rule"></div>
+        <p>Are you playing on phone or computer?</p>
+        <div class="menu-actions">
+          <button id="phoneButton">Phone</button>
+          <button id="computerButton" class="secondary-button">Computer</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="mobileControls" class="mobile-controls hidden">
+      <div id="joystick" class="joystick">
+        <div id="joystickStick" class="joystick-stick"></div>
+      </div>
+    </div>
+
+    <div id="menu" class="menu-screen hidden">
       <div class="menu-flash"></div>
       <div class="arrest-scanlines"></div>
       <div class="menu-card">

@@ -3,6 +3,12 @@ import * as THREE from "./assets/three.module.js";
 const canvas = document.getElementById("game");
 const moneyEl = document.getElementById("money");
 const hintEl = document.getElementById("hint");
+const deviceChoiceEl = document.getElementById("deviceChoice");
+const phoneButton = document.getElementById("phoneButton");
+const computerButton = document.getElementById("computerButton");
+const mobileControlsEl = document.getElementById("mobileControls");
+const joystickEl = document.getElementById("joystick");
+const joystickStickEl = document.getElementById("joystickStick");
 const menuEl = document.getElementById("menu");
 const gameOverEl = document.getElementById("gameOver");
 const arrestFx = document.getElementById("arrestFx");
@@ -47,6 +53,13 @@ scene.add(sun.target);
 scene.add(new THREE.HemisphereLight(0xbfe7ff, 0x5f7a52, 1.7));
 
 const keys = new Set();
+const inputState = {
+  device: "",
+  mobile: false,
+  steer: 0,
+  throttle: 0,
+  joystickPointerId: null,
+};
 const clock = new THREE.Clock();
 let seed = Math.floor(Math.random() * 999999);
 const CHUNK = 260;
@@ -1584,8 +1597,12 @@ function updateDriveEffects(dt) {
 }
 
 function updatePlayer(dt) {
-  const steer = (keys.has("a") || keys.has("arrowleft") ? 1 : 0) + (keys.has("d") || keys.has("arrowright") ? -1 : 0);
-  const throttle = (keys.has("w") || keys.has("arrowup") ? 1 : 0) + (keys.has("s") || keys.has("arrowdown") ? -0.64 : 0);
+  const steer = inputState.mobile
+    ? inputState.steer
+    : (keys.has("a") || keys.has("arrowleft") ? 1 : 0) + (keys.has("d") || keys.has("arrowright") ? -1 : 0);
+  const throttle = inputState.mobile
+    ? inputState.throttle
+    : (keys.has("w") || keys.has("arrowup") ? 1 : 0);
   const surface = playerSurfaceTuning();
   const motion = driveVehicle(player, { steer, throttle }, dt, surface.tune);
   collideWorld(player);
@@ -2370,6 +2387,42 @@ function sendNetworkState(dt) {
   }
 }
 
+function chooseDevice(device) {
+  inputState.device = device;
+  inputState.mobile = device === "phone";
+  deviceChoiceEl.classList.add("hidden");
+  menuEl.classList.remove("hidden");
+  mobileControlsEl.classList.toggle("hidden", !inputState.mobile);
+  resetJoystick();
+  hintEl.textContent = inputState.mobile ? "Joystick: up to drive, left/right to turn" : "W / arrows drive forward, A/D turn";
+}
+
+function resetJoystick() {
+  inputState.steer = 0;
+  inputState.throttle = 0;
+  inputState.joystickPointerId = null;
+  joystickStickEl.style.transform = "translate(-50%, -50%)";
+}
+
+function updateJoystickFromPointer(event) {
+  const rect = joystickEl.getBoundingClientRect();
+  const centerX = rect.left + rect.width * 0.5;
+  const centerY = rect.top + rect.height * 0.5;
+  const maxRadius = rect.width * 0.34;
+  const dx = event.clientX - centerX;
+  const dy = event.clientY - centerY;
+  const distance = Math.hypot(dx, dy);
+  const limited = distance > maxRadius ? maxRadius / distance : 1;
+  const stickX = dx * limited;
+  const stickY = dy * limited;
+  const nx = clamp(stickX / maxRadius, -1, 1);
+  const ny = clamp(stickY / maxRadius, -1, 1);
+
+  inputState.steer = Math.abs(nx) > 0.08 ? -nx : 0;
+  inputState.throttle = clamp(-ny, 0, 1);
+  joystickStickEl.style.transform = `translate(calc(-50% + ${stickX}px), calc(-50% + ${stickY}px))`;
+}
+
 function resetGame() {
   player.x = 0;
   player.z = 48;
@@ -2484,6 +2537,24 @@ window.addEventListener("keydown", (event) => {
   if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", " "].includes(event.key)) event.preventDefault();
 });
 window.addEventListener("keyup", (event) => keys.delete(event.key.toLowerCase()));
+phoneButton.addEventListener("click", () => chooseDevice("phone"));
+computerButton.addEventListener("click", () => chooseDevice("computer"));
+joystickEl.addEventListener("pointerdown", (event) => {
+  if (!inputState.mobile) return;
+  inputState.joystickPointerId = event.pointerId;
+  joystickEl.setPointerCapture(event.pointerId);
+  updateJoystickFromPointer(event);
+});
+joystickEl.addEventListener("pointermove", (event) => {
+  if (!inputState.mobile || inputState.joystickPointerId !== event.pointerId) return;
+  updateJoystickFromPointer(event);
+});
+joystickEl.addEventListener("pointerup", (event) => {
+  if (inputState.joystickPointerId === event.pointerId) resetJoystick();
+});
+joystickEl.addEventListener("pointercancel", (event) => {
+  if (inputState.joystickPointerId === event.pointerId) resetJoystick();
+});
 singleplayerButton.addEventListener("click", startSingleplayer);
 createGameButton.addEventListener("click", createGame);
 joinGameButton.addEventListener("click", showJoinGame);
@@ -2499,5 +2570,8 @@ restartButton.addEventListener("click", resetGame);
 resize();
 updateChunks();
 updateCamera(0.016);
-if (new URLSearchParams(window.location.search).has("play")) resetGame();
+if (new URLSearchParams(window.location.search).has("play")) {
+  chooseDevice("computer");
+  resetGame();
+}
 loop();
