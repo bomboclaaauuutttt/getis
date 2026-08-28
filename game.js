@@ -81,6 +81,10 @@ const COP_ARREST_RADIUS = 76;
 
 const mats = {
   grass: new THREE.MeshLambertMaterial({ color: 0x5f9a57 }),
+  field: new THREE.MeshLambertMaterial({ color: 0x9aa65a }),
+  cropLine: new THREE.MeshBasicMaterial({ color: 0x6e7e3e, transparent: true, opacity: 0.48, depthWrite: false }),
+  playground: new THREE.MeshLambertMaterial({ color: 0x526f4c }),
+  chalk: new THREE.MeshBasicMaterial({ color: 0xe8ead0, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }),
   road: new THREE.MeshLambertMaterial({ color: 0x3f3e38 }),
   line: new THREE.MeshBasicMaterial({ color: 0xf8e86b, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }),
   parking: new THREE.MeshLambertMaterial({ color: 0x4b4942 }),
@@ -837,6 +841,62 @@ function addPump(parent, x, z, colorMat) {
   colliders.push({ type: "building", x, z, w: 27, d: 40, r: 25, chunkKey: parent.userData.chunkKey });
 }
 
+function biomeForChunk(cx, cz) {
+  const biomeRng = rngFor(Math.floor(cx / 3), Math.floor(cz / 3), 901);
+  const roll = biomeRng();
+  if (roll < 0.12) return "denseForest";
+  if (roll < 0.32) return "sparseForest";
+  if (roll < 0.55) return "field";
+  if (roll < 0.62) return "playground";
+  return "open";
+}
+
+function addFieldPatch(parent, x, z, w, d, rng) {
+  const field = makePlane(w, d, mats.field, 0.03);
+  field.position.set(x, 0.03, z);
+  field.rotation.z = (rng() - 0.5) * 0.18;
+  field.renderOrder = 0;
+  parent.add(field);
+
+  const stripeCount = Math.max(4, Math.floor(d / 18));
+  for (let i = 0; i < stripeCount; i++) {
+    const stripe = makePlane(w * 0.92, 1.4, mats.cropLine, 0.07);
+    stripe.position.set(x, 0.07, z - d * 0.42 + i * (d * 0.84 / Math.max(1, stripeCount - 1)));
+    stripe.rotation.z = field.rotation.z;
+    stripe.renderOrder = 2;
+    parent.add(stripe);
+  }
+}
+
+function addPlayground(parent, x, z, rng) {
+  const w = 142 + rng() * 30;
+  const d = 92 + rng() * 24;
+  const pitch = makePlane(w, d, mats.playground, 0.04);
+  pitch.position.set(x, 0.04, z);
+  pitch.rotation.z = (rng() - 0.5) * 0.22;
+  pitch.renderOrder = 0;
+  parent.add(pitch);
+
+  const addLine = (lx, lz, lw, ld) => {
+    const line = makePlane(lw, ld, mats.chalk, 0.09);
+    line.position.set(x + lx, 0.09, z + lz);
+    line.rotation.z = pitch.rotation.z;
+    line.renderOrder = 3;
+    parent.add(line);
+  };
+  addLine(0, -d * 0.5, w, 2.2);
+  addLine(0, d * 0.5, w, 2.2);
+  addLine(-w * 0.5, 0, 2.2, d);
+  addLine(w * 0.5, 0, 2.2, d);
+  addLine(0, 0, 2.2, d);
+  const center = new THREE.Mesh(new THREE.RingGeometry(14, 16, 32), mats.chalk);
+  center.rotation.x = -Math.PI / 2;
+  center.rotation.z = pitch.rotation.z;
+  center.position.set(x, 0.1, z);
+  center.renderOrder = 3;
+  parent.add(center);
+}
+
 function makeSpawnArea(parent) {
   const lot = makePlane(260, 210, mats.parking, 0.16);
   lot.position.set(0, 0.16, 48);
@@ -920,11 +980,29 @@ function generateChunk(cx, cz) {
 
   if (Math.abs(cx) <= 1 && Math.abs(cz) <= 1) return;
 
-  const forestRng = rngFor(Math.floor(cx / 3), Math.floor(cz / 3), 501);
-  const forestZone = forestRng() > 0.62;
+  const biome = biomeForChunk(cx, cz);
+  const forestZone = biome === "denseForest";
+  const openZone = biome === "open" || biome === "field" || biome === "playground";
+  const reserved = [];
+  if (biome === "field") {
+    const w = 150 + rng() * 56;
+    const d = 110 + rng() * 52;
+    const spot = randomOffRoadSpot(baseX, baseZ, w * 0.5, d * 0.5, rng);
+    if (spot && !areaTouchesRoad(spot.x, spot.z, w, d, 20)) {
+      addFieldPatch(group, spot.x, spot.z, w, d, rng);
+      reserved.push({ x: spot.x, z: spot.z, w, d });
+    }
+  } else if (biome === "playground") {
+    const spot = randomOffRoadSpot(baseX, baseZ, 86, 60, rng);
+    if (spot && !areaTouchesRoad(spot.x, spot.z, 172, 120, 22)) {
+      addPlayground(group, spot.x, spot.z, rng);
+      reserved.push({ x: spot.x, z: spot.z, w: 190, d: 138 });
+    }
+  }
+
   const special = rng() < 0.04;
   const shop = !special && rng() < 0.08;
-  const buildingCount = forestZone ? (rng() < 0.06 ? 1 : 0) : special || shop ? 1 : 1 + (rng() < 0.35 ? 1 : 0);
+  const buildingCount = forestZone ? (rng() < 0.04 ? 1 : 0) : special || shop ? 1 : openZone ? (rng() < 0.42 ? 1 : 0) : 1 + (rng() < 0.18 ? 1 : 0);
   const placed = [];
   for (let i = 0; i < buildingCount; i++) {
     const type = special && i === 0 ? "special" : shop && i === 0 ? "shop" : "house";
@@ -936,12 +1014,18 @@ function generateChunk(cx, cz) {
     const x = spot.x;
     const z = spot.z;
     if (areaTouchesRoad(x, z, w, d, 12)) continue;
+    if (reserved.some((p) => Math.abs(p.x - x) < (p.w + w) * 0.55 && Math.abs(p.z - z) < (p.d + d) * 0.55)) continue;
     if (placed.some((p) => Math.abs(p.x - x) < (p.w + w) * 0.65 && Math.abs(p.z - z) < (p.d + d) * 0.65)) continue;
     makeBuilding(x, z, w, d, h, type, rng, group);
     placed.push({ x, z, w, d });
   }
 
-  const treeCount = forestZone ? 14 + Math.floor(rng() * 15) : 3 + Math.floor(rng() * 5);
+  const treeCount =
+    biome === "denseForest" ? 11 + Math.floor(rng() * 12) :
+    biome === "sparseForest" ? 4 + Math.floor(rng() * 6) :
+    biome === "field" ? Math.floor(rng() * 3) :
+    biome === "playground" ? Math.floor(rng() * 2) :
+    rng() < 0.35 ? 1 + Math.floor(rng() * 3) : 0;
   for (let i = 0; i < treeCount; i++) {
     const scale = 0.95 + rng() * 1.05;
     const radius = 14 * scale;
@@ -950,6 +1034,7 @@ function generateChunk(cx, cz) {
     const x = spot.x;
     const z = spot.z;
     if (areaTouchesRoad(x, z, radius * 2, radius * 2, 10)) continue;
+    if (reserved.some((p) => Math.abs(p.x - x) < p.w * 0.58 && Math.abs(p.z - z) < p.d * 0.58)) continue;
     if (placed.some((p) => Math.abs(p.x - x) < p.w * 0.7 && Math.abs(p.z - z) < p.d * 0.7)) continue;
     makeTree(x, z, scale, group);
   }
