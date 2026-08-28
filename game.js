@@ -465,7 +465,7 @@ function laneCenterFor(axis, dir, x, z, id = null) {
 }
 
 function isParking(x, z) {
-  return x > -132 && x < 362 && z > -66 && z < 162;
+  return x > -280 && x < 500 && z > -108 && z < 204;
 }
 
 function playerSurfaceTuning() {
@@ -526,6 +526,10 @@ function randomOffRoadSpot(baseX, baseZ, halfW, halfD, rng) {
   return null;
 }
 
+function inSpawnRoadKeepout(x, z) {
+  return x > -300 && x < 520 && z > -128 && z < 224;
+}
+
 function makePlane(w, d, material, y) {
   const mesh = new THREE.Mesh(new THREE.PlaneGeometry(w, d), material);
   mesh.rotation.x = -Math.PI / 2;
@@ -559,9 +563,10 @@ function makeRoadSegment(x1, z1, x2, z2, width, material, y, parent, renderOrder
 
 function drawRoadPath(points, parent, axis) {
   for (let i = 0; i < points.length - 1; i++) {
-    makeRoadSegment(points[i].x, points[i].z, points[i + 1].x, points[i + 1].z, ROAD, mats.road, 0.1, parent, 1);
     const midX = (points[i].x + points[i + 1].x) * 0.5;
     const midZ = (points[i].z + points[i + 1].z) * 0.5;
+    if (inSpawnRoadKeepout(midX, midZ)) continue;
+    makeRoadSegment(points[i].x, points[i].z, points[i + 1].x, points[i + 1].z, ROAD, mats.road, 0.1, parent, 1);
     const otherAxis = axis === "x" ? "z" : "x";
     const nearIntersection = roadDistanceForAxis(otherAxis, midX, midZ) < ROAD * 0.78;
     if (i % 2 === 0 && !nearIntersection && !isParking(midX, midZ)) {
@@ -941,6 +946,36 @@ function addPump(parent, x, z, colorMat) {
   colliders.push({ type: "building", x, z, w: 27, d: 40, r: 25, chunkKey: parent.userData.chunkKey });
 }
 
+function addSpawnStore(parent, x, z) {
+  const pad = makePlane(190, 150, mats.concrete, 0.17);
+  pad.position.set(x, 0.17, z);
+  pad.renderOrder = 1;
+  parent.add(pad);
+
+  addCurb(parent, x - 97, z, 4, 150);
+  addCurb(parent, x + 97, z, 4, 150);
+  addCurb(parent, x, z - 77, 190, 4);
+  addCurb(parent, x, z + 77, 190, 4);
+
+  const store = makeBox(118, 42, 72, buildingMats[3]);
+  store.position.set(x, 21, z + 20);
+  const roof = makeBox(136, 8, 88, mats.roof);
+  roof.position.set(x, 46, z + 20);
+  const sign = makeBox(88, 13, 3, mats.stationTrim);
+  sign.position.set(x, 35, z - 26.8);
+  const glass = makeBox(56, 20, 1.4, mats.glass);
+  glass.position.set(x - 20, 18, z - 36.8);
+  const door = makeBox(20, 24, 1.6, mats.pumpDark);
+  door.position.set(x + 32, 13, z - 36.9);
+  parent.add(store, roof, sign, glass, door);
+  colliders.push({ type: "building", x, z: z + 20, w: 136, d: 88, r: 82, chunkKey: parent.userData.chunkKey });
+
+  for (let i = -2; i <= 2; i++) {
+    addParkingStripe(parent, x + i * 26, z - 44, 3, 50);
+  }
+  addParkingStripe(parent, x, z - 18, 130, 3.5);
+}
+
 function biomeForChunk(cx, cz) {
   const biomeRng = rngFor(Math.floor(cx / 3), Math.floor(cz / 3), 901);
   const roll = biomeRng();
@@ -998,60 +1033,78 @@ function addPlayground(parent, x, z, rng) {
 }
 
 function makeSpawnArea(parent) {
-  const lot = makePlane(260, 210, mats.parking, 0.16);
+  const lot = makePlane(340, 250, mats.parking, 0.16);
   lot.position.set(0, 0.16, 48);
   lot.renderOrder = 1;
   parent.add(lot);
 
-  addCurb(parent, -132, 48, 4, 210);
-  addCurb(parent, 132, 48, 4, 210);
-  addCurb(parent, 0, -59, 260, 4);
-  addCurb(parent, 0, 155, 260, 4);
+  addCurb(parent, -172, 48, 4, 250);
+  addCurb(parent, 172, 48, 4, 250);
+  addCurb(parent, 0, -79, 340, 4);
+  addCurb(parent, 0, 175, 340, 4);
 
-  for (let i = -3; i <= 3; i++) {
-    addParkingStripe(parent, i * 34, 50, 3.3, 118);
+  for (let i = -4; i <= 4; i++) {
+    addParkingStripe(parent, i * 34, 48, 3.3, 148);
   }
-  addParkingStripe(parent, 0, -18, 172, 4);
-  addParkingStripe(parent, 0, 118, 172, 4);
+  addParkingStripe(parent, 0, -38, 232, 4);
+  addParkingStripe(parent, 0, 134, 232, 4);
+  addParkingStripe(parent, -118, 48, 3.3, 116);
+  addParkingStripe(parent, 118, 48, 3.3, 116);
 
-  const crosswalkZ = -42;
+  const crosswalkZ = -58;
   for (let i = -4; i <= 4; i++) addParkingStripe(parent, i * 14, crosswalkZ, 9, 2.8);
 
-  const stationPad = makePlane(245, 190, mats.concrete, 0.18);
-  stationPad.position.set(252, 0.18, 50);
+  const stationPad = makePlane(300, 220, mats.concrete, 0.18);
+  stationPad.position.set(338, 0.18, 50);
   stationPad.renderOrder = 1;
   parent.add(stationPad);
 
-  addCurb(parent, 127, 50, 4, 190);
-  addCurb(parent, 377, 50, 4, 190);
-  addCurb(parent, 252, -47, 245, 4);
-  addCurb(parent, 252, 147, 245, 4);
+  addCurb(parent, 186, 50, 4, 220);
+  addCurb(parent, 490, 50, 4, 220);
+  addCurb(parent, 338, -62, 300, 4);
+  addCurb(parent, 338, 162, 300, 4);
 
-  const shop = makeBox(88, 36, 62, mats.stationWall);
-  shop.position.set(314, 18, 100);
-  const shopRoof = makeBox(102, 7, 76, mats.stationTrim);
-  shopRoof.position.set(314, 39.5, 100);
-  const shopGlass = makeBox(54, 17, 1.2, mats.glass);
-  shopGlass.position.set(298, 16, 68.5);
-  parent.add(shop, shopRoof, shopGlass);
-  colliders.push({ type: "building", x: 314, z: 100, w: 102, d: 76, r: 64, chunkKey: parent.userData.chunkKey });
+  const shop = makeBox(112, 42, 72, mats.stationWall);
+  shop.position.set(414, 21, 103);
+  const shopRoof = makeBox(132, 8, 90, mats.stationTrim);
+  shopRoof.position.set(414, 46, 103);
+  const shopGlass = makeBox(64, 20, 1.4, mats.glass);
+  shopGlass.position.set(392, 19, 57);
+  const shopDoor = makeBox(18, 24, 1.5, mats.pumpDark);
+  shopDoor.position.set(432, 13, 56.8);
+  const sign = makeBox(82, 12, 3, mats.pumpBlue);
+  sign.position.set(414, 36, 56.5);
+  parent.add(shop, shopRoof, shopGlass, shopDoor, sign);
+  colliders.push({ type: "building", x: 414, z: 103, w: 132, d: 90, r: 80, chunkKey: parent.userData.chunkKey });
 
-  const canopyRoof = makeBox(122, 6, 82, mats.stationTrim);
-  canopyRoof.position.set(220, 38, 34);
+  const canopyRoof = makeBox(160, 7, 96, mats.stationTrim);
+  canopyRoof.position.set(292, 41, 20);
   parent.add(canopyRoof);
-  for (const sx of [166, 274]) {
-    for (const sz of [-2, 70]) {
-      const pole = new THREE.Mesh(new THREE.CylinderGeometry(2.1, 2.1, 36, 8), mats.curb);
+  for (const sx of [222, 362]) {
+    for (const sz of [-20, 60]) {
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(2.3, 2.3, 39, 8), mats.curb);
       pole.position.set(sx, 18, sz);
       parent.add(pole);
     }
   }
 
-  addPump(parent, 194, 34, mats.pumpBlue);
-  addPump(parent, 246, 34, mats.pumpRed);
+  addPump(parent, 260, 20, mats.pumpBlue);
+  addPump(parent, 324, 20, mats.pumpRed);
+  addPump(parent, 260, 72, mats.pumpRed);
+  addPump(parent, 324, 72, mats.pumpBlue);
 
-  addParkingStripe(parent, 194, -20, 66, 4);
-  addParkingStripe(parent, 246, 88, 66, 4);
+  addParkingStripe(parent, 292, -38, 146, 4);
+  addParkingStripe(parent, 292, 128, 146, 4);
+  addParkingStripe(parent, 402, -10, 3, 54);
+  addParkingStripe(parent, 430, -10, 3, 54);
+
+  const priceSignPole = new THREE.Mesh(new THREE.CylinderGeometry(2.2, 2.2, 42, 8), mats.pumpDark);
+  priceSignPole.position.set(198, 21, 122);
+  const priceSign = makeBox(34, 26, 4, mats.stationTrim);
+  priceSign.position.set(198, 48, 122);
+  parent.add(priceSignPole, priceSign);
+
+  addSpawnStore(parent, -250, 72);
 }
 
 function generateChunk(cx, cz) {
