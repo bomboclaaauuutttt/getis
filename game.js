@@ -2915,9 +2915,17 @@ function updateJoystickFromPointer(event) {
   const stickY = dy * limited;
   const nx = clamp(stickX / maxRadius, -1, 1);
   const ny = clamp(stickY / maxRadius, -1, 1);
+  const steerDeadzone = 0.16;
+  const throttleDeadzone = 0.1;
+  const steerAmount = Math.abs(nx) <= steerDeadzone
+    ? 0
+    : Math.pow((Math.abs(nx) - steerDeadzone) / (1 - steerDeadzone), 1.55) * Math.sign(nx);
+  const throttleAmount = Math.abs(ny) <= throttleDeadzone
+    ? 0
+    : ((Math.abs(ny) - throttleDeadzone) / (1 - throttleDeadzone)) * Math.sign(ny);
 
-  inputState.steer = Math.abs(nx) > 0.08 ? -nx : 0;
-  inputState.throttle = clamp(-ny, -1, 1);
+  inputState.steer = -steerAmount * 0.78;
+  inputState.throttle = clamp(-throttleAmount, -1, 1);
   joystickStickEl.style.transform = `translate(calc(-50% + ${stickX}px), calc(-50% + ${stickY}px))`;
 }
 

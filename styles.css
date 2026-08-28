@@ -261,10 +261,10 @@ body {
 
 .joystick {
   position: absolute;
-  left: max(24px, env(safe-area-inset-left));
-  bottom: max(24px, env(safe-area-inset-bottom));
-  width: 142px;
-  height: 142px;
+  left: max(28px, env(safe-area-inset-left));
+  bottom: max(28px, env(safe-area-inset-bottom));
+  width: 188px;
+  height: 188px;
   border-radius: 50%;
   background:
     radial-gradient(circle at 50% 50%, rgba(255, 255, 255, 0.11), rgba(255, 255, 255, 0.04) 48%, rgba(0, 0, 0, 0.2) 49%),
@@ -281,8 +281,8 @@ body {
   position: absolute;
   left: 50%;
   top: 50%;
-  width: 62px;
-  height: 62px;
+  width: 78px;
+  height: 78px;
   border-radius: 50%;
   background: #e20718;
   border: 3px solid rgba(255, 255, 255, 0.76);
