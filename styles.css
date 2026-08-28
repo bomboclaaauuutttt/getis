@@ -404,6 +404,20 @@ body {
   background: #333a3a;
 }
 
+.menu-card .public-button {
+  min-width: 224px;
+  color: #11110b;
+  background: #ffdf54;
+  box-shadow:
+    0 7px 0 #9d6c00,
+    0 18px 30px rgba(0, 0, 0, 0.46),
+    0 0 24px rgba(255, 223, 84, 0.28);
+}
+
+.menu-card .public-button:hover {
+  background: #fff06d;
+}
+
 .menu-card button:active {
   transform: translateY(5px);
   box-shadow:
