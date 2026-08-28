@@ -3,6 +3,7 @@ import * as THREE from "./assets/three.module.js";
 const canvas = document.getElementById("game");
 const moneyEl = document.getElementById("money");
 const hintEl = document.getElementById("hint");
+const wantedStarsEl = document.getElementById("wantedStars");
 const deviceChoiceEl = document.getElementById("deviceChoice");
 const phoneButton = document.getElementById("phoneButton");
 const computerButton = document.getElementById("computerButton");
@@ -27,6 +28,14 @@ const miniCtx = minimap.getContext("2d");
 minimap.width = 154;
 minimap.height = 154;
 minimapEl.appendChild(minimap);
+
+const wantedStarEls = [];
+for (let i = 0; i < 5; i++) {
+  const star = document.createElement("span");
+  star.textContent = "\u2605";
+  wantedStarsEl.appendChild(star);
+  wantedStarEls.push(star);
+}
 
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.35));
@@ -1580,7 +1589,7 @@ function knockTree(tree, hitX, hitZ, power) {
 }
 
 function launchVehicle(v, dirX, dirZ, power) {
-  if (v.kind === "player" || v.kind === "cop") return;
+  if (v.kind === "player" || v.kind === "cop" || v.kind === "remote") return;
   const now = performance.now();
   if (v.airborne || now < (v.nextLaunchTime || 0)) return;
   v.nextLaunchTime = now + 1100;
@@ -2065,6 +2074,53 @@ function collideVehicles(a, b) {
   return true;
 }
 
+function collideRemotePlayers() {
+  for (const remote of remotePlayers.values()) {
+    if (remote.airborne || remote.wrecked) continue;
+    const beforePlayerSpeed = vehicleSpeed(player);
+    const beforeRemote = {
+      x: remote.x,
+      z: remote.z,
+      y: remote.y,
+      vx: remote.vx,
+      vz: remote.vz,
+      vy: remote.vy,
+      roll: remote.roll,
+      pitch: remote.pitch,
+      spinVel: remote.spinVel,
+      rollVel: remote.rollVel,
+      pitchVel: remote.pitchVel,
+      airborne: remote.airborne,
+      wrecked: remote.wrecked,
+      escapeTimer: remote.escapeTimer,
+      reverseTimer: remote.reverseTimer,
+      jamTime: remote.jamTime,
+    };
+    const hit = collideVehicles(player, remote);
+    if (!hit) continue;
+
+    Object.assign(remote, beforeRemote);
+    syncVehicle(remote);
+    if (beforePlayerSpeed > 80) {
+      cameraState.shake = Math.max(cameraState.shake, 0.36);
+    }
+  }
+}
+
+function wantedLevel() {
+  if (!running || gameOver || chaseTime < 3) return 0;
+  const heatLevel = 1 + Math.floor(idleHeat / 7);
+  const arrestLevel = Math.floor(arrestTime / 1.2);
+  return clamp(Math.max(cops.length, heatLevel) + arrestLevel, 1, 5);
+}
+
+function updateWantedMeter() {
+  const level = wantedLevel();
+  for (let i = 0; i < wantedStarEls.length; i++) {
+    wantedStarEls[i].classList.toggle("active", i < level);
+  }
+}
+
 function updateCollisions(dt) {
   const vehicles = [player, ...cops, ...traffic];
   for (let i = 0; i < vehicles.length; i++) {
@@ -2072,6 +2128,7 @@ function updateCollisions(dt) {
       collideVehicles(vehicles[i], vehicles[j]);
     }
   }
+  collideRemotePlayers();
 
   let arrestPressure = 0;
   for (const cop of cops) {
@@ -2607,6 +2664,7 @@ function resetGame() {
   gameOverEl.classList.add("hidden");
   arrestFx.style.opacity = "0";
   hintEl.textContent = "Police arrives in 3 seconds";
+  updateWantedMeter();
   updateGameCodeHud();
 }
 
@@ -2629,6 +2687,7 @@ function update(dt) {
     sendNetworkState(dt);
     if (chaseTime > 3.2 && cops.length > 0) hintEl.textContent += ` | ${cops.length} cops`;
   }
+  updateWantedMeter();
   updatePoliceLights(dt);
   updateRemotePlayers(dt);
   updateDriveEffects(dt);

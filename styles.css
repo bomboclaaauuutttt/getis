@@ -30,6 +30,33 @@ body {
   font-weight: 900;
 }
 
+.wanted-stars {
+  display: flex;
+  gap: 3px;
+  height: 22px;
+  margin-top: 2px;
+  font-size: 22px;
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: 0;
+}
+
+.wanted-stars span {
+  color: rgba(255, 255, 255, 0.22);
+  -webkit-text-stroke: 1px rgba(0, 0, 0, 0.82);
+  text-shadow:
+    0 2px 0 rgba(0, 0, 0, 0.75),
+    0 0 8px rgba(0, 0, 0, 0.3);
+}
+
+.wanted-stars span.active {
+  color: #f7f7f0;
+  text-shadow:
+    0 2px 0 rgba(0, 0, 0, 0.85),
+    0 0 10px rgba(255, 255, 255, 0.28),
+    2px 0 0 rgba(210, 0, 24, 0.5);
+}
+
 #hint {
   margin-top: 4px;
   font-size: 13px;
