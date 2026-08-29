@@ -1,4 +1,5 @@
 import * as THREE from "./assets/three.module.js";
+import { GLTFLoader } from "./assets/GLTFLoader.js";
 
 const canvas = document.getElementById("game");
 const moneyEl = document.getElementById("money");
@@ -80,6 +81,7 @@ const inputState = {
   joystickPointerId: null,
 };
 const clock = new THREE.Clock();
+const gltfLoader = new GLTFLoader();
 let seed = Math.floor(Math.random() * 999999);
 const CHUNK = 260;
 const ROAD = 92;
@@ -123,6 +125,11 @@ const mats = {
   productRed: new THREE.MeshLambertMaterial({ color: 0xd4483f }),
   productYellow: new THREE.MeshLambertMaterial({ color: 0xe6d45c }),
   cashier: new THREE.MeshLambertMaterial({ color: 0x2a9be8 }),
+  counter: new THREE.MeshLambertMaterial({ color: 0x232928 }),
+  counterTop: new THREE.MeshLambertMaterial({ color: 0xd8d3be }),
+  vendorApron: new THREE.MeshLambertMaterial({ color: 0x159a55 }),
+  megaforceBlue: new THREE.MeshBasicMaterial({ color: 0x17a6ff }),
+  megaforceGlow: new THREE.MeshBasicMaterial({ color: 0x25ff80, transparent: true, opacity: 0.38, depthWrite: false }),
   personBody: new THREE.MeshLambertMaterial({ color: 0x2f6fd0 }),
   personShirtLight: new THREE.MeshLambertMaterial({ color: 0x4b8dff }),
   personPants: new THREE.MeshLambertMaterial({ color: 0x123d87 }),
@@ -196,6 +203,8 @@ let playerColor = colorForName(playerName || "Driver");
 let lastWantedNoticeLevel = 0;
 let gameMode = "driving";
 let transitionLock = false;
+let speedBoostUntil = 0;
+let megaforceTemplate = null;
 
 const SMARKET_ENTRANCE = { x: -646, z: 20, radius: 42 };
 const SMARKET_EXIT = { x: 6000, z: 318, radius: 48 };
@@ -226,6 +235,12 @@ const storeState = {
   deathPitch: 0,
   deathSpin: 0,
   colliders: [],
+  vendor: null,
+  megaforceDisplay: null,
+  drinkCan: null,
+  drinkTimer: 0,
+  drinkDuration: 0,
+  boostReady: false,
 };
 
 const cameraState = {
@@ -528,41 +543,55 @@ function isParking(x, z) {
   return x > -900 && x < 520 && z > -210 && z < 250;
 }
 
+function megaforceBoostActive() {
+  return performance.now() < speedBoostUntil;
+}
+
+function megaforceBoostRemaining() {
+  return Math.max(0, (speedBoostUntil - performance.now()) / 1000);
+}
+
 function playerSurfaceTuning() {
   const onRoad = isRoad(player.x, player.z) || isParking(player.x, player.z);
+  const boost = megaforceBoostActive() ? 1.5 : 1;
+  const tune = onRoad
+    ? {
+        accel: 188,
+        brake: 460,
+        reverseAccel: 105,
+        maxSpeed: 330,
+        reverseMax: 50,
+        grip: 6.25,
+        driftSlip: 36,
+        driftThreshold: 78,
+        throttleGripLoss: 0.22,
+        coast: 118,
+        turnRate: 2.95,
+        steerSharpness: 6.8,
+        steerBuild: 2.25,
+      }
+    : {
+        accel: 76,
+        brake: 360,
+        reverseAccel: 75,
+        maxSpeed: 275,
+        reverseMax: 38,
+        grip: 1.85,
+        driftSlip: 58,
+        driftThreshold: 42,
+        throttleGripLoss: 0.46,
+        coast: 76,
+        turnRate: 2.55,
+        steerSharpness: 5.2,
+        steerBuild: 1.75,
+      };
+  tune.maxSpeed *= boost;
+  tune.accel *= boost;
+  tune.reverseAccel *= boost;
   return {
     onRoad,
-    tune: onRoad
-      ? {
-          accel: 188,
-          brake: 460,
-          reverseAccel: 105,
-          maxSpeed: 330,
-          reverseMax: 50,
-          grip: 6.25,
-          driftSlip: 36,
-          driftThreshold: 78,
-          throttleGripLoss: 0.22,
-          coast: 118,
-          turnRate: 2.95,
-          steerSharpness: 6.8,
-          steerBuild: 2.25,
-        }
-      : {
-          accel: 76,
-          brake: 360,
-          reverseAccel: 75,
-          maxSpeed: 275,
-          reverseMax: 38,
-          grip: 1.85,
-          driftSlip: 58,
-          driftThreshold: 42,
-          throttleGripLoss: 0.46,
-          coast: 76,
-          turnRate: 2.55,
-          steerSharpness: 5.2,
-          steerBuild: 1.75,
-        },
+    boost,
+    tune,
   };
 }
 
@@ -1376,6 +1405,12 @@ function makePerson() {
   leftLeg.position.set(-5.2, 18, 0);
   const rightLeg = leg(1);
   rightLeg.position.set(5.2, 18, 0);
+  const drinkCan = new THREE.Mesh(new THREE.CylinderGeometry(2.2, 2.2, 7, 12), mats.megaforceBlue);
+  drinkCan.position.set(0, -22, 4.3);
+  drinkCan.rotation.z = Math.PI * 0.5;
+  drinkCan.visible = false;
+  drinkCan.castShadow = true;
+  rightArm.add(drinkCan);
 
   detailBox(group, -13.2, 43.5, 0, 4.5, 7, 7, mats.personBody);
   detailBox(group, 13.2, 43.5, 0, 4.5, 7, 7, mats.personBody);
@@ -1395,6 +1430,7 @@ function makePerson() {
   group.userData.hairMesh = hairCap;
   group.userData.leftEye = leftEye;
   group.userData.rightEye = rightEye;
+  group.userData.drinkCan = drinkCan;
   return group;
 }
 
@@ -1412,12 +1448,117 @@ function makeFirstPersonFist() {
   fist.position.set(0, 0, -12);
   const knuckles = makeBox(10, 2, 3, mats.personSkinShadow);
   knuckles.position.set(0, 3.8, -16);
+  const can = new THREE.Mesh(new THREE.CylinderGeometry(2.4, 2.4, 8, 12), mats.megaforceBlue);
+  can.position.set(6, 1, -13);
+  can.rotation.x = Math.PI * 0.5;
+  can.visible = false;
 
-  group.add(sleeve, cuff, wrist, fist, knuckles);
+  group.add(sleeve, cuff, wrist, fist, knuckles, can);
+  group.userData.can = can;
   group.position.set(17, -13, -36);
   group.rotation.set(-0.18, -0.28, 0.08);
   camera.add(group);
   return group;
+}
+
+function makeStoreTextMaterial(title, subtitle, bg = "#157fe0") {
+  const canvas = document.createElement("canvas");
+  canvas.width = 512;
+  canvas.height = 192;
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = "rgba(255,255,255,0.18)";
+  ctx.fillRect(0, 0, canvas.width, 16);
+  ctx.font = "900 54px Arial, Helvetica, sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.lineWidth = 8;
+  ctx.strokeStyle = "rgba(0,0,0,0.72)";
+  ctx.strokeText(title, 256, 78);
+  ctx.fillStyle = "#ffffff";
+  ctx.fillText(title, 256, 78);
+  ctx.font = "900 30px Arial, Helvetica, sans-serif";
+  ctx.strokeText(subtitle, 256, 137);
+  ctx.fillText(subtitle, 256, 137);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.needsUpdate = true;
+  return new THREE.MeshBasicMaterial({ map: texture });
+}
+
+function addMegaforceFallback(parent) {
+  const can = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(7, 7, 22, 20), mats.megaforceBlue);
+  body.castShadow = true;
+  const top = new THREE.Mesh(new THREE.CylinderGeometry(7.2, 7.2, 1.2, 20), mats.hubcap);
+  top.position.y = 11.6;
+  const band = makeBox(15, 5, 2, mats.entranceGreenSolid);
+  band.position.set(0, 2, -6.4);
+  const label = makeBox(12, 8, 1.2, mats.light);
+  label.position.set(0, -3, -7.1);
+  can.add(body, top, band, label);
+  parent.add(can);
+  return can;
+}
+
+function addMegaforceDisplay(parent, x, y, z) {
+  const display = new THREE.Group();
+  display.position.set(x, y, z);
+  display.rotation.y = Math.PI;
+  display.scale.setScalar(1.5);
+  parent.add(display);
+  storeState.megaforceDisplay = display;
+
+  const fallback = addMegaforceFallback(display);
+  const applyModel = (source) => {
+    const model = source.clone(true);
+    const box = new THREE.Box3().setFromObject(model);
+    const size = new THREE.Vector3();
+    const center = new THREE.Vector3();
+    box.getSize(size);
+    box.getCenter(center);
+    const maxSide = Math.max(size.x, size.y, size.z) || 1;
+    model.scale.setScalar(34 / maxSide);
+    model.position.sub(center.multiplyScalar(34 / maxSide));
+    model.traverse((child) => {
+      if (!child.isMesh) return;
+      child.castShadow = true;
+      child.receiveShadow = true;
+    });
+    fallback.visible = false;
+    display.add(model);
+  };
+
+  if (megaforceTemplate) {
+    applyModel(megaforceTemplate);
+  } else {
+    gltfLoader.load(
+      "./assets/megis.glb",
+      (gltf) => {
+        megaforceTemplate = gltf.scene;
+        applyModel(megaforceTemplate);
+      },
+      undefined,
+      () => showNotification("Megaforce model failed, using fallback can")
+    );
+  }
+
+  const glow = new THREE.Mesh(new THREE.RingGeometry(18, 29, 32), mats.megaforceGlow);
+  glow.rotation.x = -Math.PI / 2;
+  glow.position.y = -18;
+  display.add(glow);
+  glowingObjects.push(glow);
+  return display;
+}
+
+function makeVendor() {
+  const vendor = makePerson();
+  vendor.scale.setScalar(0.96);
+  vendor.rotation.y = 0;
+  const apron = makeBox(14, 21, 1.4, mats.vendorApron);
+  apron.position.set(0, 34, 7.25);
+  vendor.add(apron);
+  return vendor;
 }
 
 function createSMarketInterior() {
@@ -1442,43 +1583,41 @@ function createSMarketInterior() {
   group.add(innerEntry);
   glowingObjects.push(innerEntry);
 
-  for (const z of [-120, 30]) {
-    for (const x of [5795, 5925, 6055, 6185]) {
-      addStoreBox(group, x, z, 72, 26, 86, mats.shelf);
-      for (let i = 0; i < 5; i++) {
-        const product = makeBox(10, 6, 12, i % 2 ? mats.productYellow : mats.productRed);
-        product.position.set(x - 24 + i * 12, 31, z - 35);
-        group.add(product);
-        const product2 = makeBox(10, 6, 12, i % 2 ? mats.productRed : mats.productYellow);
-        product2.position.set(x - 24 + i * 12, 31, z + 35);
-        group.add(product2);
-      }
-      const shelfTop = makeBox(70, 2, 84, mats.marketBlue);
-      shelfTop.position.set(x, 40, z);
-      group.add(shelfTop);
-    }
-  }
+  const counter = addStoreBox(group, 6000, -184, 300, 34, 58, mats.counter);
+  counter.position.y = 17;
+  const counterTop = makeBox(314, 4, 66, mats.counterTop);
+  counterTop.position.set(6000, 36, -184);
+  group.add(counterTop);
+  const belt = makeBox(142, 3, 38, mats.pumpDark);
+  belt.position.set(5942, 40, -158);
+  group.add(belt);
+  const register = makeBox(30, 24, 24, mats.glass);
+  register.position.set(6098, 50, -162);
+  group.add(register);
+  const scanner = makeBox(26, 4, 18, mats.marketGlow);
+  scanner.position.set(6050, 42.5, -149);
+  group.add(scanner);
+  glowingObjects.push(scanner);
 
-  for (const x of [5705, 5765, 5825]) {
-    addStoreBox(group, x, 175, 46, 22, 64, mats.cashier);
-    const belt = makeBox(40, 3, 42, mats.pumpDark);
-    belt.position.set(x, 25, 174);
-    group.add(belt);
-  }
+  const vendor = makeVendor();
+  vendor.position.set(6004, 0, -232);
+  group.add(vendor);
+  storeState.vendor = vendor;
 
-  for (const x of [6255, 6315]) {
-    addStoreBox(group, x, -160, 48, 48, 102, mats.glass);
-    const handle = makeBox(2, 26, 3, mats.curb);
-    handle.position.set(x - 15, 26, -211);
-    group.add(handle);
-  }
+  addMegaforceDisplay(group, 6008, 64, -151);
 
-  const produceTable = addStoreBox(group, 6290, 88, 118, 18, 72, mats.field);
-  produceTable.position.y = 9;
-  for (let i = 0; i < 12; i++) {
-    const fruit = new THREE.Mesh(new THREE.SphereGeometry(5, 10, 8), i % 3 ? mats.productRed : mats.productYellow);
-    fruit.position.set(6242 + (i % 6) * 18, 23, 66 + Math.floor(i / 6) * 28);
-    group.add(fruit);
+  const megaforceSign = makeBox(180, 58, 4, makeStoreTextMaterial("MEGAFORCE", "ENERGY 2e", "#118bdb"));
+  megaforceSign.position.set(6000, 74, -276);
+  group.add(megaforceSign);
+
+  const queueLine = makePlane(250, 3, mats.line, 0.09);
+  queueLine.position.set(6000, 0.09, -78);
+  group.add(queueLine);
+  for (const x of [5900, 5968, 6036, 6104]) {
+    const marker = makePlane(44, 3, mats.line, 0.1);
+    marker.position.set(x, 0.1, -58);
+    marker.rotation.z = Math.PI * 0.5;
+    group.add(marker);
   }
 
   const sign = makeBox(170, 18, 5, mats.marketBlue);
@@ -1580,19 +1719,24 @@ function animateStoreCharacter(dt, moving) {
   const thirdPersonPunch = storeState.cameraMode === "third";
   const windup = thirdPersonPunch && storeState.punchCharging ? storeState.punchCharge : 0;
   const strike = thirdPersonPunch && storeState.punchTimer > 0 ? Math.sin(storeState.punchTimer * Math.PI) : 0;
+  const drink = storeState.drinkTimer > 0 ? Math.sin((storeState.drinkTimer / Math.max(0.01, storeState.drinkDuration)) * Math.PI) : 0;
   const headPitch = clamp(storeState.pitch, -1.1, 1.1) * 0.62;
   const ease = 1 - Math.exp(-dt * 12);
   character.position.y = lerp(character.position.y, bounce, ease);
   character.userData.leftArm.rotation.x = lerp(character.userData.leftArm.rotation.x, swing, ease);
-  character.userData.rightArm.rotation.x = lerp(character.userData.rightArm.rotation.x, -swing + windup * 1.15 - strike * 1.75, ease);
-  character.userData.rightArm.rotation.y = lerp(character.userData.rightArm.rotation.y, windup * 0.45 - strike * 0.18, ease);
-  character.userData.rightArm.rotation.z = lerp(character.userData.rightArm.rotation.z, -windup * 0.32 + strike * 0.18, ease);
+  const rightArmX = drink > 0 ? -2.05 + drink * 0.18 : -swing + windup * 1.15 - strike * 1.75;
+  const rightArmY = drink > 0 ? -0.22 : windup * 0.45 - strike * 0.18;
+  const rightArmZ = drink > 0 ? -0.38 : -windup * 0.32 + strike * 0.18;
+  character.userData.rightArm.rotation.x = lerp(character.userData.rightArm.rotation.x, rightArmX, ease);
+  character.userData.rightArm.rotation.y = lerp(character.userData.rightArm.rotation.y, rightArmY, ease);
+  character.userData.rightArm.rotation.z = lerp(character.userData.rightArm.rotation.z, rightArmZ, ease);
   character.userData.leftLeg.rotation.x = lerp(character.userData.leftLeg.rotation.x, -swing * 0.82, ease);
   character.userData.rightLeg.rotation.x = lerp(character.userData.rightLeg.rotation.x, swing * 0.82, ease);
   character.userData.head.rotation.z = lerp(character.userData.head.rotation.z, side, ease);
   character.userData.head.rotation.x = lerp(character.userData.head.rotation.x, headPitch, ease);
   character.userData.hair.rotation.x = lerp(character.userData.hair.rotation.x, headPitch, ease);
   character.userData.face.rotation.x = lerp(character.userData.face.rotation.x, headPitch, ease);
+  if (character.userData.drinkCan) character.userData.drinkCan.visible = drink > 0;
 }
 
 function updateStorePunch(dt) {
@@ -1606,16 +1750,18 @@ function updateStorePunch(dt) {
 
   const windup = storeState.punchCharging ? storeState.punchCharge : 0;
   const strike = storeState.punchTimer > 0 ? Math.sin(storeState.punchTimer * Math.PI) : 0;
+  const drink = storeState.drinkTimer > 0 ? Math.sin((storeState.drinkTimer / Math.max(0.01, storeState.drinkDuration)) * Math.PI) : 0;
   const settle = 1 - Math.exp(-dt * 14);
-  const wantedX = 17 - strike * 6;
-  const wantedY = -13 + strike * 4;
-  const wantedZ = -36 + windup * 22 - strike * (36 + storeState.lastPunchDamage * 0.16);
+  const wantedX = drink > 0 ? 8 : 17 - strike * 6;
+  const wantedY = drink > 0 ? -4 + drink * 5 : -13 + strike * 4;
+  const wantedZ = drink > 0 ? -28 + drink * 10 : -36 + windup * 22 - strike * (36 + storeState.lastPunchDamage * 0.16);
   storeState.fist.position.x = lerp(storeState.fist.position.x, wantedX, settle);
   storeState.fist.position.y = lerp(storeState.fist.position.y, wantedY, settle);
   storeState.fist.position.z = lerp(storeState.fist.position.z, wantedZ, settle);
-  storeState.fist.rotation.x = lerp(storeState.fist.rotation.x, -0.18 - windup * 0.62 + strike * 0.42, settle);
-  storeState.fist.rotation.y = lerp(storeState.fist.rotation.y, -0.28 + strike * 0.22, settle);
-  storeState.fist.rotation.z = lerp(storeState.fist.rotation.z, 0.08 + windup * 0.18 - strike * 0.16, settle);
+  storeState.fist.rotation.x = lerp(storeState.fist.rotation.x, drink > 0 ? -0.88 : -0.18 - windup * 0.62 + strike * 0.42, settle);
+  storeState.fist.rotation.y = lerp(storeState.fist.rotation.y, drink > 0 ? -0.08 : -0.28 + strike * 0.22, settle);
+  storeState.fist.rotation.z = lerp(storeState.fist.rotation.z, drink > 0 ? 0.28 : 0.08 + windup * 0.18 - strike * 0.16, settle);
+  if (storeState.fist.userData.can) storeState.fist.userData.can.visible = drink > 0;
 
   storeState.damageTimer = Math.max(0, storeState.damageTimer - dt * 1.75);
   storeState.damageShake = Math.max(0, storeState.damageShake - dt * 4.4);
@@ -1624,10 +1770,54 @@ function updateStorePunch(dt) {
 
 function startStorePunch(event) {
   if (event.button !== 0 || gameMode !== "store" || transitionLock || storeState.dead) return;
+  if (storeState.drinkTimer > 0) return;
   if (!inputState.mobile && document.pointerLockElement !== canvas) requestStorePointerLock();
   storeState.punchCharging = true;
   storeState.punchCharge = 0;
   storeState.punchTimer = 0;
+}
+
+function storeMegaforceDistance() {
+  return Math.hypot(storeState.x - 6008, storeState.z + 132);
+}
+
+function tryBuyMegaforce() {
+  if (gameMode !== "store" || transitionLock || storeState.dead || storeState.drinkTimer > 0) return;
+  if (storeMegaforceDistance() > 96) {
+    showNotification("Go to the checkout to buy Megaforce");
+    return;
+  }
+  if (money < 2) {
+    showNotification("Megaforce costs 2e");
+    return;
+  }
+  money -= 2;
+  moneyEl.textContent = "$" + Math.floor(money);
+  storeState.punchCharging = false;
+  storeState.punchTimer = 0;
+  storeState.drinkDuration = 2.35;
+  storeState.drinkTimer = storeState.drinkDuration;
+  storeState.boostReady = true;
+  showNotification(`${playerName} bought Megaforce`);
+}
+
+function updateStoreShop(dt) {
+  if (storeState.drinkTimer > 0) {
+    storeState.drinkTimer = Math.max(0, storeState.drinkTimer - dt);
+    if (storeState.drinkTimer <= 0 && storeState.boostReady) {
+      storeState.boostReady = false;
+      speedBoostUntil = performance.now() + 5 * 60 * 1000;
+      showNotification("Megaforce active: 1.5x speed for 5 min", true);
+    }
+  }
+
+  if (storeState.drinkTimer > 0) {
+    hintEl.textContent = "Drinking Megaforce...";
+  } else if (storeMegaforceDistance() < 96) {
+    hintEl.textContent = inputState.mobile ? "Buy Megaforce 2e" : "Press E to buy Megaforce 2e";
+  } else {
+    updatePointerLockHint();
+  }
 }
 
 function releaseStorePunch(event) {
@@ -1791,19 +1981,24 @@ function animateRemoteStoreCharacter(remote, dt, moving) {
   const side = moving ? Math.sin(t * 2) * 0.05 : 0;
   const windup = target.punchCharging ? target.punchCharge || 0 : 0;
   const strike = (target.punchTimer || 0) > 0 ? Math.sin((target.punchTimer || 0) * Math.PI) : 0;
+  const drink = (target.drinkTimer || 0) > 0 ? Math.sin(((target.drinkTimer || 0) / Math.max(0.01, target.drinkDuration || 1)) * Math.PI) : 0;
   const headPitch = clamp(target.pitch || 0, -1.1, 1.1) * 0.62;
   const ease = 1 - Math.exp(-dt * 12);
 
   character.userData.leftArm.rotation.x = lerp(character.userData.leftArm.rotation.x, swing, ease);
-  character.userData.rightArm.rotation.x = lerp(character.userData.rightArm.rotation.x, -swing + windup * 1.15 - strike * 1.75, ease);
-  character.userData.rightArm.rotation.y = lerp(character.userData.rightArm.rotation.y, windup * 0.45 - strike * 0.18, ease);
-  character.userData.rightArm.rotation.z = lerp(character.userData.rightArm.rotation.z, -windup * 0.32 + strike * 0.18, ease);
+  const rightArmX = drink > 0 ? -2.05 + drink * 0.18 : -swing + windup * 1.15 - strike * 1.75;
+  const rightArmY = drink > 0 ? -0.22 : windup * 0.45 - strike * 0.18;
+  const rightArmZ = drink > 0 ? -0.38 : -windup * 0.32 + strike * 0.18;
+  character.userData.rightArm.rotation.x = lerp(character.userData.rightArm.rotation.x, rightArmX, ease);
+  character.userData.rightArm.rotation.y = lerp(character.userData.rightArm.rotation.y, rightArmY, ease);
+  character.userData.rightArm.rotation.z = lerp(character.userData.rightArm.rotation.z, rightArmZ, ease);
   character.userData.leftLeg.rotation.x = lerp(character.userData.leftLeg.rotation.x, -swing * 0.82, ease);
   character.userData.rightLeg.rotation.x = lerp(character.userData.rightLeg.rotation.x, swing * 0.82, ease);
   character.userData.head.rotation.z = lerp(character.userData.head.rotation.z, side, ease);
   character.userData.head.rotation.x = lerp(character.userData.head.rotation.x, headPitch, ease);
   character.userData.hair.rotation.x = lerp(character.userData.hair.rotation.x, headPitch, ease);
   character.userData.face.rotation.x = lerp(character.userData.face.rotation.x, headPitch, ease);
+  if (character.userData.drinkCan) character.userData.drinkCan.visible = drink > 0;
 }
 
 function updateStoreCamera(dt) {
@@ -1908,6 +2103,9 @@ function enterStoreMode() {
     storeState.lastPunchDamage = 0;
     storeState.damageTimer = 0;
     storeState.damageShake = 0;
+    storeState.drinkTimer = 0;
+    storeState.drinkDuration = 0;
+    storeState.boostReady = false;
     storeState.hp = 100;
     storeState.dead = false;
     storeState.deathY = 0;
@@ -1953,6 +2151,9 @@ function enterDrivingMode() {
     storeState.punchCharging = false;
     storeState.punchCharge = 0;
     storeState.punchTimer = 0;
+    storeState.drinkTimer = 0;
+    storeState.drinkDuration = 0;
+    storeState.boostReady = false;
     storeState.damageTimer = 0;
     storeState.damageShake = 0;
     damageFxEl.style.opacity = "0";
@@ -1978,7 +2179,11 @@ function requestStorePointerLock() {
 }
 
 function updatePointerLockHint() {
-  if (gameMode !== "store" || inputState.mobile) return;
+  if (gameMode !== "store") return;
+  if (inputState.mobile) {
+    hintEl.textContent = "Joystick walk + turn | green circle exits";
+    return;
+  }
   const modeText = storeState.cameraMode === "first" ? "First person" : "Third person";
   hintEl.textContent = document.pointerLockElement === canvas
     ? `${modeText} | Mouse look | W/S walk | F camera | Esc unlocks`
@@ -2910,7 +3115,8 @@ function updatePlayer(dt) {
   }
 
   moneyEl.textContent = "$" + Math.floor(money);
-  hintEl.textContent = surface.onRoad ? "Road boost: speed + grip" : "Grass slows the car";
+  const boostText = megaforceBoostActive() ? ` | Megaforce ${Math.ceil(megaforceBoostRemaining())}s` : "";
+  hintEl.textContent = (surface.onRoad ? "Road boost: speed + grip" : "Grass slows the car") + boostText;
 
 }
 
@@ -3581,6 +3787,8 @@ function localNetworkState() {
     storePunchCharge: storeState.punchCharge,
     storePunchCharging: storeState.punchCharging,
     storePunchTimer: storeState.punchTimer,
+    storeDrinkTimer: storeState.drinkTimer,
+    storeDrinkDuration: storeState.drinkDuration,
     storeHp: storeState.hp,
     storeDead: storeState.dead,
     storeDeathY: storeState.deathY,
@@ -3667,6 +3875,8 @@ function applyRemoteState(peerId, state) {
     punchCharge: Number.isFinite(state.storePunchCharge) ? state.storePunchCharge : 0,
     punchCharging: !!state.storePunchCharging,
     punchTimer: Number.isFinite(state.storePunchTimer) ? state.storePunchTimer : 0,
+    drinkTimer: Number.isFinite(state.storeDrinkTimer) ? state.storeDrinkTimer : 0,
+    drinkDuration: Number.isFinite(state.storeDrinkDuration) ? state.storeDrinkDuration : 0,
     hp: Number.isFinite(state.storeHp) ? state.storeHp : 100,
     dead: !!state.storeDead,
     deathY: Number.isFinite(state.storeDeathY) ? state.storeDeathY : 0,
@@ -4162,6 +4372,7 @@ function resetGame() {
   updateChunks();
 
   money = 0;
+  speedBoostUntil = 0;
   arrestTime = 0;
   chaseTime = 0;
   backupTime = 0;
@@ -4218,6 +4429,7 @@ function update(dt) {
   } else if (running && !gameOver && gameMode === "store") {
     moveStoreCharacter(dt);
     updateStorePunch(dt);
+    updateStoreShop(dt);
     updateStoreDeath(dt);
     updateStoreHealthHud();
   }
@@ -4249,6 +4461,10 @@ document.addEventListener("pointerlockchange", updatePointerLockHint);
 window.addEventListener("keydown", (event) => {
   if (event.key.toLowerCase() === "f" && !event.repeat) {
     toggleStoreCameraMode();
+    event.preventDefault();
+  }
+  if (event.key.toLowerCase() === "e" && !event.repeat) {
+    tryBuyMegaforce();
     event.preventDefault();
   }
   keys.add(event.key.toLowerCase());
