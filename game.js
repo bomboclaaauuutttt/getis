@@ -1479,15 +1479,16 @@ function makeFirstPersonFist() {
   thumb.castShadow = true;
   knuckles.add(thumb);
   const can = new THREE.Group();
-  can.position.set(5.8, 1.1, -29.4);
-  can.rotation.set(Math.PI * 0.5, 0, -0.12);
+  can.position.set(-5.2, 1.2, -36);
+  can.rotation.set(Math.PI * 0.5, 0, 0.18);
   can.visible = false;
-  attachMegaforceModel(can, 9);
+  attachMegaforceModel(can, 17);
 
   group.add(fist, knuckles, can);
   group.userData.can = can;
-  group.position.set(15, -14, -24);
-  group.rotation.set(-0.14, -0.22, 0.08);
+  group.position.set(18, -28, -44);
+  group.rotation.set(-0.08, -0.18, 0.06);
+  group.scale.setScalar(0.52);
   camera.add(group);
   return group;
 }
@@ -1731,8 +1732,8 @@ function moveStoreCharacter(dt) {
   const walkSpeed = 138;
   const forwardX = Math.sin(storeState.angle);
   const forwardZ = Math.cos(storeState.angle);
-  const rightX = Math.cos(storeState.angle);
-  const rightZ = -Math.sin(storeState.angle);
+  const rightX = -Math.cos(storeState.angle);
+  const rightZ = Math.sin(storeState.angle);
   const moveLen = Math.hypot(moveInput, strafeInput);
   const moving = moveLen > 0.05;
   if (moving) {
@@ -1810,15 +1811,15 @@ function updateStorePunch(dt) {
   const drink = storeState.drinking ? Math.sin(drinkProgress * Math.PI) : 0;
   const carryingDrink = storeState.hasMegaforce || storeState.drinking;
   const settle = 1 - Math.exp(-dt * 14);
-  const wantedX = carryingDrink ? 8 : 17 - strike * 6;
-  const wantedY = carryingDrink ? -9 + drink * 8 : -13 + strike * 4;
-  const wantedZ = carryingDrink ? -29 + drink * 12 : -36 + windup * 22 - strike * (36 + storeState.lastPunchDamage * 0.16);
+  const wantedX = carryingDrink ? 17 : 19 - strike * 5;
+  const wantedY = carryingDrink ? -27 + drink * 8 : -29 + strike * 3;
+  const wantedZ = carryingDrink ? -58 + drink * 13 : -62 + windup * 18 - strike * (32 + storeState.lastPunchDamage * 0.13);
   storeState.fist.position.x = lerp(storeState.fist.position.x, wantedX, settle);
   storeState.fist.position.y = lerp(storeState.fist.position.y, wantedY, settle);
   storeState.fist.position.z = lerp(storeState.fist.position.z, wantedZ, settle);
-  storeState.fist.rotation.x = lerp(storeState.fist.rotation.x, carryingDrink ? -0.42 - drink * 0.58 : -0.18 - windup * 0.62 + strike * 0.42, settle);
-  storeState.fist.rotation.y = lerp(storeState.fist.rotation.y, carryingDrink ? -0.08 : -0.28 + strike * 0.22, settle);
-  storeState.fist.rotation.z = lerp(storeState.fist.rotation.z, carryingDrink ? 0.22 + drink * 0.14 : 0.08 + windup * 0.18 - strike * 0.16, settle);
+  storeState.fist.rotation.x = lerp(storeState.fist.rotation.x, carryingDrink ? -0.32 - drink * 0.55 : -0.12 - windup * 0.55 + strike * 0.36, settle);
+  storeState.fist.rotation.y = lerp(storeState.fist.rotation.y, carryingDrink ? -0.1 : -0.2 + strike * 0.18, settle);
+  storeState.fist.rotation.z = lerp(storeState.fist.rotation.z, carryingDrink ? 0.18 + drink * 0.12 : 0.06 + windup * 0.14 - strike * 0.13, settle);
   if (storeState.fist.userData.can) storeState.fist.userData.can.visible = carryingDrink;
 
   storeState.damageTimer = Math.max(0, storeState.damageTimer - dt * 1.75);
