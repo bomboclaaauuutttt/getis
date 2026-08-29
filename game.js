@@ -232,7 +232,7 @@ let megaforceLoading = false;
 const megaforceModelCallbacks = [];
 
 const SMARKET_ENTRANCE = { x: -646, z: 20, radius: 42 };
-const SMARKET_EXIT = { x: 6000, z: 318, radius: 48 };
+const SMARKET_EXIT = { x: 6000, z: 306, radius: 64 };
 const storeState = {
   group: null,
   character: null,
@@ -1918,71 +1918,167 @@ function createSMarketInterior() {
   storeState.group = group;
   storeState.colliders.length = 0;
 
-  const floor = makePlane(760, 560, mats.storeFloor, 0.06);
+  const floor = makePlane(920, 660, mats.storeFloor, 0.06);
   floor.position.set(6000, 0.06, 0);
   group.add(floor);
 
-  addStoreBox(group, 6000, -286, 790, 58, 18, mats.storeWall);
-  addStoreBox(group, 6000, 286, 790, 58, 18, mats.storeWall);
-  addStoreBox(group, 5604, 0, 18, 58, 560, mats.storeWall);
-  addStoreBox(group, 6396, 0, 18, 58, 560, mats.storeWall);
-
-  const entranceMat = makeGlowMaterial(0x39ff72, 0.42);
-  const innerEntry = makeBox(116, 42, 4, entranceMat);
-  innerEntry.position.set(6000, 22, 278);
-  group.add(innerEntry);
-  glowingObjects.push(innerEntry);
-
-  const counter = addStoreBox(group, 6000, -184, 300, 34, 58, mats.counter);
-  counter.position.y = 17;
-  const counterTop = makeBox(314, 4, 66, mats.counterTop);
-  counterTop.position.set(6000, 36, -184);
-  group.add(counterTop);
-  const belt = makeBox(142, 3, 38, mats.pumpDark);
-  belt.position.set(5942, 40, -158);
-  group.add(belt);
-  const register = makeBox(30, 24, 24, mats.glass);
-  register.position.set(6098, 50, -162);
-  group.add(register);
-  const scanner = makeBox(26, 4, 18, mats.marketGlow);
-  scanner.position.set(6050, 42.5, -149);
-  group.add(scanner);
-  storeState.scanner = scanner;
-  glowingObjects.push(scanner);
-
-  const vendor = makeVendor();
-  vendor.position.set(6004, 0, -232);
-  group.add(vendor);
-  storeState.vendor = vendor;
-
-  addMegaforceDisplay(group, 6008, 64, -151);
-
-  const megaforceSign = makeBox(180, 58, 4, makeStoreTextMaterial("MEGAFORCE", "ENERGY 2e", "#118bdb"));
-  megaforceSign.position.set(6000, 74, -276);
-  group.add(megaforceSign);
-
-  const queueLine = makePlane(250, 3, mats.line, 0.09);
-  queueLine.position.set(6000, 0.09, -78);
-  group.add(queueLine);
-  for (const x of [5900, 5968, 6036, 6104]) {
-    const marker = makePlane(44, 3, mats.line, 0.1);
-    marker.position.set(x, 0.1, -58);
-    marker.rotation.z = Math.PI * 0.5;
-    group.add(marker);
+  const tileMat = mats.line.clone();
+  tileMat.opacity = 0.22;
+  tileMat.transparent = true;
+  for (let x = 5580; x <= 6420; x += 80) {
+    const line = makePlane(2.2, 620, tileMat, 0.075);
+    line.position.set(x, 0.075, 0);
+    line.renderOrder = 2;
+    group.add(line);
+  }
+  for (let z = -280; z <= 280; z += 80) {
+    const line = makePlane(860, 2.2, tileMat, 0.076);
+    line.position.set(6000, 0.076, z);
+    line.renderOrder = 2;
+    group.add(line);
   }
 
-  const sign = makeBox(170, 18, 5, mats.marketBlue);
-  sign.position.set(6000, 54, -274);
-  group.add(sign);
+  addStoreBox(group, 6000, -326, 920, 124, 18, mats.storeWall);
+  addStoreBox(group, 5531, 0, 18, 124, 660, mats.storeWall);
+  addStoreBox(group, 6469, 0, 18, 124, 660, mats.storeWall);
+  addStoreBox(group, 5765, 326, 450, 124, 18, mats.storeWall);
+  addStoreBox(group, 6235, 326, 450, 124, 18, mats.storeWall);
 
-  const exitRing = new THREE.Mesh(new THREE.RingGeometry(24, 40, 32), makeGlowMaterial(0x39ff72, 0.72));
+  const ceiling = makeBox(920, 8, 660, mats.counterTop);
+  ceiling.position.set(6000, 132, 0);
+  group.add(ceiling);
+  for (const z of [-230, -110, 10, 130, 250]) {
+    const lamp = makeBox(270, 4, 14, mats.light);
+    lamp.position.set(6000, 126, z);
+    group.add(lamp);
+    glowingObjects.push(lamp);
+  }
+
+  const entranceMat = makeGlowMaterial(0x39ff72, 0.5);
+  const exitBack = makeBox(154, 58, 6, mats.marketBlue);
+  exitBack.position.set(6000, 30, 320);
+  const exitDoorLeft = makeBox(54, 48, 4, makeGlowMaterial(0xb4fff0, 0.58));
+  exitDoorLeft.position.set(5971, 25, 310);
+  const exitDoorRight = makeBox(54, 48, 4, makeGlowMaterial(0xb4fff0, 0.58));
+  exitDoorRight.position.set(6029, 25, 310);
+  const exitBeam = makeBox(160, 8, 6, entranceMat);
+  exitBeam.position.set(6000, 61, 306);
+  const exitLeft = makeBox(8, 60, 6, entranceMat);
+  exitLeft.position.set(5918, 31, 306);
+  const exitRight = makeBox(8, 60, 6, entranceMat);
+  exitRight.position.set(6082, 31, 306);
+  const exitSign = makeBox(118, 22, 4, makeStoreTextMaterial("EXIT", "OUT", "#19b65d"));
+  exitSign.position.set(6000, 82, 300);
+  exitSign.rotation.y = Math.PI;
+  group.add(exitBack, exitDoorLeft, exitDoorRight, exitBeam, exitLeft, exitRight, exitSign);
+  glowingObjects.push(exitDoorLeft, exitDoorRight, exitBeam, exitLeft, exitRight);
+
+  const exitRing = new THREE.Mesh(new THREE.RingGeometry(34, 58, 40), makeGlowMaterial(0x39ff72, 0.72));
   exitRing.rotation.x = -Math.PI / 2;
   exitRing.position.set(SMARKET_EXIT.x, 0.5, SMARKET_EXIT.z);
-  const exitCore = new THREE.Mesh(new THREE.CircleGeometry(25, 32), makeGlowMaterial(0x39ff72, 0.24));
+  const exitCore = new THREE.Mesh(new THREE.CircleGeometry(39, 40), makeGlowMaterial(0x39ff72, 0.24));
   exitCore.rotation.x = -Math.PI / 2;
   exitCore.position.set(SMARKET_EXIT.x, 0.51, SMARKET_EXIT.z);
   group.add(exitRing, exitCore);
   glowingObjects.push(exitRing, exitCore);
+
+  const counter = addStoreBox(group, 6000, -228, 360, 34, 60, mats.counter);
+  counter.position.y = 17;
+  const counterTop = makeBox(374, 4, 70, mats.counterTop);
+  counterTop.position.set(6000, 36, -228);
+  group.add(counterTop);
+  const belt = makeBox(156, 3, 38, mats.pumpDark);
+  belt.position.set(5930, 40, -202);
+  const register = makeBox(30, 24, 24, mats.glass);
+  register.position.set(6118, 50, -202);
+  const scanner = makeBox(28, 5, 20, mats.marketGlow);
+  scanner.position.set(6052, 43, -192);
+  const counterScreen = makeBox(38, 24, 4, mats.marketBlue);
+  counterScreen.position.set(6108, 58, -244);
+  group.add(belt, register, scanner, counterScreen);
+  storeState.scanner = scanner;
+  glowingObjects.push(scanner, counterScreen);
+
+  const vendor = makeVendor();
+  vendor.position.set(6004, 0, -274);
+  group.add(vendor);
+  storeState.vendor = vendor;
+
+  addMegaforceDisplay(group, 6008, 64, -198);
+
+  const megaforceSign = makeBox(210, 64, 5, makeStoreTextMaterial("MEGAFORCE", "ENERGY 2e", "#118bdb"));
+  megaforceSign.position.set(6000, 76, -316);
+  group.add(megaforceSign);
+
+  const queueLine = makePlane(300, 4, mats.line, 0.09);
+  queueLine.position.set(6000, 0.09, -112);
+  group.add(queueLine);
+  for (const x of [5880, 5950, 6020, 6090, 6160]) {
+    const marker = makePlane(50, 4, mats.line, 0.1);
+    marker.position.set(x, 0.1, -84);
+    marker.rotation.z = Math.PI * 0.5;
+    group.add(marker);
+  }
+
+  function addProductBlock(x, z, material, w = 13, d = 10) {
+    const box = makeBox(w, 8, d, material);
+    box.position.set(x, 29 + Math.random() * 4, z);
+    group.add(box);
+  }
+
+  function addShelfRow(x, z, w, d, label, productOffset = 0) {
+    const shelf = addStoreBox(group, x, z, w, 26, d, mats.shelf);
+    shelf.position.y = 13;
+    const cap = makeBox(w + 8, 3, d + 5, mats.counterTop);
+    cap.position.set(x, 28.5, z);
+    group.add(cap);
+    const tag = makeBox(Math.min(w - 18, 104), 15, 3, makeStoreTextMaterial(label, "SALE", "#1b8fe8"));
+    tag.position.set(x, 42, z - d * 0.5 - 2);
+    group.add(tag);
+    for (let i = 0; i < Math.floor(w / 34); i++) {
+      const px = x - w * 0.5 + 22 + i * 34;
+      addProductBlock(px, z - d * 0.22, (i + productOffset) % 2 ? mats.productRed : mats.productYellow);
+      addProductBlock(px, z + d * 0.22, (i + productOffset) % 3 ? mats.productYellow : mats.productRed);
+    }
+  }
+
+  addShelfRow(5726, -118, 150, 58, "SNACKS", 0);
+  addShelfRow(5726, 42, 150, 58, "CANDY", 1);
+  addShelfRow(5908, -118, 150, 58, "FOOD", 2);
+  addShelfRow(5908, 42, 150, 58, "DRINKS", 3);
+  addShelfRow(6092, -118, 150, 58, "MEALS", 4);
+  addShelfRow(6092, 42, 150, 58, "CHIPS", 5);
+  addShelfRow(6274, -118, 150, 58, "GEAR", 6);
+  addShelfRow(6274, 42, 150, 58, "SODA", 7);
+
+  const freezer = addStoreBox(group, 6372, -178, 72, 46, 190, mats.cashier);
+  freezer.position.y = 23;
+  for (const z of [-236, -184, -132]) {
+    const glass = makeBox(62, 28, 3, mats.glass);
+    glass.position.set(6334, 34, z);
+    glass.rotation.y = Math.PI / 2;
+    group.add(glass);
+  }
+
+  const bakery = addStoreBox(group, 5612, -176, 72, 34, 170, mats.counterTop);
+  bakery.position.y = 17;
+  for (const z of [-226, -176, -126]) {
+    const tray = makeBox(52, 4, 28, mats.productYellow);
+    tray.position.set(5612, 38, z);
+    group.add(tray);
+  }
+
+  const infoDesk = addStoreBox(group, 6354, 194, 128, 30, 58, mats.marketBlue);
+  infoDesk.position.y = 15;
+  const deskSign = makeBox(110, 22, 4, makeStoreTextMaterial("INFO", "HELP", "#1b8fe8"));
+  deskSign.position.set(6354, 48, 163);
+  group.add(deskSign);
+
+  const promoIsland = addStoreBox(group, 6000, 180, 150, 22, 72, mats.counterTop);
+  promoIsland.position.y = 11;
+  for (let i = 0; i < 10; i++) {
+    addProductBlock(5940 + i * 13, 168 + (i % 2) * 24, i % 2 ? mats.productRed : mats.productYellow, 11, 11);
+  }
 
   const character = makePerson();
   character.scale.setScalar(1.14);
@@ -2056,8 +2152,8 @@ function moveStoreCharacter(dt) {
     storeState.z += hit.nz * (hit.overlap + 0.4);
   }
 
-  storeState.x = clamp(storeState.x, 5628, 6372);
-  storeState.z = clamp(storeState.z, -252, 318);
+  storeState.x = clamp(storeState.x, 5554, 6446);
+  storeState.z = clamp(storeState.z, -306, 326);
   storeState.character.position.set(storeState.x, 0, storeState.z);
   storeState.character.rotation.y = storeState.angle;
   animateStoreCharacter(dt, moving);
@@ -2170,7 +2266,7 @@ function startStoreDrink(event) {
 }
 
 function storeMegaforceDistance() {
-  return Math.hypot(storeState.x - 6008, storeState.z + 132);
+  return Math.hypot(storeState.x - 6008, storeState.z + 168);
 }
 
 function removeStorePurchaseFx() {
@@ -2438,8 +2534,8 @@ function updateStoreDeath(dt) {
     storeState.deathRoll = lerp(storeState.deathRoll, 0.18, 1 - Math.exp(-dt * 5));
   }
 
-  storeState.x = clamp(storeState.x, 5628, 6372);
-  storeState.z = clamp(storeState.z, -252, 318);
+  storeState.x = clamp(storeState.x, 5554, 6446);
+  storeState.z = clamp(storeState.z, -306, 326);
   storeState.character.visible = true;
   storeState.character.position.set(storeState.x, storeState.deathY, storeState.z);
   storeState.character.rotation.set(storeState.deathPitch, storeState.angle, storeState.deathRoll);
