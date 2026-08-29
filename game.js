@@ -96,6 +96,8 @@ const audioState = {
   driftIntensity: 0,
   storeMoving: false,
   nextFootstep: 0,
+  footstepSide: 0,
+  nextDrinkGulp: 0,
   lastCrash: 0,
 };
 const clock = new THREE.Clock();
@@ -525,6 +527,26 @@ function playUiClick() {
   playTone(920, 0.06, "sine", 0.025, 0.035);
 }
 
+function playUiHover() {
+  playTone(760, 0.035, "sine", 0.016);
+}
+
+function playUiBack() {
+  playTone(360, 0.055, "triangle", 0.035);
+  playTone(260, 0.075, "triangle", 0.03, 0.045);
+}
+
+function playUiError() {
+  playTone(150, 0.11, "square", 0.045);
+  playTone(118, 0.13, "square", 0.035, 0.09);
+}
+
+function playConfirmSound() {
+  playTone(520, 0.055, "triangle", 0.045);
+  playTone(780, 0.08, "triangle", 0.04, 0.055);
+  playTone(1040, 0.09, "sine", 0.03, 0.12);
+}
+
 function playPurchaseSound() {
   playTone(740, 0.08, "triangle", 0.08);
   playTone(1040, 0.12, "triangle", 0.075, 0.075);
@@ -534,6 +556,18 @@ function playPurchaseSound() {
 function playDrinkSound() {
   playNoiseHit(0.34, 0.055, 1450);
   playTone(260, 0.18, "sine", 0.028, 0.08);
+}
+
+function playDrinkGulp(progress = 0) {
+  const pitch = 210 + Math.sin(progress * Math.PI * 6) * 34;
+  playNoiseHit(0.085, 0.04, 980);
+  playTone(pitch, 0.09, "sine", 0.034);
+  playTone(pitch * 0.72, 0.075, "triangle", 0.025, 0.055);
+}
+
+function playFootstepSound(side = 0) {
+  playNoiseHit(0.065, 0.04, side ? 520 : 390);
+  playTone(side ? 92 : 78, 0.045, "sine", 0.018);
 }
 
 function playPunchSound(hit = false) {
@@ -578,8 +612,15 @@ function updateAudio(dt) {
   audioState.sirenGain.gain.setTargetAtTime(siren01 * 0.12, now, 0.12);
 
   if (running && !gameOver && gameMode === "store" && !storeState.dead && audioState.storeMoving && performance.now() > audioState.nextFootstep) {
-    audioState.nextFootstep = performance.now() + 315;
-    playNoiseHit(0.055, 0.028, 420);
+    audioState.nextFootstep = performance.now() + 285 + Math.random() * 45;
+    audioState.footstepSide = 1 - audioState.footstepSide;
+    playFootstepSound(audioState.footstepSide);
+  }
+
+  if (running && !gameOver && gameMode === "store" && storeState.drinking && performance.now() > audioState.nextDrinkGulp) {
+    audioState.nextDrinkGulp = performance.now() + 230 + Math.random() * 90;
+    const drinkProgress = clamp(storeState.drinkProgress / Math.max(0.01, storeState.drinkDuration || 1), 0, 1);
+    playDrinkGulp(drinkProgress);
   }
 }
 
@@ -2160,14 +2201,17 @@ function updateMegaforcePurchaseAnimation(dt) {
 function tryBuyMegaforce() {
   if (gameMode !== "store" || transitionLock || storeState.dead || storeState.drinking || storeState.purchaseTimer > 0) return;
   if (storeState.hasMegaforce) {
+    playUiError();
     showNotification("You already have Megaforce");
     return;
   }
   if (storeMegaforceDistance() > 96) {
+    playUiError();
     showNotification("Go to the checkout to buy Megaforce");
     return;
   }
   if (money < 2) {
+    playUiError();
     showNotification("Megaforce costs 2e");
     return;
   }
@@ -2645,6 +2689,7 @@ function handleStoreMouseLook(event) {
 
 function toggleStoreCameraMode() {
   if (gameMode !== "store" || transitionLock || storeState.dead) return;
+  playUiClick();
   storeState.cameraMode = storeState.cameraMode === "first" ? "third" : "first";
   storeState.character.visible = storeState.cameraMode !== "first";
   if (storeState.fist) storeState.fist.visible = storeState.cameraMode === "first";
@@ -4149,6 +4194,7 @@ function cleanPlayerName(value) {
 }
 
 function showNotification(text, hot = false) {
+  if (hot) playTone(880, 0.055, "triangle", 0.025);
   const item = document.createElement("div");
   item.className = `notification${hot ? " hot" : ""}`;
   const label = document.createElement("span");
@@ -4166,6 +4212,7 @@ function submitPlayerName() {
   playerName = cleanPlayerName(playerNameInput.value);
   playerColor = colorForName(playerName);
   localStorage.setItem("policeGetawayName", playerName);
+  playConfirmSound();
   nameScreenEl.classList.add("hidden");
   deviceChoiceEl.classList.remove("hidden");
   showNotification(`${playerName} entered the city`);
@@ -4580,6 +4627,7 @@ function stopMultiplayer() {
 }
 
 function startSingleplayer() {
+  playConfirmSound();
   stopMultiplayer();
   resetGame();
 }
@@ -4621,6 +4669,7 @@ function startHostPeer(attempt = 0, options = {}) {
       startHostPeer(attempt + 1);
       return;
     }
+    playUiError();
     setMenuStatus(publicServer ? "Public server failed. Try again." : "Multiplayer failed. Try again or use Singleplayer.");
     setMultiplayerStatus("Network error");
     updateGameCodeHud();
@@ -4629,15 +4678,18 @@ function startHostPeer(attempt = 0, options = {}) {
 
 function createGame() {
   if (!peerLibraryReady()) {
+    playUiError();
     setMenuStatus("Multiplayer needs internet access. PeerJS did not load.");
     return;
   }
+  playConfirmSound();
   stopMultiplayer();
   multiplayer.mode = "host";
   startHostPeer(0, { publicServer: false });
 }
 
 function showJoinGame() {
+  playConfirmSound();
   joinForm.classList.remove("hidden");
   setMenuStatus("Enter the 6 digit game code.");
   joinCodeInput.value = "";
@@ -4648,13 +4700,16 @@ function joinGame(code, options = {}) {
   const publicServer = !!options.publicServer;
   const cleanCode = publicServer ? PUBLIC_SERVER_CODE : String(code || "").replace(/\D/g, "").slice(0, 6);
   if (!publicServer && cleanCode.length !== 6) {
+    playUiError();
     setMenuStatus("Game code must be 6 numbers.");
     return;
   }
   if (!peerLibraryReady()) {
+    playUiError();
     setMenuStatus("Multiplayer needs internet access. PeerJS did not load.");
     return;
   }
+  playConfirmSound();
 
   stopMultiplayer();
   multiplayer.mode = "client";
@@ -4678,6 +4733,7 @@ function joinGame(code, options = {}) {
           multiplayer.mode = "host";
           startHostPeer(0, { publicServer: true });
         } else {
+          playUiError();
           setMenuStatus("Could not join. Check the code and that host is still in game.");
           setMultiplayerStatus("No host found");
           updateGameCodeHud();
@@ -4686,6 +4742,7 @@ function joinGame(code, options = {}) {
     }, 6000);
   });
   peer.on("error", () => {
+    playUiError();
     setMenuStatus(publicServer ? "Could not join public server. Try again." : "Could not connect to multiplayer. Try again.");
     setMultiplayerStatus("Network error");
     updateGameCodeHud();
@@ -4694,6 +4751,7 @@ function joinGame(code, options = {}) {
 
 function joinPublicServer() {
   if (!peerLibraryReady()) {
+    playUiError();
     setMenuStatus("Multiplayer needs internet access. PeerJS did not load.");
     return;
   }
@@ -4721,6 +4779,7 @@ function sendNetworkState(dt) {
 }
 
 function chooseDevice(device) {
+  playConfirmSound();
   inputState.device = device;
   inputState.mobile = device === "phone";
   deviceChoiceEl.classList.add("hidden");
@@ -4937,6 +4996,9 @@ canvas.addEventListener("contextmenu", (event) => {
 document.addEventListener("pointerlockchange", updatePointerLockHint);
 document.addEventListener("click", (event) => {
   if (event.target.closest("button")) playUiClick();
+});
+document.addEventListener("pointerover", (event) => {
+  if (event.target.closest("button")) playUiHover();
 });
 window.addEventListener("keydown", (event) => {
   unlockAudio();
