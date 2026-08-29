@@ -52,6 +52,7 @@ const scene = new THREE.Scene();
 scene.fog = new THREE.Fog(0xa9c9e5, 460, 1280);
 
 const camera = new THREE.PerspectiveCamera(48, 1, 0.1, 1850);
+scene.add(camera);
 const world = new THREE.Group();
 scene.add(world);
 
@@ -192,12 +193,17 @@ const SMARKET_EXIT = { x: 6000, z: 318, radius: 48 };
 const storeState = {
   group: null,
   character: null,
+  fist: null,
   x: 6000,
   z: 220,
   angle: Math.PI,
   pitch: 0,
   turnVelocity: 0,
   walkCycle: 0,
+  punchCharging: false,
+  punchCharge: 0,
+  punchTimer: 0,
+  lastPunchDamage: 0,
   colliders: [],
 };
 
@@ -1264,6 +1270,26 @@ function makePerson() {
   return group;
 }
 
+function makeFirstPersonFist() {
+  const group = new THREE.Group();
+  group.visible = false;
+
+  const sleeve = makeBox(8, 8, 18, mats.personBody);
+  sleeve.position.set(0, 0, 8);
+  const wrist = makeBox(6, 6, 6, mats.personHead);
+  wrist.position.set(0, 0, -4);
+  const fist = makeBox(10, 8, 9, mats.personHead);
+  fist.position.set(0, 0, -12);
+  const knuckles = makeBox(10, 2, 3, mats.pumpDark);
+  knuckles.position.set(0, 3.8, -16);
+
+  group.add(sleeve, wrist, fist, knuckles);
+  group.position.set(17, -13, -36);
+  group.rotation.set(-0.18, -0.28, 0.08);
+  camera.add(group);
+  return group;
+}
+
 function createSMarketInterior() {
   const group = new THREE.Group();
   group.visible = false;
@@ -1342,6 +1368,7 @@ function createSMarketInterior() {
   character.position.set(storeState.x, 0, storeState.z);
   group.add(character);
   storeState.character = character;
+  storeState.fist = makeFirstPersonFist();
 }
 
 function storeRectCollision(x, z, radius, rect) {
@@ -1428,6 +1455,47 @@ function animateStoreCharacter(dt, moving) {
   character.userData.head.rotation.z = lerp(character.userData.head.rotation.z, side, ease);
 }
 
+function updateStorePunch(dt) {
+  if (!storeState.fist) return;
+  storeState.fist.visible = gameMode === "store" && !transitionLock;
+
+  if (storeState.punchCharging) {
+    storeState.punchCharge = Math.min(1, storeState.punchCharge + dt * 1.55);
+  }
+  storeState.punchTimer = Math.max(0, storeState.punchTimer - dt * 4.7);
+
+  const windup = storeState.punchCharging ? storeState.punchCharge : 0;
+  const strike = storeState.punchTimer > 0 ? Math.sin(storeState.punchTimer * Math.PI) : 0;
+  const settle = 1 - Math.exp(-dt * 14);
+  const wantedX = 17 - strike * 6;
+  const wantedY = -13 + strike * 4;
+  const wantedZ = -36 + windup * 22 - strike * (36 + storeState.lastPunchDamage * 0.16);
+  storeState.fist.position.x = lerp(storeState.fist.position.x, wantedX, settle);
+  storeState.fist.position.y = lerp(storeState.fist.position.y, wantedY, settle);
+  storeState.fist.position.z = lerp(storeState.fist.position.z, wantedZ, settle);
+  storeState.fist.rotation.x = lerp(storeState.fist.rotation.x, -0.18 - windup * 0.62 + strike * 0.42, settle);
+  storeState.fist.rotation.y = lerp(storeState.fist.rotation.y, -0.28 + strike * 0.22, settle);
+  storeState.fist.rotation.z = lerp(storeState.fist.rotation.z, 0.08 + windup * 0.18 - strike * 0.16, settle);
+}
+
+function startStorePunch(event) {
+  if (event.button !== 0 || gameMode !== "store" || transitionLock) return;
+  if (!inputState.mobile && document.pointerLockElement !== canvas) requestStorePointerLock();
+  storeState.punchCharging = true;
+  storeState.punchCharge = 0;
+  storeState.punchTimer = 0;
+}
+
+function releaseStorePunch(event) {
+  if (event.button !== 0 || !storeState.punchCharging) return;
+  storeState.punchCharging = false;
+  storeState.lastPunchDamage = Math.round(18 + storeState.punchCharge * 82);
+  storeState.punchTimer = 1;
+  cameraState.shake = Math.max(cameraState.shake, 0.08 + storeState.punchCharge * 0.24);
+  showNotification(`Punch damage ${storeState.lastPunchDamage}`);
+  storeState.punchCharge = 0;
+}
+
 function updateStoreCamera(dt) {
   const bob = Math.abs(Math.sin(storeState.walkCycle)) * 1.6;
   const pitch = clamp(storeState.pitch, -0.58, 0.52);
@@ -1443,6 +1511,11 @@ function updateStoreCamera(dt) {
   cameraState.position.lerp(desired, 1 - Math.exp(-dt * 16));
   cameraState.target.lerp(target, 1 - Math.exp(-dt * 13));
   camera.position.copy(cameraState.position);
+  if (storeState.punchTimer > 0) {
+    const kick = Math.sin(storeState.punchTimer * Math.PI) * (0.35 + storeState.lastPunchDamage * 0.006);
+    camera.position.x += Math.sin(performance.now() * 0.04) * kick;
+    camera.position.y += kick * 0.4;
+  }
   camera.lookAt(cameraState.target);
   camera.fov = lerp(camera.fov, 66, 1 - Math.exp(-dt * 5));
   camera.updateProjectionMatrix();
@@ -1468,6 +1541,10 @@ function enterStoreMode() {
     storeState.pitch = 0;
     storeState.turnVelocity = 0;
     storeState.walkCycle = 0;
+    storeState.punchCharging = false;
+    storeState.punchCharge = 0;
+    storeState.punchTimer = 0;
+    storeState.lastPunchDamage = 0;
     storeState.character.position.set(storeState.x, 0, storeState.z);
     storeState.character.visible = false;
     cameraState.position.set(storeState.x, 43, storeState.z);
@@ -1497,6 +1574,10 @@ function enterDrivingMode() {
     player.vz = 0;
     player.angle = 0;
     syncVehicle(player);
+    storeState.punchCharging = false;
+    storeState.punchCharge = 0;
+    storeState.punchTimer = 0;
+    if (storeState.fist) storeState.fist.visible = false;
     storeState.character.visible = true;
     storeState.group.visible = false;
     cameraState.position.set(player.x, 210, player.z + 210);
@@ -3671,6 +3752,7 @@ function update(dt) {
     if (chaseTime > 3.2 && cops.length > 0) hintEl.textContent += ` | ${cops.length} cops`;
   } else if (running && !gameOver && gameMode === "store") {
     moveStoreCharacter(dt);
+    updateStorePunch(dt);
   }
   updateWantedMeter();
   updatePoliceLights(dt);
@@ -3694,6 +3776,8 @@ function loop() {
 
 window.addEventListener("resize", resize);
 window.addEventListener("mousemove", handleStoreMouseLook);
+window.addEventListener("mousedown", startStorePunch);
+window.addEventListener("mouseup", releaseStorePunch);
 document.addEventListener("pointerlockchange", updatePointerLockHint);
 window.addEventListener("keydown", (event) => {
   keys.add(event.key.toLowerCase());
