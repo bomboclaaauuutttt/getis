@@ -1019,36 +1019,36 @@ function makeGlowMaterial(color, opacity) {
 }
 
 function addSMarketEntranceGlow(parent, x, z) {
-  const ring = new THREE.Mesh(new THREE.RingGeometry(26, 43, 36), makeGlowMaterial(0x39ff72, 0.72));
-  ring.rotation.x = -Math.PI / 2;
-  ring.position.set(x, 0.72, z - 18);
-  ring.renderOrder = 10;
+  const doorBack = makeBox(108, 48, 4, mats.pumpDark);
+  doorBack.position.set(x, 24, z + 1);
+  const doorLeft = makeBox(39, 39, 3, makeGlowMaterial(0x9cf8df, 0.62));
+  doorLeft.position.set(x - 20, 20, z - 2);
+  const doorRight = makeBox(39, 39, 3, makeGlowMaterial(0x9cf8df, 0.62));
+  doorRight.position.set(x + 20, 20, z - 2);
+  const divider = makeBox(3, 39, 4, mats.marketBlue);
+  divider.position.set(x, 20, z - 3);
 
-  const core = new THREE.Mesh(new THREE.CircleGeometry(28, 36), makeGlowMaterial(0x39ff72, 0.28));
-  core.rotation.x = -Math.PI / 2;
-  core.position.set(x, 0.73, z - 18);
-  core.renderOrder = 9;
+  const leftGlow = makeBox(5, 47, 4, makeGlowMaterial(0x39ff72, 0.72));
+  leftGlow.position.set(x - 56, 24, z - 3);
+  const rightGlow = makeBox(5, 47, 4, makeGlowMaterial(0x39ff72, 0.72));
+  rightGlow.position.set(x + 56, 24, z - 3);
+  const topGlow = makeBox(116, 5, 4, makeGlowMaterial(0x39ff72, 0.74));
+  topGlow.position.set(x, 49, z - 3);
 
-  const beam = makeBox(92, 54, 3, makeGlowMaterial(0x39ff72, 0.42));
-  beam.position.set(x, 27, z);
-  beam.renderOrder = 11;
+  const groundGlow = makePlane(98, 34, makeGlowMaterial(0x39ff72, 0.25), 0.72);
+  groundGlow.position.set(x, 0.72, z - 24);
+  groundGlow.renderOrder = 9;
 
-  const leftPost = makeBox(7, 42, 7, mats.entranceGreenSolid);
-  leftPost.position.set(x - 48, 21, z);
-  const rightPost = makeBox(7, 42, 7, mats.entranceGreenSolid);
-  rightPost.position.set(x + 48, 21, z);
-  const topBar = makeBox(104, 8, 8, mats.entranceGreenSolid);
-  topBar.position.set(x, 45, z);
+  const canopy = makeBox(132, 8, 32, mats.marketBlue);
+  canopy.position.set(x, 55, z - 12);
+  const canopyLight = makeBox(106, 3, 24, makeGlowMaterial(0xb7ffe0, 0.38));
+  canopyLight.position.set(x, 50, z - 13);
 
-  const doorLeft = makeBox(34, 37, 3, makeGlowMaterial(0x8dffd0, 0.72));
-  doorLeft.position.set(x - 17.5, 18.5, z - 2);
-  const doorRight = makeBox(34, 37, 3, makeGlowMaterial(0x8dffd0, 0.72));
-  doorRight.position.set(x + 17.5, 18.5, z - 2);
-
-  const label = makeBox(78, 10, 3, makeGlowMaterial(0x9dffb7, 0.78));
-  label.position.set(x, 56, z - 1);
-  parent.add(core, ring, beam, leftPost, rightPost, topBar, doorLeft, doorRight, label);
-  glowingObjects.push(ring, core, beam, doorLeft, doorRight, label);
+  for (const mesh of [doorLeft, doorRight, leftGlow, rightGlow, topGlow, groundGlow, canopyLight]) {
+    mesh.userData.pulseOpacity = true;
+  }
+  parent.add(doorBack, doorLeft, doorRight, divider, leftGlow, rightGlow, topGlow, groundGlow, canopy, canopyLight);
+  glowingObjects.push(doorLeft, doorRight, leftGlow, rightGlow, topGlow, groundGlow, canopyLight);
 }
 
 function addPump(parent, x, z, colorMat) {
@@ -1149,13 +1149,13 @@ function addSMarket(parent, x, z) {
   sign.renderOrder = 8;
   parent.add(blueFacade, signBack, sign);
 
-  const entryPad = makePlane(170, 70, mats.concrete, 0.22);
-  entryPad.position.set(x - 176, 0.22, z - 46);
+  const entryPad = makePlane(210, 96, mats.concrete, 0.24);
+  entryPad.position.set(x - 176, 0.24, z - 52);
   entryPad.renderOrder = 3;
   parent.add(entryPad);
 
-  const entryFrame = makeBox(112, 46, 4, mats.marketBlue);
-  entryFrame.position.set(x - 176, 23, z - 2);
+  const entryFrame = makeBox(126, 52, 5, mats.marketBlue);
+  entryFrame.position.set(x - 176, 26, z - 2);
   parent.add(entryFrame);
   addSMarketEntranceGlow(parent, x - 176, z - 5);
 
@@ -1166,24 +1166,14 @@ function addSMarket(parent, x, z) {
   }
 
   addParkingBayRow(parent, x - 16, z - 160, 13, 42, 62, 1);
-  addParkingBayRow(parent, x - 16, z - 52, 13, 42, 62, -1);
-  addParkingBayRow(parent, x - 16, z - 24, 13, 42, 62, 1);
   addParkingBayRow(parent, x - 16, z + 84, 13, 42, 62, -1);
   addDashedLaneLine(parent, x - 294, z - 88, x + 274, z - 88, 12);
   addDashedLaneLine(parent, x - 294, z + 48, x + 274, z + 48, 12);
 
-  const hangout = makePlane(210, 82, mats.concrete, 0.23);
-  hangout.position.set(x - 176, 0.23, z - 58);
+  const hangout = makePlane(270, 112, mats.concrete, 0.26);
+  hangout.position.set(x - 176, 0.26, z - 58);
   hangout.renderOrder = 2;
   parent.add(hangout);
-  addParkingStripe(parent, x - 176, z - 86, 170, 4);
-  addParkingStripe(parent, x - 176, z - 31, 170, 4);
-
-  for (const bx of [x - 260, x - 222, x - 184, x - 146, x - 108, x - 70]) {
-    const bollard = new THREE.Mesh(new THREE.CylinderGeometry(1.35, 1.35, 12, 8), mats.marketBlue);
-    bollard.position.set(bx, 6, z - 93);
-    parent.add(bollard);
-  }
 
   for (const [lx, lz] of [[x - 300, z - 130], [x + 250, z - 130], [x - 300, z + 28], [x + 250, z + 28]]) {
     const pole = new THREE.Mesh(new THREE.CylinderGeometry(1.6, 1.6, 56, 8), mats.pumpDark);
@@ -1501,7 +1491,7 @@ function updateGlows(dt) {
       continue;
     }
     const pulse = 0.78 + Math.sin(t + i * 0.7) * 0.16;
-    mesh.scale.setScalar(pulse);
+    if (!mesh.userData.pulseOpacity) mesh.scale.setScalar(pulse);
     if (mesh.material && "opacity" in mesh.material) {
       mesh.material.opacity = clamp(0.22 + pulse * 0.42, 0.2, 0.78);
     }
