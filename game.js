@@ -217,6 +217,7 @@ const storeState = {
   x: 6000,
   z: 220,
   angle: Math.PI,
+  cameraYaw: Math.PI,
   pitch: 0,
   cameraMode: "third",
   turnVelocity: 0,
@@ -1732,14 +1733,18 @@ function moveStoreCharacter(dt) {
   storeState.angle += storeState.turnVelocity * dt;
 
   const walkSpeed = 138;
-  const forwardX = Math.sin(storeState.angle);
-  const forwardZ = Math.cos(storeState.angle);
-  const rightX = -Math.cos(storeState.angle);
-  const rightZ = Math.sin(storeState.angle);
   const moveLen = Math.hypot(moveInput, strafeInput);
   const moving = moveLen > 0.05;
   if (moving) {
     const scale = 1 / Math.max(1, moveLen);
+    const moveYaw = storeState.angle + Math.atan2(-strafeInput, moveInput || 0.0001);
+    if (storeState.cameraMode === "third") {
+      storeState.angle += angleDelta(storeState.angle, moveYaw) * (1 - Math.exp(-dt * 7.5));
+    }
+    const forwardX = Math.sin(storeState.angle);
+    const forwardZ = Math.cos(storeState.angle);
+    const rightX = -Math.cos(storeState.angle);
+    const rightZ = Math.sin(storeState.angle);
     storeState.x += (forwardX * moveInput + rightX * strafeInput) * scale * walkSpeed * dt;
     storeState.z += (forwardZ * moveInput + rightZ * strafeInput) * scale * walkSpeed * dt;
     storeState.walkCycle += moveLen * scale * dt * 8.5;
@@ -2111,8 +2116,12 @@ function updateStoreCamera(dt) {
   const bob = Math.abs(Math.sin(storeState.walkCycle)) * 1.6;
   const firstPersonPitch = clamp(storeState.pitch, -1.52, 1.52);
   const thirdPersonPitch = clamp(storeState.pitch, -0.58, 0.52);
-  const forwardX = Math.sin(storeState.angle);
-  const forwardZ = Math.cos(storeState.angle);
+  if (!Number.isFinite(storeState.cameraYaw)) storeState.cameraYaw = storeState.angle;
+  const yawFollow = storeState.cameraMode === "third" ? 1 - Math.exp(-dt * 8.5) : 1;
+  storeState.cameraYaw += angleDelta(storeState.cameraYaw, storeState.angle) * yawFollow;
+  const cameraYaw = storeState.cameraMode === "third" ? storeState.cameraYaw : storeState.angle;
+  const forwardX = Math.sin(cameraYaw);
+  const forwardZ = Math.cos(cameraYaw);
   let desired;
   let target;
   let followSpeed = 16;
@@ -2181,6 +2190,7 @@ function enterStoreMode() {
     storeState.x = 6000;
     storeState.z = 220;
     storeState.angle = Math.PI;
+    storeState.cameraYaw = storeState.angle;
     storeState.pitch = 0;
     storeState.cameraMode = "third";
     storeState.turnVelocity = 0;
@@ -2287,6 +2297,7 @@ function updatePointerLockHint() {
 function handleStoreMouseLook(event) {
   if (gameMode !== "store" || document.pointerLockElement !== canvas) return;
   storeState.angle -= event.movementX * 0.0027;
+  storeState.cameraYaw = storeState.angle;
   const pitchLimit = storeState.cameraMode === "first" ? 1.52 : 0.58;
   storeState.pitch = clamp(storeState.pitch - event.movementY * 0.0021, -pitchLimit, pitchLimit);
 }
@@ -4418,6 +4429,7 @@ function resetGame() {
   storeState.dead = false;
   storeState.deathY = 0;
   storeState.cameraMode = "third";
+  storeState.cameraYaw = storeState.angle;
   if (storeState.character) storeState.character.rotation.set(0, storeState.angle, 0);
   updateStoreHealthHud();
 
