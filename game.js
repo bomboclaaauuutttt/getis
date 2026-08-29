@@ -187,7 +187,7 @@ let lastWantedNoticeLevel = 0;
 let gameMode = "driving";
 let transitionLock = false;
 
-const SMARKET_ENTRANCE = { x: -646, z: -20, radius: 54 };
+const SMARKET_ENTRANCE = { x: -646, z: 20, radius: 42 };
 const SMARKET_EXIT = { x: 6000, z: 238, radius: 44 };
 const storeState = {
   group: null,
@@ -1021,29 +1021,34 @@ function makeGlowMaterial(color, opacity) {
 function addSMarketEntranceGlow(parent, x, z) {
   const ring = new THREE.Mesh(new THREE.RingGeometry(26, 43, 36), makeGlowMaterial(0x39ff72, 0.72));
   ring.rotation.x = -Math.PI / 2;
-  ring.position.set(x, 0.72, z);
+  ring.position.set(x, 0.72, z - 18);
   ring.renderOrder = 10;
 
   const core = new THREE.Mesh(new THREE.CircleGeometry(28, 36), makeGlowMaterial(0x39ff72, 0.28));
   core.rotation.x = -Math.PI / 2;
-  core.position.set(x, 0.73, z);
+  core.position.set(x, 0.73, z - 18);
   core.renderOrder = 9;
 
-  const beam = makeBox(88, 52, 4, makeGlowMaterial(0x39ff72, 0.36));
-  beam.position.set(x, 27, z + 27);
+  const beam = makeBox(92, 54, 3, makeGlowMaterial(0x39ff72, 0.42));
+  beam.position.set(x, 27, z);
   beam.renderOrder = 11;
 
   const leftPost = makeBox(7, 42, 7, mats.entranceGreenSolid);
-  leftPost.position.set(x - 48, 21, z + 25);
+  leftPost.position.set(x - 48, 21, z);
   const rightPost = makeBox(7, 42, 7, mats.entranceGreenSolid);
-  rightPost.position.set(x + 48, 21, z + 25);
+  rightPost.position.set(x + 48, 21, z);
   const topBar = makeBox(104, 8, 8, mats.entranceGreenSolid);
-  topBar.position.set(x, 45, z + 25);
+  topBar.position.set(x, 45, z);
+
+  const doorLeft = makeBox(34, 37, 3, makeGlowMaterial(0x8dffd0, 0.72));
+  doorLeft.position.set(x - 17.5, 18.5, z - 2);
+  const doorRight = makeBox(34, 37, 3, makeGlowMaterial(0x8dffd0, 0.72));
+  doorRight.position.set(x + 17.5, 18.5, z - 2);
 
   const label = makeBox(78, 10, 3, makeGlowMaterial(0x9dffb7, 0.78));
-  label.position.set(x, 56, z + 22);
-  parent.add(core, ring, beam, leftPost, rightPost, topBar, label);
-  glowingObjects.push(ring, core, beam, label);
+  label.position.set(x, 56, z - 1);
+  parent.add(core, ring, beam, leftPost, rightPost, topBar, doorLeft, doorRight, label);
+  glowingObjects.push(ring, core, beam, doorLeft, doorRight, label);
 }
 
 function addPump(parent, x, z, colorMat) {
@@ -1149,14 +1154,10 @@ function addSMarket(parent, x, z) {
   entryPad.renderOrder = 3;
   parent.add(entryPad);
 
-  const entryFrame = makeBox(104, 42, 5, mats.marketBlue);
-  entryFrame.position.set(x - 176, 22, z + 0.5);
-  const entryGlassLeft = makeBox(42, 34, 2.2, mats.glass);
-  entryGlassLeft.position.set(x - 205, 18, z - 3.2);
-  const entryGlassRight = makeBox(42, 34, 2.2, mats.glass);
-  entryGlassRight.position.set(x - 147, 18, z - 3.2);
-  parent.add(entryFrame, entryGlassLeft, entryGlassRight);
-  addSMarketEntranceGlow(parent, x - 176, z - 62);
+  const entryFrame = makeBox(112, 46, 4, mats.marketBlue);
+  entryFrame.position.set(x - 176, 23, z - 2);
+  parent.add(entryFrame);
+  addSMarketEntranceGlow(parent, x - 176, z - 5);
 
   for (let i = 0; i < 12; i++) {
     const window = makeBox(22, 24, 1.4, mats.glass);
