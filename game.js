@@ -131,6 +131,7 @@ const mats = {
   vendorApron: new THREE.MeshLambertMaterial({ color: 0x159a55 }),
   megaforceBlue: new THREE.MeshBasicMaterial({ color: 0x17a6ff }),
   megaforceGlow: new THREE.MeshBasicMaterial({ color: 0x25ff80, transparent: true, opacity: 0.38, depthWrite: false }),
+  megaforceLiquid: new THREE.MeshBasicMaterial({ color: 0xffd84a, transparent: true, opacity: 0.82, depthWrite: false }),
   personBody: new THREE.MeshLambertMaterial({ color: 0x2f6fd0 }),
   personShirtLight: new THREE.MeshLambertMaterial({ color: 0x4b8dff }),
   personPants: new THREE.MeshLambertMaterial({ color: 0x123d87 }),
@@ -1426,6 +1427,11 @@ function makePerson() {
   drinkCan.rotation.set(1.1, 0.1, 0.05);
   drinkCan.visible = false;
   attachMegaforceModel(drinkCan, 30);
+  const drinkLiquid = makeMegisLiquidStream(0.78);
+  drinkLiquid.position.set(0, -7.5, 0.6);
+  drinkLiquid.rotation.set(0.9, 0, 0.05);
+  drinkLiquid.visible = false;
+  drinkCan.add(drinkLiquid);
   rightArm.add(drinkCan);
 
   detailBox(group, -13.2, 43.5, 0, 4.5, 7, 7, mats.personBody);
@@ -1447,6 +1453,7 @@ function makePerson() {
   group.userData.leftEye = leftEye;
   group.userData.rightEye = rightEye;
   group.userData.drinkCan = drinkCan;
+  group.userData.drinkLiquid = drinkLiquid;
   return group;
 }
 
@@ -1495,14 +1502,70 @@ function makeFirstPersonFist() {
   can.rotation.set(0, 0.18, 0.02);
   can.visible = false;
   attachMegaforceModel(can, 118);
+  const liquid = makeMegisLiquidStream(1.55);
+  liquid.position.set(-4, 4, -58);
+  liquid.rotation.set(0.55, 0.18, -0.22);
+  liquid.visible = false;
 
-  group.add(wrist, fist, knuckles, can);
+  group.add(wrist, fist, knuckles, can, liquid);
   group.userData.can = can;
+  group.userData.liquid = liquid;
   group.position.set(19, -35, -54);
   group.rotation.set(-0.06, -0.18, 0.06);
   group.scale.setScalar(0.48);
   camera.add(group);
   return group;
+}
+
+function makeMegisLiquidStream(scale = 1) {
+  const group = new THREE.Group();
+  const stream = new THREE.Mesh(new THREE.CylinderGeometry(0.7 * scale, 1.05 * scale, 18 * scale, 8), mats.megaforceLiquid.clone());
+  stream.rotation.x = Math.PI * 0.5;
+  stream.position.set(0, 0, 0);
+  const splash = new THREE.Mesh(new THREE.SphereGeometry(1.55 * scale, 8, 6), mats.megaforceLiquid.clone());
+  splash.scale.set(1.45, 0.45, 0.75);
+  splash.position.set(0, -0.25 * scale, -9.5 * scale);
+  const dropletA = new THREE.Mesh(new THREE.SphereGeometry(0.85 * scale, 8, 6), mats.megaforceLiquid.clone());
+  dropletA.position.set(1.5 * scale, -0.8 * scale, -5.6 * scale);
+  const dropletB = new THREE.Mesh(new THREE.SphereGeometry(0.65 * scale, 8, 6), mats.megaforceLiquid.clone());
+  dropletB.position.set(-1.2 * scale, 0.7 * scale, -7.4 * scale);
+  group.add(stream, splash, dropletA, dropletB);
+  group.userData.stream = stream;
+  group.userData.drops = [splash, dropletA, dropletB];
+  return group;
+}
+
+function updateMegisLiquidStream(group, visible, flow, seed = 0) {
+  if (!group) return;
+  group.visible = visible;
+  if (!visible) return;
+  if (group.userData.baseRotationZ === undefined) {
+    group.userData.baseRotationZ = group.rotation.z;
+  }
+  const seedValue = typeof seed === "number"
+    ? seed
+    : String(seed).split("").reduce((sum, char) => sum + char.charCodeAt(0), 0) * 0.013;
+
+  const amount = clamp(flow, 0, 1);
+  const pulse = Math.sin(performance.now() * 0.055 + seedValue) * 0.5 + 0.5;
+  const wobble = Math.sin(performance.now() * 0.032 + seedValue) * 0.08;
+  group.scale.set(0.85 + pulse * 0.2, 0.85 + pulse * 0.14, 0.55 + amount * 0.85);
+  group.rotation.z = group.userData.baseRotationZ + wobble;
+
+  const opacity = 0.38 + amount * 0.44 + pulse * 0.12;
+  group.traverse((child) => {
+    if (child.material) child.material.opacity = clamp(opacity, 0.28, 0.9);
+  });
+  if (group.userData.stream) {
+    group.userData.stream.position.z = -1.5 + pulse * 2.5;
+  }
+  if (group.userData.drops) {
+    group.userData.drops.forEach((drop, index) => {
+      if (drop.userData.baseY === undefined) drop.userData.baseY = drop.position.y;
+      drop.position.y = drop.userData.baseY + Math.sin(performance.now() * 0.04 + seedValue + index) * 0.22;
+      drop.scale.setScalar(0.88 + pulse * 0.2);
+    });
+  }
 }
 
 function makeStoreTextMaterial(title, subtitle, bg = "#157fe0") {
@@ -1817,6 +1880,7 @@ function animateStoreCharacter(dt, moving) {
     character.userData.drinkCan.rotation.x = lerp(character.userData.drinkCan.rotation.x, 0.25 + drinkLift * 0.95, ease);
     character.userData.drinkCan.rotation.z = lerp(character.userData.drinkCan.rotation.z, 0.05 - drinkLift * 0.18, ease);
   }
+  updateMegisLiquidStream(character.userData.drinkLiquid, storeState.drinking && drinkLift > 0.48, drinkLift, 0.3);
 }
 
 function updateStorePunch(dt) {
@@ -1849,6 +1913,7 @@ function updateStorePunch(dt) {
     storeState.fist.userData.can.rotation.x = lerp(storeState.fist.userData.can.rotation.x, drinkLift * 1.08, settle);
     storeState.fist.userData.can.rotation.z = lerp(storeState.fist.userData.can.rotation.z, 0.02 + drinkLift * 0.32, settle);
   }
+  updateMegisLiquidStream(storeState.fist.userData.liquid, storeState.drinking && drinkLift > 0.42, drinkLift, 1.2);
 
   storeState.damageTimer = Math.max(0, storeState.damageTimer - dt * 1.75);
   storeState.damageShake = Math.max(0, storeState.damageShake - dt * 4.4);
@@ -2191,6 +2256,7 @@ function animateRemoteStoreCharacter(remote, dt, moving) {
     character.userData.drinkCan.rotation.x = lerp(character.userData.drinkCan.rotation.x, 0.25 + drinkLift * 0.95, ease);
     character.userData.drinkCan.rotation.z = lerp(character.userData.drinkCan.rotation.z, 0.05 - drinkLift * 0.18, ease);
   }
+  updateMegisLiquidStream(character.userData.drinkLiquid, !!target.drinking && drinkLift > 0.48, drinkLift, remote.id || 0);
 }
 
 function updateStoreCamera(dt) {
