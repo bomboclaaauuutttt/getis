@@ -1703,6 +1703,7 @@ function makeFirstPersonFist() {
   can.position.set(-10.5, 12.5, -83);
   can.rotation.set(0, 0.18, 0.02);
   can.visible = false;
+  can.userData.firstPersonOverlay = true;
   attachMegaforceModel(can, 118);
   const liquid = makeMegisLiquidStream(1.55);
   liquid.position.set(-4, 4, -92);
@@ -1710,6 +1711,7 @@ function makeFirstPersonFist() {
   liquid.visible = false;
 
   group.add(arm, fist, can, liquid);
+  makeFirstPersonOverlay(group);
   group.userData.can = can;
   group.userData.liquid = liquid;
   group.position.set(18, -38, -46);
@@ -1768,6 +1770,21 @@ function updateMegisLiquidStream(group, visible, flow, seed = 0) {
       drop.scale.setScalar(0.88 + pulse * 0.2);
     });
   }
+}
+
+function makeFirstPersonOverlay(root) {
+  root.traverse((child) => {
+    child.renderOrder = 900;
+    if (!child.material) return;
+    const materials = Array.isArray(child.material) ? child.material : [child.material];
+    const cloned = materials.map((material) => {
+      const copy = material.clone();
+      copy.depthTest = false;
+      copy.depthWrite = false;
+      return copy;
+    });
+    child.material = Array.isArray(child.material) ? cloned : cloned[0];
+  });
 }
 
 function makeStoreTextMaterial(title, subtitle, bg = "#157fe0") {
@@ -1856,8 +1873,10 @@ function loadMegaforceTemplate(callback) {
 function attachMegaforceModel(parent, targetSize) {
   const fallback = addMegaforceFallback(parent);
   fallback.scale.setScalar(targetSize / 34);
+  if (parent.userData.firstPersonOverlay) makeFirstPersonOverlay(fallback);
   loadMegaforceTemplate((source) => {
     const model = fitMegaforceModelToMount(source, targetSize);
+    if (parent.userData.firstPersonOverlay) makeFirstPersonOverlay(model);
     fallback.visible = false;
     parent.add(model);
   });
@@ -2103,9 +2122,10 @@ function updateStorePunch(dt) {
   const drinkSip = storeState.drinking ? Math.sin(performance.now() * 0.02) * 0.9 : 0;
   const carryingDrink = storeState.hasMegaforce || storeState.drinking;
   const settle = 1 - Math.exp(-dt * 14);
+  const lookDownGuard = clamp(-storeState.pitch / 1.52, 0, 1);
   const wantedX = carryingDrink ? 18 : 19 - strike * 5;
-  const wantedY = carryingDrink ? -32 + drinkLift * 14 + drinkSip : -33 + strike * 3;
-  const wantedZ = carryingDrink ? -66 + drinkLift * 24 : -70 + windup * 18 - strike * (32 + storeState.lastPunchDamage * 0.13);
+  const wantedY = (carryingDrink ? -32 + drinkLift * 14 + drinkSip : -33 + strike * 3) + lookDownGuard * 42;
+  const wantedZ = (carryingDrink ? -66 + drinkLift * 24 : -70 + windup * 18 - strike * (32 + storeState.lastPunchDamage * 0.13)) + lookDownGuard * 18;
   storeState.fist.position.x = lerp(storeState.fist.position.x, wantedX, settle);
   storeState.fist.position.y = lerp(storeState.fist.position.y, wantedY, settle);
   storeState.fist.position.z = lerp(storeState.fist.position.z, wantedZ, settle);
@@ -2113,6 +2133,10 @@ function updateStorePunch(dt) {
   storeState.fist.rotation.y = lerp(storeState.fist.rotation.y, carryingDrink ? -0.1 + drinkLift * 0.08 : -0.2 + strike * 0.18, settle);
   storeState.fist.rotation.z = lerp(storeState.fist.rotation.z, carryingDrink ? 0.16 + drinkLift * 0.22 : 0.06 + windup * 0.14 - strike * 0.13, settle);
   if (storeState.fist.userData.can) {
+    if (!storeState.fist.userData.canOverlayApplied) {
+      makeFirstPersonOverlay(storeState.fist.userData.can);
+      storeState.fist.userData.canOverlayApplied = true;
+    }
     storeState.fist.userData.can.visible = carryingDrink;
     storeState.fist.userData.can.rotation.x = lerp(storeState.fist.userData.can.rotation.x, drinkLift * 1.08, settle);
     storeState.fist.userData.can.rotation.z = lerp(storeState.fist.userData.can.rotation.z, 0.02 + drinkLift * 0.32, settle);
