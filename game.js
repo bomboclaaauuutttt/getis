@@ -1454,7 +1454,6 @@ function vehicleRectCollision(v, c) {
 }
 
 function collideWorld(v) {
-  if (isParking(v.x, v.z)) return;
   for (const c of colliders) {
     if (c.disabled) continue;
     if (Math.hypot(v.x - c.x, v.z - c.z) > (c.r || 55) + 55) continue;
