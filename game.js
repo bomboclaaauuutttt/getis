@@ -188,12 +188,12 @@ let gameMode = "driving";
 let transitionLock = false;
 
 const SMARKET_ENTRANCE = { x: -646, z: 20, radius: 42 };
-const SMARKET_EXIT = { x: 6000, z: 238, radius: 44 };
+const SMARKET_EXIT = { x: 6000, z: 318, radius: 48 };
 const storeState = {
   group: null,
   character: null,
   x: 6000,
-  z: 170,
+  z: 220,
   angle: 0,
   colliders: [],
 };
@@ -1225,15 +1225,49 @@ function addStoreBox(parent, x, z, w, h, d, material, solid = true) {
 
 function makePerson() {
   const group = new THREE.Group();
-  const body = new THREE.Mesh(new THREE.CylinderGeometry(7, 8, 21, 12), mats.personBody);
-  body.position.y = 18;
-  const head = new THREE.Mesh(new THREE.SphereGeometry(6.5, 14, 10), mats.personHead);
-  head.position.y = 33;
-  const footLeft = makeBox(4, 3, 8, mats.pumpDark);
-  footLeft.position.set(-4, 1.5, -2);
-  const footRight = makeBox(4, 3, 8, mats.pumpDark);
-  footRight.position.set(4, 1.5, -2);
-  group.add(body, head, footLeft, footRight);
+
+  const hips = makeBox(17, 7, 10, mats.personBody);
+  hips.position.set(0, 17, 0);
+  const torso = makeBox(19, 23, 11, mats.personBody);
+  torso.position.set(0, 30, 0);
+  const neck = makeBox(7, 4, 6, mats.personHead);
+  neck.position.set(0, 44, 0);
+  const head = new THREE.Mesh(new THREE.SphereGeometry(7.2, 16, 12), mats.personHead);
+  head.position.set(0, 52, 0);
+  const hair = makeBox(13, 4, 11, mats.pumpDark);
+  hair.position.set(0, 58, -1);
+
+  function limb(w, h, d, material, foot = false) {
+    const pivot = new THREE.Group();
+    const mesh = makeBox(w, h, d, material);
+    mesh.position.y = -h * 0.5;
+    pivot.add(mesh);
+    if (foot) {
+      const shoe = makeBox(w + 1.5, 3, d + 5, mats.pumpDark);
+      shoe.position.set(0, -h - 1.5, -2.5);
+      pivot.add(shoe);
+    }
+    return pivot;
+  }
+
+  const leftArm = limb(5, 24, 5, mats.personHead);
+  leftArm.position.set(-13, 40, 0);
+  const rightArm = limb(5, 24, 5, mats.personHead);
+  rightArm.position.set(13, 40, 0);
+  const leftLeg = limb(6, 22, 6, mats.personBody, true);
+  leftLeg.position.set(-5, 17, 0);
+  const rightLeg = limb(6, 22, 6, mats.personBody, true);
+  rightLeg.position.set(5, 17, 0);
+
+  const face = makeBox(8, 3, 1.2, mats.glass);
+  face.position.set(0, 52, -6.6);
+
+  group.add(hips, torso, neck, head, hair, face, leftArm, rightArm, leftLeg, rightLeg);
+  group.userData.leftArm = leftArm;
+  group.userData.rightArm = rightArm;
+  group.userData.leftLeg = leftLeg;
+  group.userData.rightLeg = rightLeg;
+  group.userData.head = head;
   return group;
 }
 
@@ -1244,31 +1278,63 @@ function createSMarketInterior() {
   storeState.group = group;
   storeState.colliders.length = 0;
 
-  const floor = makePlane(520, 360, mats.storeFloor, 0.06);
+  const floor = makePlane(760, 560, mats.storeFloor, 0.06);
   floor.position.set(6000, 0.06, 0);
   group.add(floor);
 
-  addStoreBox(group, 6000, -184, 540, 48, 18, mats.storeWall);
-  addStoreBox(group, 6000, 184, 540, 48, 18, mats.storeWall);
-  addStoreBox(group, 5728, 0, 18, 48, 360, mats.storeWall);
-  addStoreBox(group, 6272, 0, 18, 48, 360, mats.storeWall);
+  addStoreBox(group, 6000, -286, 790, 58, 18, mats.storeWall);
+  addStoreBox(group, 6000, 286, 790, 58, 18, mats.storeWall);
+  addStoreBox(group, 5604, 0, 18, 58, 560, mats.storeWall);
+  addStoreBox(group, 6396, 0, 18, 58, 560, mats.storeWall);
 
-  for (const x of [5850, 5925, 6000, 6075, 6150]) {
-    addStoreBox(group, x, -74, 42, 26, 118, mats.shelf);
-    addStoreBox(group, x, 72, 42, 26, 118, mats.shelf);
-    for (let i = 0; i < 4; i++) {
-      const product = makeBox(10, 6, 10, i % 2 ? mats.productYellow : mats.productRed);
-      product.position.set(x - 14 + i * 9, 31, -112);
-      group.add(product);
-      const product2 = makeBox(10, 6, 10, i % 2 ? mats.productRed : mats.productYellow);
-      product2.position.set(x - 14 + i * 9, 31, 110);
-      group.add(product2);
+  const entranceMat = makeGlowMaterial(0x39ff72, 0.42);
+  const innerEntry = makeBox(116, 42, 4, entranceMat);
+  innerEntry.position.set(6000, 22, 278);
+  group.add(innerEntry);
+  glowingObjects.push(innerEntry);
+
+  for (const z of [-120, 30]) {
+    for (const x of [5795, 5925, 6055, 6185]) {
+      addStoreBox(group, x, z, 72, 26, 86, mats.shelf);
+      for (let i = 0; i < 5; i++) {
+        const product = makeBox(10, 6, 12, i % 2 ? mats.productYellow : mats.productRed);
+        product.position.set(x - 24 + i * 12, 31, z - 35);
+        group.add(product);
+        const product2 = makeBox(10, 6, 12, i % 2 ? mats.productRed : mats.productYellow);
+        product2.position.set(x - 24 + i * 12, 31, z + 35);
+        group.add(product2);
+      }
+      const shelfTop = makeBox(70, 2, 84, mats.marketBlue);
+      shelfTop.position.set(x, 40, z);
+      group.add(shelfTop);
     }
   }
 
-  addStoreBox(group, 5795, 136, 86, 22, 38, mats.cashier);
-  addStoreBox(group, 5898, 136, 86, 22, 38, mats.cashier);
-  addStoreBox(group, 6215, -130, 78, 34, 42, mats.glass);
+  for (const x of [5705, 5765, 5825]) {
+    addStoreBox(group, x, 175, 46, 22, 64, mats.cashier);
+    const belt = makeBox(40, 3, 42, mats.pumpDark);
+    belt.position.set(x, 25, 174);
+    group.add(belt);
+  }
+
+  for (const x of [6255, 6315]) {
+    addStoreBox(group, x, -160, 48, 48, 102, mats.glass);
+    const handle = makeBox(2, 26, 3, mats.curb);
+    handle.position.set(x - 15, 26, -211);
+    group.add(handle);
+  }
+
+  const produceTable = addStoreBox(group, 6290, 88, 118, 18, 72, mats.field);
+  produceTable.position.y = 9;
+  for (let i = 0; i < 12; i++) {
+    const fruit = new THREE.Mesh(new THREE.SphereGeometry(5, 10, 8), i % 3 ? mats.productRed : mats.productYellow);
+    fruit.position.set(6242 + (i % 6) * 18, 23, 66 + Math.floor(i / 6) * 28);
+    group.add(fruit);
+  }
+
+  const sign = makeBox(170, 18, 5, mats.marketBlue);
+  sign.position.set(6000, 54, -274);
+  group.add(sign);
 
   const exitRing = new THREE.Mesh(new THREE.RingGeometry(24, 40, 32), makeGlowMaterial(0x39ff72, 0.72));
   exitRing.rotation.x = -Math.PI / 2;
@@ -1316,6 +1382,7 @@ function moveStoreCharacter(dt) {
   if (keys.has("s") || keys.has("arrowdown")) dz += 1;
 
   const length = Math.hypot(dx, dz);
+  const moving = length > 0.02;
   if (length > 0) {
     dx /= length;
     dz /= length;
@@ -1332,24 +1399,41 @@ function moveStoreCharacter(dt) {
     storeState.z += hit.nz * (hit.overlap + 0.4);
   }
 
-  storeState.x = clamp(storeState.x, 5755, 6245);
-  storeState.z = clamp(storeState.z, -152, 238);
+  storeState.x = clamp(storeState.x, 5628, 6372);
+  storeState.z = clamp(storeState.z, -252, 318);
   storeState.character.position.set(storeState.x, 0, storeState.z);
   storeState.character.rotation.y = storeState.angle;
+  animateStoreCharacter(dt, moving);
 
   if (Math.hypot(storeState.x - SMARKET_EXIT.x, storeState.z - SMARKET_EXIT.z) < SMARKET_EXIT.radius && !transitionLock) {
     enterDrivingMode();
   }
 }
 
+function animateStoreCharacter(dt, moving) {
+  const character = storeState.character;
+  if (!character) return;
+  const t = performance.now() * 0.009;
+  const swing = moving ? Math.sin(t) * 0.72 : 0;
+  const side = moving ? Math.sin(t * 2) * 0.05 : 0;
+  const bounce = moving ? Math.abs(Math.sin(t)) * 1.8 : 0;
+  const ease = 1 - Math.exp(-dt * 12);
+  character.position.y = lerp(character.position.y, bounce, ease);
+  character.userData.leftArm.rotation.x = lerp(character.userData.leftArm.rotation.x, swing, ease);
+  character.userData.rightArm.rotation.x = lerp(character.userData.rightArm.rotation.x, -swing, ease);
+  character.userData.leftLeg.rotation.x = lerp(character.userData.leftLeg.rotation.x, -swing * 0.82, ease);
+  character.userData.rightLeg.rotation.x = lerp(character.userData.rightLeg.rotation.x, swing * 0.82, ease);
+  character.userData.head.rotation.z = lerp(character.userData.head.rotation.z, side, ease);
+}
+
 function updateStoreCamera(dt) {
-  const desired = new THREE.Vector3(storeState.x, 285, storeState.z + 245);
+  const desired = new THREE.Vector3(storeState.x, 340, storeState.z + 320);
   const target = new THREE.Vector3(storeState.x, 0, storeState.z - 26);
   cameraState.position.lerp(desired, 1 - Math.exp(-dt * 5.4));
   cameraState.target.lerp(target, 1 - Math.exp(-dt * 7));
   camera.position.copy(cameraState.position);
   camera.lookAt(cameraState.target);
-  camera.fov = lerp(camera.fov, 48, 1 - Math.exp(-dt * 4));
+  camera.fov = lerp(camera.fov, 53, 1 - Math.exp(-dt * 4));
   camera.updateProjectionMatrix();
 }
 
@@ -1368,10 +1452,10 @@ function enterStoreMode() {
     storeState.group.visible = true;
     minimapEl.classList.add("hidden");
     storeState.x = 6000;
-    storeState.z = 170;
+    storeState.z = 220;
     storeState.angle = 0;
     storeState.character.position.set(storeState.x, 0, storeState.z);
-    cameraState.position.set(storeState.x, 285, storeState.z + 245);
+    cameraState.position.set(storeState.x, 340, storeState.z + 320);
     cameraState.target.set(storeState.x, 0, storeState.z - 26);
     hintEl.textContent = inputState.mobile ? "Joystick walk | green circle exits" : "WASD walk | green circle exits";
     arrestFx.style.opacity = "0";
