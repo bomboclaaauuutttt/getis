@@ -1438,25 +1438,50 @@ function makeFirstPersonFist() {
   const group = new THREE.Group();
   group.visible = false;
 
-  const sleeve = makeBox(8, 8, 18, mats.personBody);
-  sleeve.position.set(0, 0, 8);
-  const cuff = makeBox(8.8, 8.8, 2.5, mats.personShirtLight);
-  cuff.position.set(0, 0, -1.2);
-  const wrist = makeBox(6, 6, 6, mats.personSkinShadow);
-  wrist.position.set(0, 0, -4);
-  const fist = makeBox(10, 8, 9, mats.personHead);
-  fist.position.set(0, 0, -12);
-  const knuckles = makeBox(10, 2, 3, mats.personSkinShadow);
-  knuckles.position.set(0, 3.8, -16);
+  function armCylinder(radiusTop, radiusBottom, length, material, z, x = 0, y = 0) {
+    const mesh = new THREE.Mesh(new THREE.CylinderGeometry(radiusTop, radiusBottom, length, 14), material);
+    mesh.rotation.x = Math.PI * 0.5;
+    mesh.position.set(x, y, z);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    group.add(mesh);
+    return mesh;
+  }
+
+  const upperSleeve = armCylinder(4.2, 5.2, 17, mats.personBody, 8, 0.5, -0.2);
+  upperSleeve.rotation.z = -0.08;
+  const forearmSleeve = armCylinder(3.35, 4.15, 20, mats.personShirtLight, -7, 0, 0);
+  forearmSleeve.rotation.z = 0.06;
+  const cuff = armCylinder(3.8, 3.8, 3.2, mats.personBody, -18.6, 0, 0);
+  const wrist = armCylinder(2.65, 2.95, 5.2, mats.personSkinShadow, -22.2, 0, 0);
+  const fist = new THREE.Mesh(new THREE.SphereGeometry(5.4, 14, 10), mats.personHead);
+  fist.scale.set(1.05, 0.86, 1.15);
+  fist.position.set(0, 0, -28.2);
+  fist.castShadow = true;
+  fist.receiveShadow = true;
+  const knuckles = new THREE.Group();
+  for (let i = 0; i < 4; i++) {
+    const knuckle = new THREE.Mesh(new THREE.SphereGeometry(1.35, 8, 6), mats.personSkinShadow);
+    knuckle.scale.set(1, 0.72, 0.75);
+    knuckle.position.set(-3.3 + i * 2.2, 2.8, -32.6);
+    knuckle.castShadow = true;
+    knuckles.add(knuckle);
+  }
+  const thumb = new THREE.Mesh(new THREE.SphereGeometry(2.05, 8, 6), mats.personSkinShadow);
+  thumb.scale.set(0.8, 1.05, 1.35);
+  thumb.position.set(5.0, -0.6, -28.6);
+  thumb.rotation.z = -0.45;
+  thumb.castShadow = true;
+  knuckles.add(thumb);
   const can = new THREE.Mesh(new THREE.CylinderGeometry(2.4, 2.4, 8, 12), mats.megaforceBlue);
-  can.position.set(6, 1, -13);
+  can.position.set(5.8, 1.1, -29.4);
   can.rotation.x = Math.PI * 0.5;
   can.visible = false;
 
-  group.add(sleeve, cuff, wrist, fist, knuckles, can);
+  group.add(fist, knuckles, can);
   group.userData.can = can;
-  group.position.set(17, -13, -36);
-  group.rotation.set(-0.18, -0.28, 0.08);
+  group.position.set(15, -14, -24);
+  group.rotation.set(-0.14, -0.22, 0.08);
   camera.add(group);
   return group;
 }
