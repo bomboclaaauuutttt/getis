@@ -227,6 +227,8 @@ const storeState = {
   punchCharging: false,
   punchCharge: 0,
   punchTimer: 0,
+  punchCooldown: 0,
+  punchCooldownDuration: 0.72,
   lastPunchDamage: 0,
   damageTimer: 0,
   damageShake: 0,
@@ -1461,56 +1463,31 @@ function makeFirstPersonFist() {
   const group = new THREE.Group();
   group.visible = false;
 
-  function armCylinder(radiusTop, radiusBottom, length, material, z, x = 0, y = 0) {
-    const mesh = new THREE.Mesh(new THREE.CylinderGeometry(radiusTop, radiusBottom, length, 14), material);
-    mesh.rotation.x = Math.PI * 0.5;
-    mesh.position.set(x, y, z);
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-    group.add(mesh);
-    return mesh;
-  }
-
-  const sleeve = armCylinder(3.2, 4.35, 62, mats.personShirtLight, -6, 0, 0);
-  sleeve.rotation.z = 0.04;
-  const wrist = new THREE.Mesh(new THREE.SphereGeometry(2.6, 10, 8), mats.personSkinShadow);
-  wrist.scale.set(0.9, 0.8, 1.15);
-  wrist.position.set(0, 0, -37);
-  wrist.castShadow = true;
-  wrist.receiveShadow = true;
-  const fist = new THREE.Mesh(new THREE.SphereGeometry(4.8, 14, 10), mats.personHead);
-  fist.scale.set(1.05, 0.86, 1.15);
-  fist.position.set(0, 0, -43);
+  const arm = new THREE.Mesh(new THREE.CylinderGeometry(3.2, 4.1, 118, 18), mats.personShirtLight);
+  arm.rotation.x = Math.PI * 0.5;
+  arm.rotation.z = 0.03;
+  arm.position.set(0, 0, -18);
+  arm.castShadow = true;
+  arm.receiveShadow = true;
+  const fist = new THREE.Mesh(new THREE.SphereGeometry(5.25, 16, 12), mats.personHead);
+  fist.scale.set(1.12, 0.9, 1.18);
+  fist.position.set(0, 0, -78);
   fist.castShadow = true;
   fist.receiveShadow = true;
-  const knuckles = new THREE.Group();
-  for (let i = 0; i < 4; i++) {
-    const knuckle = new THREE.Mesh(new THREE.SphereGeometry(1.35, 8, 6), mats.personSkinShadow);
-    knuckle.scale.set(1, 0.72, 0.75);
-    knuckle.position.set(-2.9 + i * 1.95, 2.5, -46.8);
-    knuckle.castShadow = true;
-    knuckles.add(knuckle);
-  }
-  const thumb = new THREE.Mesh(new THREE.SphereGeometry(2.05, 8, 6), mats.personSkinShadow);
-  thumb.scale.set(0.8, 1.05, 1.35);
-  thumb.position.set(4.4, -0.55, -43.6);
-  thumb.rotation.z = -0.45;
-  thumb.castShadow = true;
-  knuckles.add(thumb);
   const can = new THREE.Group();
-  can.position.set(-10.5, 12.5, -49);
+  can.position.set(-10.5, 12.5, -83);
   can.rotation.set(0, 0.18, 0.02);
   can.visible = false;
   attachMegaforceModel(can, 118);
   const liquid = makeMegisLiquidStream(1.55);
-  liquid.position.set(-4, 4, -58);
+  liquid.position.set(-4, 4, -92);
   liquid.rotation.set(0.55, 0.18, -0.22);
   liquid.visible = false;
 
-  group.add(wrist, fist, knuckles, can, liquid);
+  group.add(arm, fist, can, liquid);
   group.userData.can = can;
   group.userData.liquid = liquid;
-  group.position.set(19, -35, -54);
+  group.position.set(18, -38, -46);
   group.rotation.set(-0.06, -0.18, 0.06);
   group.scale.setScalar(0.48);
   camera.add(group);
@@ -1891,6 +1868,7 @@ function updateStorePunch(dt) {
     storeState.punchCharge = Math.min(1, storeState.punchCharge + dt * 1.55);
   }
   storeState.punchTimer = Math.max(0, storeState.punchTimer - dt * 4.7);
+  storeState.punchCooldown = Math.max(0, storeState.punchCooldown - dt);
 
   const windup = storeState.punchCharging ? storeState.punchCharge : 0;
   const strike = storeState.punchTimer > 0 ? Math.sin(storeState.punchTimer * Math.PI) : 0;
@@ -1922,6 +1900,7 @@ function updateStorePunch(dt) {
 
 function startStorePunch(event) {
   if (event.button !== 0 || gameMode !== "store" || transitionLock || storeState.dead) return;
+  if (storeState.punchCooldown > 0 || storeState.drinking) return;
   if (!inputState.mobile && document.pointerLockElement !== canvas) requestStorePointerLock();
   storeState.punchCharging = true;
   storeState.punchCharge = 0;
@@ -1936,6 +1915,7 @@ function startStoreDrink(event) {
   storeState.drinking = true;
   storeState.punchCharging = false;
   storeState.punchTimer = 0;
+  storeState.punchCooldown = 0;
 }
 
 function storeMegaforceDistance() {
@@ -2069,6 +2049,7 @@ function releaseStorePunch(event) {
   storeState.punchCharging = false;
   storeState.lastPunchDamage = Math.round(18 + storeState.punchCharge * 82);
   storeState.punchTimer = 1;
+  storeState.punchCooldown = storeState.punchCooldownDuration;
   cameraState.shake = Math.max(cameraState.shake, 0.08 + storeState.punchCharge * 0.24);
   const hit = findStorePunchTarget(storeState.lastPunchDamage);
   showNotification(hit ? `Hit ${hit.name} for ${storeState.lastPunchDamage}` : `Punch damage ${storeState.lastPunchDamage}`);
@@ -2164,6 +2145,7 @@ function killStorePlayer(attacker, message = {}) {
   storeState.punchCharging = false;
   storeState.punchCharge = 0;
   storeState.punchTimer = 0;
+  storeState.punchCooldown = 0;
   if (storeState.fist) storeState.fist.visible = false;
   if (document.pointerLockElement === canvas) document.exitPointerLock();
 
@@ -2363,6 +2345,7 @@ function enterStoreMode() {
     storeState.punchCharging = false;
     storeState.punchCharge = 0;
     storeState.punchTimer = 0;
+    storeState.punchCooldown = 0;
     storeState.lastPunchDamage = 0;
     storeState.damageTimer = 0;
     storeState.damageShake = 0;
@@ -2422,6 +2405,7 @@ function enterDrivingMode() {
     storeState.punchCharging = false;
     storeState.punchCharge = 0;
     storeState.punchTimer = 0;
+    storeState.punchCooldown = 0;
     storeState.hasMegaforce = false;
     storeState.drinking = false;
     storeState.drinkProgress = 0;
