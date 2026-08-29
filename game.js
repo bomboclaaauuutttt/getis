@@ -194,7 +194,9 @@ const storeState = {
   character: null,
   x: 6000,
   z: 220,
-  angle: 0,
+  angle: Math.PI,
+  turnVelocity: 0,
+  walkCycle: 0,
   colliders: [],
 };
 
@@ -1364,21 +1366,27 @@ function storeRectCollision(x, z, radius, rect) {
 }
 
 function moveStoreCharacter(dt) {
-  let dx = inputState.mobile ? inputState.steer : 0;
-  let dz = inputState.mobile ? -inputState.throttle : 0;
-  if (keys.has("a") || keys.has("arrowleft")) dx -= 1;
-  if (keys.has("d") || keys.has("arrowright")) dx += 1;
-  if (keys.has("w") || keys.has("arrowup")) dz -= 1;
-  if (keys.has("s") || keys.has("arrowdown")) dz += 1;
+  const steerInput = inputState.mobile
+    ? inputState.steer
+    : (keys.has("a") || keys.has("arrowleft") ? 1 : 0) + (keys.has("d") || keys.has("arrowright") ? -1 : 0);
+  const moveInput = inputState.mobile
+    ? inputState.throttle
+    : (keys.has("w") || keys.has("arrowup") ? 1 : 0) + (keys.has("s") || keys.has("arrowdown") ? -1 : 0);
 
-  const length = Math.hypot(dx, dz);
-  const moving = length > 0.02;
-  if (length > 0) {
-    dx /= length;
-    dz /= length;
-    storeState.x += dx * 128 * dt;
-    storeState.z += dz * 128 * dt;
-    storeState.angle = Math.atan2(dx, dz);
+  const targetTurnVelocity = steerInput * 2.35;
+  storeState.turnVelocity = lerp(storeState.turnVelocity, targetTurnVelocity, 1 - Math.exp(-dt * 8));
+  storeState.angle += storeState.turnVelocity * dt;
+
+  const walkSpeed = 138;
+  const forwardX = Math.sin(storeState.angle);
+  const forwardZ = Math.cos(storeState.angle);
+  const moving = Math.abs(moveInput) > 0.05;
+  if (moving) {
+    storeState.x += forwardX * moveInput * walkSpeed * dt;
+    storeState.z += forwardZ * moveInput * walkSpeed * dt;
+    storeState.walkCycle += Math.abs(moveInput) * dt * 8.5;
+  } else {
+    storeState.walkCycle = lerp(storeState.walkCycle, Math.round(storeState.walkCycle / Math.PI) * Math.PI, 1 - Math.exp(-dt * 5));
   }
 
   const radius = 13;
@@ -1403,7 +1411,7 @@ function moveStoreCharacter(dt) {
 function animateStoreCharacter(dt, moving) {
   const character = storeState.character;
   if (!character) return;
-  const t = performance.now() * 0.009;
+  const t = storeState.walkCycle;
   const swing = moving ? Math.sin(t) * 0.72 : 0;
   const side = moving ? Math.sin(t * 2) * 0.05 : 0;
   const bounce = moving ? Math.abs(Math.sin(t)) * 1.8 : 0;
@@ -1417,13 +1425,20 @@ function animateStoreCharacter(dt, moving) {
 }
 
 function updateStoreCamera(dt) {
-  const desired = new THREE.Vector3(storeState.x, 340, storeState.z + 320);
-  const target = new THREE.Vector3(storeState.x, 0, storeState.z - 26);
-  cameraState.position.lerp(desired, 1 - Math.exp(-dt * 5.4));
-  cameraState.target.lerp(target, 1 - Math.exp(-dt * 7));
+  const bob = Math.abs(Math.sin(storeState.walkCycle)) * 1.6;
+  const forwardX = Math.sin(storeState.angle);
+  const forwardZ = Math.cos(storeState.angle);
+  const desired = new THREE.Vector3(storeState.x, 43 + bob, storeState.z);
+  const target = new THREE.Vector3(
+    storeState.x + forwardX * 95,
+    39 + bob * 0.35,
+    storeState.z + forwardZ * 95
+  );
+  cameraState.position.lerp(desired, 1 - Math.exp(-dt * 16));
+  cameraState.target.lerp(target, 1 - Math.exp(-dt * 13));
   camera.position.copy(cameraState.position);
   camera.lookAt(cameraState.target);
-  camera.fov = lerp(camera.fov, 53, 1 - Math.exp(-dt * 4));
+  camera.fov = lerp(camera.fov, 66, 1 - Math.exp(-dt * 5));
   camera.updateProjectionMatrix();
 }
 
@@ -1443,11 +1458,14 @@ function enterStoreMode() {
     minimapEl.classList.add("hidden");
     storeState.x = 6000;
     storeState.z = 220;
-    storeState.angle = 0;
+    storeState.angle = Math.PI;
+    storeState.turnVelocity = 0;
+    storeState.walkCycle = 0;
     storeState.character.position.set(storeState.x, 0, storeState.z);
-    cameraState.position.set(storeState.x, 340, storeState.z + 320);
-    cameraState.target.set(storeState.x, 0, storeState.z - 26);
-    hintEl.textContent = inputState.mobile ? "Joystick walk | green circle exits" : "WASD walk | green circle exits";
+    storeState.character.visible = false;
+    cameraState.position.set(storeState.x, 43, storeState.z);
+    cameraState.target.set(storeState.x, 39, storeState.z - 95);
+    hintEl.textContent = inputState.mobile ? "Joystick walk + turn | green exit" : "W/S walk, A/D turn | green exit";
     arrestFx.style.opacity = "0";
     window.setTimeout(() => {
       setTransition(false);
@@ -1471,6 +1489,7 @@ function enterDrivingMode() {
     player.vz = 0;
     player.angle = 0;
     syncVehicle(player);
+    storeState.character.visible = true;
     storeState.group.visible = false;
     cameraState.position.set(player.x, 210, player.z + 210);
     cameraState.target.set(player.x, 0, player.z - 28);
