@@ -190,6 +190,21 @@ body {
   transition: opacity 120ms linear;
 }
 
+#damageFx {
+  position: fixed;
+  inset: 0;
+  z-index: 9;
+  pointer-events: none;
+  opacity: 0;
+  background:
+    radial-gradient(circle at 50% 48%, transparent 0 38%, rgba(130, 0, 0, 0.34) 70%, rgba(80, 0, 0, 0.62) 100%),
+    radial-gradient(circle at 22% 28%, rgba(210, 0, 0, 0.42) 0 3%, transparent 8%),
+    radial-gradient(circle at 78% 34%, rgba(180, 0, 0, 0.34) 0 2.5%, transparent 7%),
+    radial-gradient(circle at 64% 72%, rgba(230, 0, 0, 0.3) 0 2%, transparent 7%);
+  mix-blend-mode: multiply;
+  transition: opacity 120ms linear;
+}
+
 .transition-fade {
   position: fixed;
   inset: 0;

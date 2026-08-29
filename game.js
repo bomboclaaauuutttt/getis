@@ -28,6 +28,7 @@ const gameCodeEl = document.getElementById("gameCode");
 const restartButton = document.getElementById("restartButton");
 const minimapEl = document.getElementById("minimap");
 const transitionFadeEl = document.getElementById("transitionFade");
+const damageFxEl = document.getElementById("damageFx");
 
 const minimap = document.createElement("canvas");
 const miniCtx = minimap.getContext("2d");
@@ -204,6 +205,8 @@ const storeState = {
   punchCharge: 0,
   punchTimer: 0,
   lastPunchDamage: 0,
+  damageTimer: 0,
+  damageShake: 0,
   colliders: [],
 };
 
@@ -1476,6 +1479,10 @@ function updateStorePunch(dt) {
   storeState.fist.rotation.x = lerp(storeState.fist.rotation.x, -0.18 - windup * 0.62 + strike * 0.42, settle);
   storeState.fist.rotation.y = lerp(storeState.fist.rotation.y, -0.28 + strike * 0.22, settle);
   storeState.fist.rotation.z = lerp(storeState.fist.rotation.z, 0.08 + windup * 0.18 - strike * 0.16, settle);
+
+  storeState.damageTimer = Math.max(0, storeState.damageTimer - dt * 1.75);
+  storeState.damageShake = Math.max(0, storeState.damageShake - dt * 4.4);
+  damageFxEl.style.opacity = clamp(storeState.damageTimer, 0, 0.82).toFixed(2);
 }
 
 function startStorePunch(event) {
@@ -1492,8 +1499,76 @@ function releaseStorePunch(event) {
   storeState.lastPunchDamage = Math.round(18 + storeState.punchCharge * 82);
   storeState.punchTimer = 1;
   cameraState.shake = Math.max(cameraState.shake, 0.08 + storeState.punchCharge * 0.24);
-  showNotification(`Punch damage ${storeState.lastPunchDamage}`);
+  const hit = findStorePunchTarget(storeState.lastPunchDamage);
+  showNotification(hit ? `Hit ${hit.name} for ${storeState.lastPunchDamage}` : `Punch damage ${storeState.lastPunchDamage}`);
+  sendStorePunch(hit ? hit.peerId : "");
   storeState.punchCharge = 0;
+}
+
+function findStorePunchTarget(damage) {
+  const forwardX = Math.sin(storeState.angle);
+  const forwardZ = Math.cos(storeState.angle);
+  let best = null;
+  for (const [peerId, remote] of remotePlayers) {
+    const target = remote.storeTarget;
+    if (!target || target.gameMode !== "store") continue;
+    const dx = target.x - storeState.x;
+    const dz = target.z - storeState.z;
+    const distance = Math.hypot(dx, dz);
+    if (distance > 74 || distance < 0.001) continue;
+    const dot = (dx / distance) * forwardX + (dz / distance) * forwardZ;
+    if (dot < 0.48) continue;
+    const score = dot * 100 - distance;
+    if (!best || score > best.score) {
+      best = { peerId, name: remote.playerName || "Driver", damage, score };
+    }
+  }
+  return best;
+}
+
+function sendStorePunch(targetPeerId) {
+  if (multiplayer.mode === "singleplayer") return;
+  const message = {
+    type: "event",
+    event: "store-punch",
+    attackerPeerId: multiplayer.peerId,
+    attackerName: playerName,
+    targetPeerId,
+    damage: storeState.lastPunchDamage,
+    x: storeState.x,
+    z: storeState.z,
+    angle: storeState.angle,
+  };
+  if (multiplayer.mode === "host") {
+    broadcastNetworkMessage(message);
+  } else {
+    sendToConnection(multiplayer.hostConnection, message);
+  }
+}
+
+function applyStorePunchEvent(message) {
+  if (!message || message.attackerPeerId === multiplayer.peerId) return;
+  if (gameMode !== "store") return;
+  const attacker = message.attackerName || "Someone";
+  const damage = clamp(Math.round(message.damage || 20), 1, 120);
+  const targetedAtMe = message.targetPeerId && message.targetPeerId === multiplayer.peerId;
+  let areaHit = false;
+  if (!message.targetPeerId) {
+    const dx = storeState.x - (message.x || 0);
+    const dz = storeState.z - (message.z || 0);
+    const distance = Math.hypot(dx, dz);
+    if (distance < 64 && distance > 0.001) {
+      const forwardX = Math.sin(message.angle || 0);
+      const forwardZ = Math.cos(message.angle || 0);
+      areaHit = ((dx / distance) * forwardX + (dz / distance) * forwardZ) > 0.52;
+    }
+  }
+
+  if (targetedAtMe || areaHit) {
+    storeState.damageTimer = clamp(0.25 + damage / 115, 0.35, 0.95);
+    storeState.damageShake = Math.max(storeState.damageShake, 0.8 + damage * 0.018);
+    showNotification(`${attacker} hit you for ${damage}`, true);
+  }
 }
 
 function updateStoreCamera(dt) {
@@ -1515,6 +1590,12 @@ function updateStoreCamera(dt) {
     const kick = Math.sin(storeState.punchTimer * Math.PI) * (0.35 + storeState.lastPunchDamage * 0.006);
     camera.position.x += Math.sin(performance.now() * 0.04) * kick;
     camera.position.y += kick * 0.4;
+  }
+  if (storeState.damageShake > 0) {
+    const hitShake = storeState.damageShake;
+    const pulse = performance.now() * 0.045;
+    camera.position.x += Math.sin(pulse) * hitShake;
+    camera.position.y += Math.cos(pulse * 1.2) * hitShake * 0.45;
   }
   camera.lookAt(cameraState.target);
   camera.fov = lerp(camera.fov, 66, 1 - Math.exp(-dt * 5));
@@ -1545,6 +1626,9 @@ function enterStoreMode() {
     storeState.punchCharge = 0;
     storeState.punchTimer = 0;
     storeState.lastPunchDamage = 0;
+    storeState.damageTimer = 0;
+    storeState.damageShake = 0;
+    damageFxEl.style.opacity = "0";
     storeState.character.position.set(storeState.x, 0, storeState.z);
     storeState.character.visible = false;
     cameraState.position.set(storeState.x, 43, storeState.z);
@@ -1577,6 +1661,9 @@ function enterDrivingMode() {
     storeState.punchCharging = false;
     storeState.punchCharge = 0;
     storeState.punchTimer = 0;
+    storeState.damageTimer = 0;
+    storeState.damageShake = 0;
+    damageFxEl.style.opacity = "0";
     if (storeState.fist) storeState.fist.visible = false;
     storeState.character.visible = true;
     storeState.group.visible = false;
@@ -3159,6 +3246,7 @@ function removeRemotePlayer(peerId, announce = true) {
   const remote = remotePlayers.get(peerId);
   if (!remote) return;
   scene.remove(remote.group);
+  if (remote.storeCharacter && remote.storeCharacter.parent) remote.storeCharacter.parent.remove(remote.storeCharacter);
   remotePlayers.delete(peerId);
   if (announce && running && !gameOver) showNotification(`${remote.playerName || "Driver"} left the city`);
 }
@@ -3181,6 +3269,11 @@ function localNetworkState() {
     vx: player.vx,
     vz: player.vz,
     angle: player.angle,
+    gameMode,
+    storeX: storeState.x,
+    storeZ: storeState.z,
+    storeAngle: storeState.angle,
+    storePitch: storeState.pitch,
     money: Math.floor(money),
     wanted: wantedLevel(),
     gameOver,
@@ -3252,6 +3345,19 @@ function applyRemoteState(peerId, state) {
   remote.gameOver = !!state.gameOver;
   remote.lastWantedNoticeLevel = state.wanted || remote.lastWantedNoticeLevel || 0;
   remote.remoteTarget = { ...state };
+  remote.storeTarget = {
+    gameMode: state.gameMode || "driving",
+    x: Number.isFinite(state.storeX) ? state.storeX : 6000,
+    z: Number.isFinite(state.storeZ) ? state.storeZ : 220,
+    angle: Number.isFinite(state.storeAngle) ? state.storeAngle : Math.PI,
+  };
+  if (!remote.storeCharacter && storeState.group) {
+    remote.storeCharacter = makePerson();
+    remote.storeCharacter.position.set(remote.storeTarget.x, 0, remote.storeTarget.z);
+    remote.storeCharacter.rotation.y = remote.storeTarget.angle;
+    remote.storeCharacter.visible = false;
+    storeState.group.add(remote.storeCharacter);
+  }
   remote.lastSeen = performance.now();
 }
 
@@ -3353,6 +3459,17 @@ function updateRemotePlayers(dt) {
     remote.angle += angleDelta(remote.angle, target.angle || 0) * follow;
     remote.group.position.set(remote.x, remote.y || 0, remote.z);
     remote.group.rotation.y = remote.angle;
+
+    if (remote.storeCharacter) {
+      const storeTarget = remote.storeTarget || {};
+      const visibleInStore = gameMode === "store" && storeTarget.gameMode === "store";
+      remote.storeCharacter.visible = visibleInStore;
+      if (visibleInStore) {
+        remote.storeCharacter.position.x = lerp(remote.storeCharacter.position.x, storeTarget.x || 6000, follow);
+        remote.storeCharacter.position.z = lerp(remote.storeCharacter.position.z, storeTarget.z || 220, follow);
+        remote.storeCharacter.rotation.y += angleDelta(remote.storeCharacter.rotation.y, storeTarget.angle || Math.PI) * follow;
+      }
+    }
   }
 }
 
@@ -3379,6 +3496,7 @@ function handleNetworkMessage(fromPeer, message) {
 
   if (message.type === "event") {
     if (message.event === "arrested") showNotification(`${message.name || "Driver"} got arrested`, true);
+    if (message.event === "store-punch") applyStorePunchEvent(message);
     if (multiplayer.mode === "host") broadcastNetworkMessage(message, fromPeer);
     return;
   }
@@ -3716,6 +3834,7 @@ function resetGame() {
   menuEl.classList.add("hidden");
   gameOverEl.classList.add("hidden");
   arrestFx.style.opacity = "0";
+  damageFxEl.style.opacity = "0";
   hintEl.textContent = "Police arrives in 3 seconds";
   updateWantedMeter();
   updateGameCodeHud();
