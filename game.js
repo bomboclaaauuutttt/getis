@@ -205,6 +205,8 @@ let gameMode = "driving";
 let transitionLock = false;
 let speedBoostUntil = 0;
 let megaforceTemplate = null;
+let megaforceLoading = false;
+const megaforceModelCallbacks = [];
 
 const SMARKET_ENTRANCE = { x: -646, z: 20, radius: 42 };
 const SMARKET_EXIT = { x: 6000, z: 318, radius: 48 };
@@ -238,6 +240,9 @@ const storeState = {
   vendor: null,
   megaforceDisplay: null,
   drinkCan: null,
+  hasMegaforce: false,
+  drinking: false,
+  drinkProgress: 0,
   drinkTimer: 0,
   drinkDuration: 0,
   boostReady: false,
@@ -1405,11 +1410,11 @@ function makePerson() {
   leftLeg.position.set(-5.2, 18, 0);
   const rightLeg = leg(1);
   rightLeg.position.set(5.2, 18, 0);
-  const drinkCan = new THREE.Mesh(new THREE.CylinderGeometry(2.2, 2.2, 7, 12), mats.megaforceBlue);
+  const drinkCan = new THREE.Group();
   drinkCan.position.set(0, -22, 4.3);
   drinkCan.rotation.z = Math.PI * 0.5;
   drinkCan.visible = false;
-  drinkCan.castShadow = true;
+  attachMegaforceModel(drinkCan, 8);
   rightArm.add(drinkCan);
 
   detailBox(group, -13.2, 43.5, 0, 4.5, 7, 7, mats.personBody);
@@ -1473,10 +1478,11 @@ function makeFirstPersonFist() {
   thumb.rotation.z = -0.45;
   thumb.castShadow = true;
   knuckles.add(thumb);
-  const can = new THREE.Mesh(new THREE.CylinderGeometry(2.4, 2.4, 8, 12), mats.megaforceBlue);
+  const can = new THREE.Group();
   can.position.set(5.8, 1.1, -29.4);
-  can.rotation.x = Math.PI * 0.5;
+  can.rotation.set(Math.PI * 0.5, 0, -0.12);
   can.visible = false;
+  attachMegaforceModel(can, 9);
 
   group.add(fist, knuckles, can);
   group.userData.can = can;
@@ -1526,6 +1532,60 @@ function addMegaforceFallback(parent) {
   return can;
 }
 
+function fitMegaforceModelToMount(source, targetSize) {
+  const model = source.clone(true);
+  const box = new THREE.Box3().setFromObject(model);
+  const size = new THREE.Vector3();
+  const center = new THREE.Vector3();
+  box.getSize(size);
+  box.getCenter(center);
+  const maxSide = Math.max(size.x, size.y, size.z) || 1;
+  const scale = targetSize / maxSide;
+  model.scale.setScalar(scale);
+  model.position.sub(center.multiplyScalar(scale));
+  model.traverse((child) => {
+    if (!child.isMesh) return;
+    child.castShadow = true;
+    child.receiveShadow = true;
+  });
+  return model;
+}
+
+function loadMegaforceTemplate(callback) {
+  if (megaforceTemplate) {
+    callback(megaforceTemplate);
+    return;
+  }
+  megaforceModelCallbacks.push(callback);
+  if (megaforceLoading) return;
+  megaforceLoading = true;
+  gltfLoader.load(
+    "./assets/megis.glb",
+    (gltf) => {
+      megaforceTemplate = gltf.scene;
+      megaforceLoading = false;
+      while (megaforceModelCallbacks.length) megaforceModelCallbacks.shift()(megaforceTemplate);
+    },
+    undefined,
+    () => {
+      megaforceLoading = false;
+      megaforceModelCallbacks.length = 0;
+      showNotification("Megaforce model failed, using fallback can");
+    }
+  );
+}
+
+function attachMegaforceModel(parent, targetSize) {
+  const fallback = addMegaforceFallback(parent);
+  fallback.scale.setScalar(targetSize / 34);
+  loadMegaforceTemplate((source) => {
+    const model = fitMegaforceModelToMount(source, targetSize);
+    fallback.visible = false;
+    parent.add(model);
+  });
+  return fallback;
+}
+
 function addMegaforceDisplay(parent, x, y, z) {
   const display = new THREE.Group();
   display.position.set(x, y, z);
@@ -1534,39 +1594,7 @@ function addMegaforceDisplay(parent, x, y, z) {
   parent.add(display);
   storeState.megaforceDisplay = display;
 
-  const fallback = addMegaforceFallback(display);
-  const applyModel = (source) => {
-    const model = source.clone(true);
-    const box = new THREE.Box3().setFromObject(model);
-    const size = new THREE.Vector3();
-    const center = new THREE.Vector3();
-    box.getSize(size);
-    box.getCenter(center);
-    const maxSide = Math.max(size.x, size.y, size.z) || 1;
-    model.scale.setScalar(34 / maxSide);
-    model.position.sub(center.multiplyScalar(34 / maxSide));
-    model.traverse((child) => {
-      if (!child.isMesh) return;
-      child.castShadow = true;
-      child.receiveShadow = true;
-    });
-    fallback.visible = false;
-    display.add(model);
-  };
-
-  if (megaforceTemplate) {
-    applyModel(megaforceTemplate);
-  } else {
-    gltfLoader.load(
-      "./assets/megis.glb",
-      (gltf) => {
-        megaforceTemplate = gltf.scene;
-        applyModel(megaforceTemplate);
-      },
-      undefined,
-      () => showNotification("Megaforce model failed, using fallback can")
-    );
-  }
+  attachMegaforceModel(display, 34);
 
   const glow = new THREE.Mesh(new THREE.RingGeometry(18, 29, 32), mats.megaforceGlow);
   glow.rotation.x = -Math.PI / 2;
@@ -1744,14 +1772,16 @@ function animateStoreCharacter(dt, moving) {
   const thirdPersonPunch = storeState.cameraMode === "third";
   const windup = thirdPersonPunch && storeState.punchCharging ? storeState.punchCharge : 0;
   const strike = thirdPersonPunch && storeState.punchTimer > 0 ? Math.sin(storeState.punchTimer * Math.PI) : 0;
-  const drink = storeState.drinkTimer > 0 ? Math.sin((storeState.drinkTimer / Math.max(0.01, storeState.drinkDuration)) * Math.PI) : 0;
+  const carryingDrink = storeState.hasMegaforce || storeState.drinking;
+  const drinkProgress = clamp(storeState.drinkProgress / Math.max(0.01, storeState.drinkDuration || 1), 0, 1);
+  const drink = storeState.drinking ? Math.sin(drinkProgress * Math.PI) : 0;
   const headPitch = clamp(storeState.pitch, -1.1, 1.1) * 0.62;
   const ease = 1 - Math.exp(-dt * 12);
   character.position.y = lerp(character.position.y, bounce, ease);
   character.userData.leftArm.rotation.x = lerp(character.userData.leftArm.rotation.x, swing, ease);
-  const rightArmX = drink > 0 ? -2.05 + drink * 0.18 : -swing + windup * 1.15 - strike * 1.75;
-  const rightArmY = drink > 0 ? -0.22 : windup * 0.45 - strike * 0.18;
-  const rightArmZ = drink > 0 ? -0.38 : -windup * 0.32 + strike * 0.18;
+  const rightArmX = carryingDrink ? -1.1 - drink * 0.82 : -swing + windup * 1.15 - strike * 1.75;
+  const rightArmY = carryingDrink ? -0.16 - drink * 0.08 : windup * 0.45 - strike * 0.18;
+  const rightArmZ = carryingDrink ? -0.28 - drink * 0.1 : -windup * 0.32 + strike * 0.18;
   character.userData.rightArm.rotation.x = lerp(character.userData.rightArm.rotation.x, rightArmX, ease);
   character.userData.rightArm.rotation.y = lerp(character.userData.rightArm.rotation.y, rightArmY, ease);
   character.userData.rightArm.rotation.z = lerp(character.userData.rightArm.rotation.z, rightArmZ, ease);
@@ -1761,7 +1791,7 @@ function animateStoreCharacter(dt, moving) {
   character.userData.head.rotation.x = lerp(character.userData.head.rotation.x, headPitch, ease);
   character.userData.hair.rotation.x = lerp(character.userData.hair.rotation.x, headPitch, ease);
   character.userData.face.rotation.x = lerp(character.userData.face.rotation.x, headPitch, ease);
-  if (character.userData.drinkCan) character.userData.drinkCan.visible = drink > 0;
+  if (character.userData.drinkCan) character.userData.drinkCan.visible = carryingDrink;
 }
 
 function updateStorePunch(dt) {
@@ -1775,18 +1805,20 @@ function updateStorePunch(dt) {
 
   const windup = storeState.punchCharging ? storeState.punchCharge : 0;
   const strike = storeState.punchTimer > 0 ? Math.sin(storeState.punchTimer * Math.PI) : 0;
-  const drink = storeState.drinkTimer > 0 ? Math.sin((storeState.drinkTimer / Math.max(0.01, storeState.drinkDuration)) * Math.PI) : 0;
+  const drinkProgress = clamp(storeState.drinkProgress / Math.max(0.01, storeState.drinkDuration || 1), 0, 1);
+  const drink = storeState.drinking ? Math.sin(drinkProgress * Math.PI) : 0;
+  const carryingDrink = storeState.hasMegaforce || storeState.drinking;
   const settle = 1 - Math.exp(-dt * 14);
-  const wantedX = drink > 0 ? 8 : 17 - strike * 6;
-  const wantedY = drink > 0 ? -4 + drink * 5 : -13 + strike * 4;
-  const wantedZ = drink > 0 ? -28 + drink * 10 : -36 + windup * 22 - strike * (36 + storeState.lastPunchDamage * 0.16);
+  const wantedX = carryingDrink ? 8 : 17 - strike * 6;
+  const wantedY = carryingDrink ? -9 + drink * 8 : -13 + strike * 4;
+  const wantedZ = carryingDrink ? -29 + drink * 12 : -36 + windup * 22 - strike * (36 + storeState.lastPunchDamage * 0.16);
   storeState.fist.position.x = lerp(storeState.fist.position.x, wantedX, settle);
   storeState.fist.position.y = lerp(storeState.fist.position.y, wantedY, settle);
   storeState.fist.position.z = lerp(storeState.fist.position.z, wantedZ, settle);
-  storeState.fist.rotation.x = lerp(storeState.fist.rotation.x, drink > 0 ? -0.88 : -0.18 - windup * 0.62 + strike * 0.42, settle);
-  storeState.fist.rotation.y = lerp(storeState.fist.rotation.y, drink > 0 ? -0.08 : -0.28 + strike * 0.22, settle);
-  storeState.fist.rotation.z = lerp(storeState.fist.rotation.z, drink > 0 ? 0.28 : 0.08 + windup * 0.18 - strike * 0.16, settle);
-  if (storeState.fist.userData.can) storeState.fist.userData.can.visible = drink > 0;
+  storeState.fist.rotation.x = lerp(storeState.fist.rotation.x, carryingDrink ? -0.42 - drink * 0.58 : -0.18 - windup * 0.62 + strike * 0.42, settle);
+  storeState.fist.rotation.y = lerp(storeState.fist.rotation.y, carryingDrink ? -0.08 : -0.28 + strike * 0.22, settle);
+  storeState.fist.rotation.z = lerp(storeState.fist.rotation.z, carryingDrink ? 0.22 + drink * 0.14 : 0.08 + windup * 0.18 - strike * 0.16, settle);
+  if (storeState.fist.userData.can) storeState.fist.userData.can.visible = carryingDrink;
 
   storeState.damageTimer = Math.max(0, storeState.damageTimer - dt * 1.75);
   storeState.damageShake = Math.max(0, storeState.damageShake - dt * 4.4);
@@ -1795,8 +1827,13 @@ function updateStorePunch(dt) {
 
 function startStorePunch(event) {
   if (event.button !== 0 || gameMode !== "store" || transitionLock || storeState.dead) return;
-  if (storeState.drinkTimer > 0) return;
   if (!inputState.mobile && document.pointerLockElement !== canvas) requestStorePointerLock();
+  if (storeState.hasMegaforce) {
+    storeState.drinking = true;
+    storeState.punchCharging = false;
+    storeState.punchTimer = 0;
+    return;
+  }
   storeState.punchCharging = true;
   storeState.punchCharge = 0;
   storeState.punchTimer = 0;
@@ -1807,7 +1844,11 @@ function storeMegaforceDistance() {
 }
 
 function tryBuyMegaforce() {
-  if (gameMode !== "store" || transitionLock || storeState.dead || storeState.drinkTimer > 0) return;
+  if (gameMode !== "store" || transitionLock || storeState.dead || storeState.drinking) return;
+  if (storeState.hasMegaforce) {
+    showNotification("You already have Megaforce");
+    return;
+  }
   if (storeMegaforceDistance() > 96) {
     showNotification("Go to the checkout to buy Megaforce");
     return;
@@ -1821,23 +1862,35 @@ function tryBuyMegaforce() {
   storeState.punchCharging = false;
   storeState.punchTimer = 0;
   storeState.drinkDuration = 2.35;
-  storeState.drinkTimer = storeState.drinkDuration;
-  storeState.boostReady = true;
+  storeState.drinkProgress = 0;
+  storeState.drinkTimer = 0;
+  storeState.hasMegaforce = true;
+  storeState.drinking = false;
+  storeState.boostReady = false;
   showNotification(`${playerName} bought Megaforce`);
 }
 
 function updateStoreShop(dt) {
-  if (storeState.drinkTimer > 0) {
-    storeState.drinkTimer = Math.max(0, storeState.drinkTimer - dt);
-    if (storeState.drinkTimer <= 0 && storeState.boostReady) {
-      storeState.boostReady = false;
+  if (storeState.drinking && storeState.hasMegaforce) {
+    storeState.drinkDuration = storeState.drinkDuration || 2.35;
+    storeState.drinkProgress = Math.min(storeState.drinkDuration, storeState.drinkProgress + dt);
+    storeState.drinkTimer = storeState.drinkProgress;
+    if (storeState.drinkProgress >= storeState.drinkDuration) {
+      storeState.hasMegaforce = false;
+      storeState.drinking = false;
+      storeState.drinkTimer = 0;
+      storeState.drinkProgress = 0;
       speedBoostUntil = performance.now() + 5 * 60 * 1000;
       showNotification("Megaforce active: 1.5x speed for 5 min", true);
     }
+  } else {
+    storeState.drinkTimer = storeState.hasMegaforce ? storeState.drinkProgress : 0;
   }
 
-  if (storeState.drinkTimer > 0) {
+  if (storeState.drinking) {
     hintEl.textContent = "Drinking Megaforce...";
+  } else if (storeState.hasMegaforce) {
+    hintEl.textContent = inputState.mobile ? "Hold punch to drink Megaforce" : "Hold left mouse to drink Megaforce";
   } else if (storeMegaforceDistance() < 96) {
     hintEl.textContent = inputState.mobile ? "Buy Megaforce 2e" : "Press E to buy Megaforce 2e";
   } else {
@@ -1846,6 +1899,10 @@ function updateStoreShop(dt) {
 }
 
 function releaseStorePunch(event) {
+  if (event.button === 0 && storeState.drinking) {
+    storeState.drinking = false;
+    return;
+  }
   if (event.button !== 0 || !storeState.punchCharging || storeState.dead) return;
   storeState.punchCharging = false;
   storeState.lastPunchDamage = Math.round(18 + storeState.punchCharge * 82);
@@ -2006,14 +2063,16 @@ function animateRemoteStoreCharacter(remote, dt, moving) {
   const side = moving ? Math.sin(t * 2) * 0.05 : 0;
   const windup = target.punchCharging ? target.punchCharge || 0 : 0;
   const strike = (target.punchTimer || 0) > 0 ? Math.sin((target.punchTimer || 0) * Math.PI) : 0;
-  const drink = (target.drinkTimer || 0) > 0 ? Math.sin(((target.drinkTimer || 0) / Math.max(0.01, target.drinkDuration || 1)) * Math.PI) : 0;
+  const carryingDrink = !!target.hasMegaforce || !!target.drinking;
+  const drinkProgress = clamp((target.drinkProgress || target.drinkTimer || 0) / Math.max(0.01, target.drinkDuration || 1), 0, 1);
+  const drink = target.drinking ? Math.sin(drinkProgress * Math.PI) : 0;
   const headPitch = clamp(target.pitch || 0, -1.1, 1.1) * 0.62;
   const ease = 1 - Math.exp(-dt * 12);
 
   character.userData.leftArm.rotation.x = lerp(character.userData.leftArm.rotation.x, swing, ease);
-  const rightArmX = drink > 0 ? -2.05 + drink * 0.18 : -swing + windup * 1.15 - strike * 1.75;
-  const rightArmY = drink > 0 ? -0.22 : windup * 0.45 - strike * 0.18;
-  const rightArmZ = drink > 0 ? -0.38 : -windup * 0.32 + strike * 0.18;
+  const rightArmX = carryingDrink ? -1.1 - drink * 0.82 : -swing + windup * 1.15 - strike * 1.75;
+  const rightArmY = carryingDrink ? -0.16 - drink * 0.08 : windup * 0.45 - strike * 0.18;
+  const rightArmZ = carryingDrink ? -0.28 - drink * 0.1 : -windup * 0.32 + strike * 0.18;
   character.userData.rightArm.rotation.x = lerp(character.userData.rightArm.rotation.x, rightArmX, ease);
   character.userData.rightArm.rotation.y = lerp(character.userData.rightArm.rotation.y, rightArmY, ease);
   character.userData.rightArm.rotation.z = lerp(character.userData.rightArm.rotation.z, rightArmZ, ease);
@@ -2023,7 +2082,7 @@ function animateRemoteStoreCharacter(remote, dt, moving) {
   character.userData.head.rotation.x = lerp(character.userData.head.rotation.x, headPitch, ease);
   character.userData.hair.rotation.x = lerp(character.userData.hair.rotation.x, headPitch, ease);
   character.userData.face.rotation.x = lerp(character.userData.face.rotation.x, headPitch, ease);
-  if (character.userData.drinkCan) character.userData.drinkCan.visible = drink > 0;
+  if (character.userData.drinkCan) character.userData.drinkCan.visible = carryingDrink;
 }
 
 function updateStoreCamera(dt) {
@@ -2128,6 +2187,9 @@ function enterStoreMode() {
     storeState.lastPunchDamage = 0;
     storeState.damageTimer = 0;
     storeState.damageShake = 0;
+    storeState.hasMegaforce = false;
+    storeState.drinking = false;
+    storeState.drinkProgress = 0;
     storeState.drinkTimer = 0;
     storeState.drinkDuration = 0;
     storeState.boostReady = false;
@@ -2176,6 +2238,9 @@ function enterDrivingMode() {
     storeState.punchCharging = false;
     storeState.punchCharge = 0;
     storeState.punchTimer = 0;
+    storeState.hasMegaforce = false;
+    storeState.drinking = false;
+    storeState.drinkProgress = 0;
     storeState.drinkTimer = 0;
     storeState.drinkDuration = 0;
     storeState.boostReady = false;
@@ -3812,6 +3877,9 @@ function localNetworkState() {
     storePunchCharge: storeState.punchCharge,
     storePunchCharging: storeState.punchCharging,
     storePunchTimer: storeState.punchTimer,
+    storeHasMegaforce: storeState.hasMegaforce,
+    storeDrinking: storeState.drinking,
+    storeDrinkProgress: storeState.drinkProgress,
     storeDrinkTimer: storeState.drinkTimer,
     storeDrinkDuration: storeState.drinkDuration,
     storeHp: storeState.hp,
@@ -3900,6 +3968,9 @@ function applyRemoteState(peerId, state) {
     punchCharge: Number.isFinite(state.storePunchCharge) ? state.storePunchCharge : 0,
     punchCharging: !!state.storePunchCharging,
     punchTimer: Number.isFinite(state.storePunchTimer) ? state.storePunchTimer : 0,
+    hasMegaforce: !!state.storeHasMegaforce,
+    drinking: !!state.storeDrinking,
+    drinkProgress: Number.isFinite(state.storeDrinkProgress) ? state.storeDrinkProgress : 0,
     drinkTimer: Number.isFinite(state.storeDrinkTimer) ? state.storeDrinkTimer : 0,
     drinkDuration: Number.isFinite(state.storeDrinkDuration) ? state.storeDrinkDuration : 0,
     hp: Number.isFinite(state.storeHp) ? state.storeHp : 100,
