@@ -1717,28 +1717,29 @@ function storeRectCollision(x, z, radius, rect) {
 
 function moveStoreCharacter(dt) {
   if (storeState.dead) return;
-  const mouseLocked = document.pointerLockElement === canvas;
-  const steerInput = inputState.mobile
-    ? inputState.steer
-    : mouseLocked
-      ? 0
-      : (keys.has("a") || keys.has("arrowleft") ? 1 : 0) + (keys.has("d") || keys.has("arrowright") ? -1 : 0);
   const moveInput = inputState.mobile
     ? inputState.throttle
     : (keys.has("w") || keys.has("arrowup") ? 1 : 0) + (keys.has("s") || keys.has("arrowdown") ? -1 : 0);
+  const strafeInput = inputState.mobile
+    ? 0
+    : (keys.has("d") || keys.has("arrowright") ? 1 : 0) + (keys.has("a") || keys.has("arrowleft") ? -1 : 0);
 
-  const targetTurnVelocity = steerInput * 2.35;
+  const targetTurnVelocity = inputState.mobile ? inputState.steer * 2.35 : 0;
   storeState.turnVelocity = lerp(storeState.turnVelocity, targetTurnVelocity, 1 - Math.exp(-dt * 8));
   storeState.angle += storeState.turnVelocity * dt;
 
   const walkSpeed = 138;
   const forwardX = Math.sin(storeState.angle);
   const forwardZ = Math.cos(storeState.angle);
-  const moving = Math.abs(moveInput) > 0.05;
+  const rightX = Math.cos(storeState.angle);
+  const rightZ = -Math.sin(storeState.angle);
+  const moveLen = Math.hypot(moveInput, strafeInput);
+  const moving = moveLen > 0.05;
   if (moving) {
-    storeState.x += forwardX * moveInput * walkSpeed * dt;
-    storeState.z += forwardZ * moveInput * walkSpeed * dt;
-    storeState.walkCycle += Math.abs(moveInput) * dt * 8.5;
+    const scale = 1 / Math.max(1, moveLen);
+    storeState.x += (forwardX * moveInput + rightX * strafeInput) * scale * walkSpeed * dt;
+    storeState.z += (forwardZ * moveInput + rightZ * strafeInput) * scale * walkSpeed * dt;
+    storeState.walkCycle += moveLen * scale * dt * 8.5;
   } else {
     storeState.walkCycle = lerp(storeState.walkCycle, Math.round(storeState.walkCycle / Math.PI) * Math.PI, 1 - Math.exp(-dt * 5));
   }
@@ -2209,7 +2210,7 @@ function enterStoreMode() {
     if (storeState.fist) storeState.fist.visible = false;
     cameraState.position.set(storeState.x, 84, storeState.z + 148);
     cameraState.target.set(storeState.x, 32, storeState.z - 36);
-    hintEl.textContent = inputState.mobile ? "Joystick walk + turn | green exit" : "Third person | Click to lock mouse | F camera";
+    hintEl.textContent = inputState.mobile ? "Joystick walk + turn | green exit" : "Third person | Click to lock mouse | WASD move | F camera";
     updateStoreHealthHud();
     arrestFx.style.opacity = "0";
     window.setTimeout(() => {
@@ -2276,8 +2277,8 @@ function updatePointerLockHint() {
   }
   const modeText = storeState.cameraMode === "first" ? "First person" : "Third person";
   hintEl.textContent = document.pointerLockElement === canvas
-    ? `${modeText} | Mouse look | W/S walk | F camera | Esc unlocks`
-    : `${modeText} | Click to lock mouse | W/S walk | F camera`;
+    ? `${modeText} | Mouse look | WASD move | F camera | Esc unlocks`
+    : `${modeText} | Click to lock mouse | WASD move | F camera`;
 }
 
 function handleStoreMouseLook(event) {
