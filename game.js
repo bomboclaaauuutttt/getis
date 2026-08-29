@@ -15,6 +15,7 @@ const computerButton = document.getElementById("computerButton");
 const mobileControlsEl = document.getElementById("mobileControls");
 const joystickEl = document.getElementById("joystick");
 const joystickStickEl = document.getElementById("joystickStick");
+const mobileJumpButton = document.getElementById("mobileJumpButton");
 const menuEl = document.getElementById("menu");
 const gameOverEl = document.getElementById("gameOver");
 const arrestFx = document.getElementById("arrestFx");
@@ -80,6 +81,7 @@ const inputState = {
   steer: 0,
   throttle: 0,
   joystickPointerId: null,
+  jumpQueued: false,
 };
 
 const audioState = {
@@ -238,6 +240,7 @@ const storeState = {
   character: null,
   fist: null,
   x: 6000,
+  y: 0,
   z: 220,
   angle: Math.PI,
   cameraYaw: Math.PI,
@@ -245,6 +248,8 @@ const storeState = {
   cameraMode: "third",
   turnVelocity: 0,
   walkCycle: 0,
+  vy: 0,
+  grounded: true,
   punchCharging: false,
   punchCharge: 0,
   punchTimer: 0,
@@ -1908,6 +1913,15 @@ function makeVendor() {
   const apron = makeBox(14, 21, 1.4, mats.vendorApron);
   apron.position.set(0, 34, 7.25);
   vendor.add(apron);
+  const nameTag = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: makeStoreNameTagTexture("Taija", 0x159a55, 100),
+    transparent: true,
+    depthTest: false,
+  }));
+  nameTag.position.set(0, 84, 0);
+  nameTag.scale.set(86, 29, 1);
+  nameTag.renderOrder = 40;
+  vendor.add(nameTag);
   return vendor;
 }
 
@@ -2123,6 +2137,25 @@ function moveStoreCharacter(dt) {
   storeState.turnVelocity = lerp(storeState.turnVelocity, targetTurnVelocity, 1 - Math.exp(-dt * 8));
   storeState.angle += storeState.turnVelocity * dt;
 
+  const wantsJump = (!inputState.mobile && keys.has(" ")) || inputState.jumpQueued;
+  inputState.jumpQueued = false;
+  if (storeState.grounded && wantsJump) {
+    storeState.vy = 232;
+    storeState.grounded = false;
+    playTone(180, 0.08, "triangle", 0.045);
+    playNoiseHit(0.05, 0.03, 720);
+  }
+  storeState.vy -= 620 * dt;
+  storeState.y += storeState.vy * dt;
+  if (storeState.y <= 0) {
+    if (!storeState.grounded && storeState.vy < -80) {
+      playNoiseHit(0.07, 0.045, 360);
+    }
+    storeState.y = 0;
+    storeState.vy = 0;
+    storeState.grounded = true;
+  }
+
   const walkSpeed = 138;
   const moveLen = Math.hypot(moveInput, strafeInput);
   const moving = moveLen > 0.05;
@@ -2154,7 +2187,7 @@ function moveStoreCharacter(dt) {
 
   storeState.x = clamp(storeState.x, 5554, 6446);
   storeState.z = clamp(storeState.z, -306, 326);
-  storeState.character.position.set(storeState.x, 0, storeState.z);
+  storeState.character.position.set(storeState.x, storeState.y, storeState.z);
   storeState.character.rotation.y = storeState.angle;
   animateStoreCharacter(dt, moving);
 
@@ -2179,7 +2212,7 @@ function animateStoreCharacter(dt, moving) {
   const drinkSip = storeState.drinking ? Math.sin(performance.now() * 0.018) * 0.08 : 0;
   const headPitch = clamp(storeState.pitch, -1.1, 1.1) * 0.62;
   const ease = 1 - Math.exp(-dt * 12);
-  character.position.y = lerp(character.position.y, bounce, ease);
+  character.position.y = lerp(character.position.y, storeState.y + bounce, ease);
   character.userData.leftArm.rotation.x = lerp(character.userData.leftArm.rotation.x, swing, ease);
   const rightArmX = carryingDrink ? -0.82 - drinkLift * 1.22 + drinkSip : -swing + windup * 1.15 - strike * 1.75;
   const rightArmY = carryingDrink ? -0.1 - drinkLift * 0.18 : windup * 0.45 - strike * 0.18;
@@ -2630,15 +2663,15 @@ function updateStoreCamera(dt) {
 
   if (storeState.cameraMode === "first") {
     const flatAim = Math.cos(firstPersonPitch) * 95;
-    desired = new THREE.Vector3(storeState.x, 61 + bob, storeState.z);
+    desired = new THREE.Vector3(storeState.x, 61 + storeState.y + bob, storeState.z);
     target = new THREE.Vector3(
       storeState.x + forwardX * flatAim,
-      61 + bob + Math.sin(firstPersonPitch) * 95,
+      61 + storeState.y + bob + Math.sin(firstPersonPitch) * 95,
       storeState.z + forwardZ * flatAim
     );
   } else {
     const cameraDistance = 148 - Math.abs(thirdPersonPitch) * 26;
-    const cameraHeight = 84 + thirdPersonPitch * 74 + bob * 0.35;
+    const cameraHeight = 84 + storeState.y + thirdPersonPitch * 74 + bob * 0.35;
     desired = new THREE.Vector3(
       storeState.x - forwardX * cameraDistance,
       cameraHeight,
@@ -2646,7 +2679,7 @@ function updateStoreCamera(dt) {
     );
     target = new THREE.Vector3(
       storeState.x + forwardX * 36,
-      32 + thirdPersonPitch * 16,
+      32 + storeState.y + thirdPersonPitch * 16,
       storeState.z + forwardZ * 36
     );
     followSpeed = 9;
@@ -2689,7 +2722,9 @@ function enterStoreMode() {
     player.group.visible = false;
     storeState.group.visible = true;
     minimapEl.classList.add("hidden");
+    mobileJumpButton.classList.toggle("hidden", !inputState.mobile);
     storeState.x = 6000;
+    storeState.y = 0;
     storeState.z = 220;
     storeState.angle = Math.PI;
     storeState.cameraYaw = storeState.angle;
@@ -2697,6 +2732,8 @@ function enterStoreMode() {
     storeState.cameraMode = "third";
     storeState.turnVelocity = 0;
     storeState.walkCycle = 0;
+    storeState.vy = 0;
+    storeState.grounded = true;
     storeState.punchCharging = false;
     storeState.punchCharge = 0;
     storeState.punchTimer = 0;
@@ -2731,7 +2768,7 @@ function enterStoreMode() {
     if (storeState.fist) storeState.fist.visible = false;
     cameraState.position.set(storeState.x, 84, storeState.z + 148);
     cameraState.target.set(storeState.x, 32, storeState.z - 36);
-    hintEl.textContent = inputState.mobile ? "Joystick walk + turn | green exit" : "Third person | Click to lock mouse | WASD move | F camera";
+    hintEl.textContent = inputState.mobile ? "Joystick walk + turn | Jump | green exit" : "Third person | Click to lock mouse | WASD move | Space jump | F camera";
     updateStoreHealthHud();
     arrestFx.style.opacity = "0";
     window.setTimeout(() => {
@@ -2753,12 +2790,16 @@ function enterDrivingMode() {
     world.visible = true;
     player.group.visible = true;
     minimapEl.classList.remove("hidden");
+    mobileJumpButton.classList.add("hidden");
     player.x = SMARKET_ENTRANCE.x;
     player.z = SMARKET_ENTRANCE.z - 70;
     player.vx = 0;
     player.vz = 0;
     player.angle = 0;
     syncVehicle(player);
+    storeState.y = 0;
+    storeState.vy = 0;
+    storeState.grounded = true;
     storeState.punchCharging = false;
     storeState.punchCharge = 0;
     storeState.punchTimer = 0;
@@ -2806,8 +2847,8 @@ function updatePointerLockHint() {
   }
   const modeText = storeState.cameraMode === "first" ? "First person" : "Third person";
   hintEl.textContent = document.pointerLockElement === canvas
-    ? `${modeText} | Mouse look | WASD move | F camera | Esc unlocks`
-    : `${modeText} | Click to lock mouse | WASD move | F camera`;
+    ? `${modeText} | Mouse look | WASD move | Space jump | F camera | Esc unlocks`
+    : `${modeText} | Click to lock mouse | WASD move | Space jump | F camera`;
 }
 
 function handleStoreMouseLook(event) {
@@ -4411,6 +4452,7 @@ function localNetworkState() {
     angle: player.angle,
     gameMode,
     storeX: storeState.x,
+    storeY: storeState.y,
     storeZ: storeState.z,
     storeAngle: storeState.angle,
     storePitch: storeState.pitch,
@@ -4502,6 +4544,7 @@ function applyRemoteState(peerId, state) {
   remote.storeTarget = {
     gameMode: state.gameMode || "driving",
     x: Number.isFinite(state.storeX) ? state.storeX : 6000,
+    y: Number.isFinite(state.storeY) ? state.storeY : 0,
     z: Number.isFinite(state.storeZ) ? state.storeZ : 220,
     angle: Number.isFinite(state.storeAngle) ? state.storeAngle : Math.PI,
     pitch: Number.isFinite(state.storePitch) ? state.storePitch : 0,
@@ -4640,7 +4683,7 @@ function updateRemotePlayers(dt) {
         const previousStoreX = remote.storeCharacter.position.x;
         const previousStoreZ = remote.storeCharacter.position.z;
         remote.storeCharacter.position.x = lerp(remote.storeCharacter.position.x, storeTarget.x || 6000, follow);
-        remote.storeCharacter.position.y = lerp(remote.storeCharacter.position.y, storeTarget.deathY || 0, follow);
+        remote.storeCharacter.position.y = lerp(remote.storeCharacter.position.y, storeTarget.dead ? storeTarget.deathY || 0 : storeTarget.y || 0, follow);
         remote.storeCharacter.position.z = lerp(remote.storeCharacter.position.z, storeTarget.z || 220, follow);
         if (storeTarget.dead) {
           remote.storeCharacter.rotation.x = lerp(remote.storeCharacter.rotation.x, storeTarget.deathPitch || Math.PI * 0.5, follow);
@@ -4916,6 +4959,7 @@ function chooseDevice(device) {
   deviceChoiceEl.classList.add("hidden");
   menuEl.classList.remove("hidden");
   mobileControlsEl.classList.toggle("hidden", !inputState.mobile);
+  mobileJumpButton.classList.add("hidden");
   resetJoystick();
   hintEl.textContent = inputState.mobile ? "Joystick: up/down drive, left/right turn" : "W/S drive, A/D turn";
 }
@@ -4924,6 +4968,7 @@ function resetJoystick() {
   inputState.steer = 0;
   inputState.throttle = 0;
   inputState.joystickPointerId = null;
+  inputState.jumpQueued = false;
   joystickStickEl.style.transform = "translate(-50%, -50%)";
 }
 
@@ -4962,10 +5007,14 @@ function resetGame() {
   world.visible = true;
   player.group.visible = true;
   minimapEl.classList.remove("hidden");
+  mobileJumpButton.classList.add("hidden");
   if (storeState.group) storeState.group.visible = false;
   storeState.hp = 100;
   storeState.dead = false;
   storeState.deathY = 0;
+  storeState.y = 0;
+  storeState.vy = 0;
+  storeState.grounded = true;
   storeState.cameraMode = "third";
   storeState.cameraYaw = storeState.angle;
   storeState.hasMegaforce = false;
@@ -5167,6 +5216,12 @@ joystickEl.addEventListener("pointerup", (event) => {
 });
 joystickEl.addEventListener("pointercancel", (event) => {
   if (inputState.joystickPointerId === event.pointerId) resetJoystick();
+});
+mobileJumpButton.addEventListener("pointerdown", (event) => {
+  if (!inputState.mobile || gameMode !== "store" || transitionLock || storeState.dead) return;
+  unlockAudio();
+  inputState.jumpQueued = true;
+  event.preventDefault();
 });
 canvas.addEventListener("click", requestStorePointerLock);
 singleplayerButton.addEventListener("click", startSingleplayer);

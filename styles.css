@@ -430,6 +430,37 @@ body {
   transform: translate(-50%, -50%);
 }
 
+.mobile-jump {
+  position: absolute;
+  right: max(34px, env(safe-area-inset-right));
+  bottom: max(42px, env(safe-area-inset-bottom));
+  width: 116px;
+  height: 116px;
+  border: 3px solid rgba(255, 255, 255, 0.78);
+  border-radius: 50%;
+  color: #ffffff;
+  background:
+    radial-gradient(circle at 36% 28%, rgba(255, 255, 255, 0.34), transparent 28%),
+    linear-gradient(145deg, #28d766, #11883d);
+  box-shadow:
+    0 12px 0 #07501f,
+    0 22px 32px rgba(0, 0, 0, 0.42),
+    inset 0 0 22px rgba(255, 255, 255, 0.18);
+  font-size: 18px;
+  font-weight: 1000;
+  pointer-events: auto;
+  touch-action: none;
+  text-shadow: 0 2px 0 rgba(0, 0, 0, 0.45);
+}
+
+.mobile-jump:active {
+  transform: translateY(8px);
+  box-shadow:
+    0 4px 0 #07501f,
+    0 12px 22px rgba(0, 0, 0, 0.36),
+    inset 0 0 26px rgba(255, 255, 255, 0.24);
+}
+
 .menu-screen {
   position: fixed;
   inset: 0;
@@ -666,7 +697,7 @@ body {
   line-height: 1.4;
 }
 
-button {
+button:not(.mobile-jump) {
   min-width: 160px;
   height: 46px;
   border: 0;
@@ -678,7 +709,7 @@ button {
   cursor: pointer;
 }
 
-button:hover {
+button:not(.mobile-jump):hover {
   background: #ff1d2d;
 }
 
