@@ -29,6 +29,8 @@ const restartButton = document.getElementById("restartButton");
 const minimapEl = document.getElementById("minimap");
 const transitionFadeEl = document.getElementById("transitionFade");
 const damageFxEl = document.getElementById("damageFx");
+const storeHealthEl = document.getElementById("storeHealth");
+const storeHealthFillEl = storeHealthEl.querySelector("b");
 
 const minimap = document.createElement("canvas");
 const miniCtx = minimap.getContext("2d");
@@ -207,6 +209,15 @@ const storeState = {
   lastPunchDamage: 0,
   damageTimer: 0,
   damageShake: 0,
+  hp: 100,
+  dead: false,
+  deathY: 0,
+  deathVy: 0,
+  deathVx: 0,
+  deathVz: 0,
+  deathRoll: 0,
+  deathPitch: 0,
+  deathSpin: 0,
   colliders: [],
 };
 
@@ -703,6 +714,67 @@ function setVehicleNameTag(v, name, color) {
   }
   v.nameTagText = cleanName;
   v.nameTagColor = tagColor;
+}
+
+function makeStoreNameTagTexture(name, color, hp) {
+  const canvas = document.createElement("canvas");
+  canvas.width = 384;
+  canvas.height = 128;
+  const ctx = canvas.getContext("2d");
+  const cleanName = cleanPlayerName(name).toUpperCase();
+  const clampedHp = clamp(hp, 0, 100);
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = "rgba(7, 9, 9, 0.78)";
+  ctx.strokeStyle = `#${color.toString(16).padStart(6, "0")}`;
+  ctx.lineWidth = 5;
+  ctx.beginPath();
+  ctx.roundRect(24, 16, 336, 76, 8);
+  ctx.fill();
+  ctx.stroke();
+  ctx.font = "900 28px Arial, Helvetica, sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.lineWidth = 5;
+  ctx.strokeStyle = "rgba(0, 0, 0, 0.88)";
+  ctx.strokeText(cleanName, 192, 42);
+  ctx.fillStyle = "#ffffff";
+  ctx.fillText(cleanName, 192, 42);
+  ctx.fillStyle = "rgba(255, 255, 255, 0.2)";
+  ctx.fillRect(54, 66, 276, 14);
+  ctx.fillStyle = clampedHp < 28 ? "#e20718" : clampedHp < 58 ? "#ffbe2f" : "#32f06a";
+  ctx.fillRect(54, 66, 276 * (clampedHp / 100), 14);
+  ctx.strokeStyle = "rgba(0, 0, 0, 0.7)";
+  ctx.lineWidth = 2;
+  ctx.strokeRect(54, 66, 276, 14);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.needsUpdate = true;
+  return texture;
+}
+
+function setStoreNameTag(remote) {
+  if (!remote.storeCharacter) return;
+  const hp = remote.storeTarget?.hp ?? 100;
+  const tagColor = remote.paintColor || colorForName(remote.playerName || "Driver");
+  if (!remote.storeNameTag) {
+    const material = new THREE.SpriteMaterial({
+      map: makeStoreNameTagTexture(remote.playerName || "Driver", tagColor, hp),
+      transparent: true,
+      depthTest: false,
+    });
+    const sprite = new THREE.Sprite(material);
+    sprite.position.set(0, 76, 0);
+    sprite.scale.set(84, 28, 1);
+    sprite.renderOrder = 35;
+    remote.storeCharacter.add(sprite);
+    remote.storeNameTag = sprite;
+  } else if (remote.storeNameTagText !== remote.playerName || remote.storeNameTagHp !== Math.round(hp) || remote.storeNameTagColor !== tagColor) {
+    const oldMap = remote.storeNameTag.material.map;
+    remote.storeNameTag.material.map = makeStoreNameTagTexture(remote.playerName || "Driver", tagColor, hp);
+    if (oldMap) oldMap.dispose();
+  }
+  remote.storeNameTagText = remote.playerName;
+  remote.storeNameTagHp = Math.round(hp);
+  remote.storeNameTagColor = tagColor;
 }
 
 function makeMarketSign() {
@@ -1397,6 +1469,7 @@ function storeRectCollision(x, z, radius, rect) {
 }
 
 function moveStoreCharacter(dt) {
+  if (storeState.dead) return;
   const mouseLocked = document.pointerLockElement === canvas;
   const steerInput = inputState.mobile
     ? inputState.steer
@@ -1460,7 +1533,7 @@ function animateStoreCharacter(dt, moving) {
 
 function updateStorePunch(dt) {
   if (!storeState.fist) return;
-  storeState.fist.visible = gameMode === "store" && !transitionLock;
+  storeState.fist.visible = gameMode === "store" && !transitionLock && !storeState.dead;
 
   if (storeState.punchCharging) {
     storeState.punchCharge = Math.min(1, storeState.punchCharge + dt * 1.55);
@@ -1486,7 +1559,7 @@ function updateStorePunch(dt) {
 }
 
 function startStorePunch(event) {
-  if (event.button !== 0 || gameMode !== "store" || transitionLock) return;
+  if (event.button !== 0 || gameMode !== "store" || transitionLock || storeState.dead) return;
   if (!inputState.mobile && document.pointerLockElement !== canvas) requestStorePointerLock();
   storeState.punchCharging = true;
   storeState.punchCharge = 0;
@@ -1494,7 +1567,7 @@ function startStorePunch(event) {
 }
 
 function releaseStorePunch(event) {
-  if (event.button !== 0 || !storeState.punchCharging) return;
+  if (event.button !== 0 || !storeState.punchCharging || storeState.dead) return;
   storeState.punchCharging = false;
   storeState.lastPunchDamage = Math.round(18 + storeState.punchCharge * 82);
   storeState.punchTimer = 1;
@@ -1512,6 +1585,7 @@ function findStorePunchTarget(damage) {
   for (const [peerId, remote] of remotePlayers) {
     const target = remote.storeTarget;
     if (!target || target.gameMode !== "store") continue;
+    if (target.dead || target.hp <= 0) continue;
     const dx = target.x - storeState.x;
     const dz = target.z - storeState.z;
     const distance = Math.hypot(dx, dz);
@@ -1565,13 +1639,101 @@ function applyStorePunchEvent(message) {
   }
 
   if (targetedAtMe || areaHit) {
-    storeState.damageTimer = clamp(0.25 + damage / 115, 0.35, 0.95);
-    storeState.damageShake = Math.max(storeState.damageShake, 0.8 + damage * 0.018);
-    showNotification(`${attacker} hit you for ${damage}`, true);
+    applyStoreDamage(damage, attacker, message);
   }
 }
 
+function applyStoreDamage(damage, attacker, message = {}) {
+  if (storeState.dead) return;
+  storeState.hp = clamp(storeState.hp - damage, 0, 100);
+  storeState.damageTimer = clamp(0.25 + damage / 115, 0.35, 0.95);
+  storeState.damageShake = Math.max(storeState.damageShake, 0.8 + damage * 0.018);
+  showNotification(`${attacker} hit you for ${damage}`, true);
+  updateStoreHealthHud();
+  if (storeState.hp <= 0) {
+    killStorePlayer(attacker, message);
+  }
+}
+
+function killStorePlayer(attacker, message = {}) {
+  storeState.dead = true;
+  storeState.punchCharging = false;
+  storeState.punchCharge = 0;
+  storeState.punchTimer = 0;
+  if (storeState.fist) storeState.fist.visible = false;
+  if (document.pointerLockElement === canvas) document.exitPointerLock();
+
+  const awayX = storeState.x - (message.x || storeState.x - Math.sin(storeState.angle) * 20);
+  const awayZ = storeState.z - (message.z || storeState.z - Math.cos(storeState.angle) * 20);
+  const awayLen = Math.max(Math.hypot(awayX, awayZ), 0.001);
+  storeState.deathVx = (awayX / awayLen) * 135;
+  storeState.deathVz = (awayZ / awayLen) * 135;
+  storeState.deathVy = 95;
+  storeState.deathY = 0;
+  storeState.deathRoll = 0;
+  storeState.deathPitch = 0;
+  storeState.deathSpin = 3.8;
+  storeState.character.visible = true;
+  showNotification(`${playerName} got knocked out by ${attacker}`, true);
+}
+
+function updateStoreDeath(dt) {
+  if (!storeState.dead || !storeState.character) return;
+  storeState.deathVy -= 360 * dt;
+  storeState.deathY += storeState.deathVy * dt;
+  storeState.x += storeState.deathVx * dt;
+  storeState.z += storeState.deathVz * dt;
+  storeState.deathVx *= Math.exp(-dt * 2.6);
+  storeState.deathVz *= Math.exp(-dt * 2.6);
+  storeState.deathRoll += storeState.deathSpin * dt;
+  storeState.deathPitch = lerp(storeState.deathPitch, Math.PI * 0.5, 1 - Math.exp(-dt * 6));
+
+  if (storeState.deathY <= 0) {
+    storeState.deathY = 0;
+    storeState.deathVy = 0;
+    storeState.deathSpin = lerp(storeState.deathSpin, 0, 1 - Math.exp(-dt * 7));
+    storeState.deathRoll = lerp(storeState.deathRoll, 0.18, 1 - Math.exp(-dt * 5));
+  }
+
+  storeState.x = clamp(storeState.x, 5628, 6372);
+  storeState.z = clamp(storeState.z, -252, 318);
+  storeState.character.visible = true;
+  storeState.character.position.set(storeState.x, storeState.deathY, storeState.z);
+  storeState.character.rotation.set(storeState.deathPitch, storeState.angle, storeState.deathRoll);
+}
+
+function updateStoreHealthHud() {
+  const visible = gameMode === "store";
+  storeHealthEl.classList.toggle("hidden", !visible);
+  if (!visible) return;
+  const hp = clamp(storeState.hp, 0, 100);
+  storeHealthFillEl.style.width = `${hp}%`;
+  storeHealthFillEl.style.background = hp < 28
+    ? "linear-gradient(90deg, #d50019, #ff6a4d)"
+    : hp < 58
+      ? "linear-gradient(90deg, #ffb000, #fff052)"
+      : "linear-gradient(90deg, #2dff64, #e9ff52)";
+}
+
 function updateStoreCamera(dt) {
+  if (storeState.dead) {
+    const desired = new THREE.Vector3(storeState.x - 34, 98, storeState.z + 124);
+    const target = new THREE.Vector3(storeState.x, 12, storeState.z);
+    cameraState.position.lerp(desired, 1 - Math.exp(-dt * 5.2));
+    cameraState.target.lerp(target, 1 - Math.exp(-dt * 6.5));
+    camera.position.copy(cameraState.position);
+    if (storeState.damageShake > 0) {
+      const hitShake = storeState.damageShake;
+      const pulse = performance.now() * 0.045;
+      camera.position.x += Math.sin(pulse) * hitShake;
+      camera.position.y += Math.cos(pulse * 1.2) * hitShake * 0.45;
+    }
+    camera.lookAt(cameraState.target);
+    camera.fov = lerp(camera.fov, 58, 1 - Math.exp(-dt * 5));
+    camera.updateProjectionMatrix();
+    return;
+  }
+
   const bob = Math.abs(Math.sin(storeState.walkCycle)) * 1.6;
   const pitch = clamp(storeState.pitch, -0.58, 0.52);
   const forwardX = Math.sin(storeState.angle);
@@ -1628,12 +1790,23 @@ function enterStoreMode() {
     storeState.lastPunchDamage = 0;
     storeState.damageTimer = 0;
     storeState.damageShake = 0;
+    storeState.hp = 100;
+    storeState.dead = false;
+    storeState.deathY = 0;
+    storeState.deathVy = 0;
+    storeState.deathVx = 0;
+    storeState.deathVz = 0;
+    storeState.deathRoll = 0;
+    storeState.deathPitch = 0;
+    storeState.deathSpin = 0;
     damageFxEl.style.opacity = "0";
     storeState.character.position.set(storeState.x, 0, storeState.z);
+    storeState.character.rotation.set(0, storeState.angle, 0);
     storeState.character.visible = false;
     cameraState.position.set(storeState.x, 43, storeState.z);
     cameraState.target.set(storeState.x, 39, storeState.z - 95);
     hintEl.textContent = inputState.mobile ? "Joystick walk + turn | green exit" : "Click to lock mouse | W/S walk";
+    updateStoreHealthHud();
     arrestFx.style.opacity = "0";
     window.setTimeout(() => {
       setTransition(false);
@@ -1664,6 +1837,7 @@ function enterDrivingMode() {
     storeState.damageTimer = 0;
     storeState.damageShake = 0;
     damageFxEl.style.opacity = "0";
+    updateStoreHealthHud();
     if (storeState.fist) storeState.fist.visible = false;
     storeState.character.visible = true;
     storeState.group.visible = false;
@@ -3274,6 +3448,11 @@ function localNetworkState() {
     storeZ: storeState.z,
     storeAngle: storeState.angle,
     storePitch: storeState.pitch,
+    storeHp: storeState.hp,
+    storeDead: storeState.dead,
+    storeDeathY: storeState.deathY,
+    storeDeathRoll: storeState.deathRoll,
+    storeDeathPitch: storeState.deathPitch,
     money: Math.floor(money),
     wanted: wantedLevel(),
     gameOver,
@@ -3350,6 +3529,11 @@ function applyRemoteState(peerId, state) {
     x: Number.isFinite(state.storeX) ? state.storeX : 6000,
     z: Number.isFinite(state.storeZ) ? state.storeZ : 220,
     angle: Number.isFinite(state.storeAngle) ? state.storeAngle : Math.PI,
+    hp: Number.isFinite(state.storeHp) ? state.storeHp : 100,
+    dead: !!state.storeDead,
+    deathY: Number.isFinite(state.storeDeathY) ? state.storeDeathY : 0,
+    deathRoll: Number.isFinite(state.storeDeathRoll) ? state.storeDeathRoll : 0,
+    deathPitch: Number.isFinite(state.storeDeathPitch) ? state.storeDeathPitch : 0,
   };
   if (!remote.storeCharacter && storeState.group) {
     remote.storeCharacter = makePerson();
@@ -3358,6 +3542,7 @@ function applyRemoteState(peerId, state) {
     remote.storeCharacter.visible = false;
     storeState.group.add(remote.storeCharacter);
   }
+  setStoreNameTag(remote);
   remote.lastSeen = performance.now();
 }
 
@@ -3464,10 +3649,20 @@ function updateRemotePlayers(dt) {
       const storeTarget = remote.storeTarget || {};
       const visibleInStore = gameMode === "store" && storeTarget.gameMode === "store";
       remote.storeCharacter.visible = visibleInStore;
+      if (remote.storeNameTag) remote.storeNameTag.visible = visibleInStore && !storeTarget.dead;
       if (visibleInStore) {
         remote.storeCharacter.position.x = lerp(remote.storeCharacter.position.x, storeTarget.x || 6000, follow);
+        remote.storeCharacter.position.y = lerp(remote.storeCharacter.position.y, storeTarget.deathY || 0, follow);
         remote.storeCharacter.position.z = lerp(remote.storeCharacter.position.z, storeTarget.z || 220, follow);
-        remote.storeCharacter.rotation.y += angleDelta(remote.storeCharacter.rotation.y, storeTarget.angle || Math.PI) * follow;
+        if (storeTarget.dead) {
+          remote.storeCharacter.rotation.x = lerp(remote.storeCharacter.rotation.x, storeTarget.deathPitch || Math.PI * 0.5, follow);
+          remote.storeCharacter.rotation.y += angleDelta(remote.storeCharacter.rotation.y, storeTarget.angle || Math.PI) * follow;
+          remote.storeCharacter.rotation.z = lerp(remote.storeCharacter.rotation.z, storeTarget.deathRoll || 0, follow);
+        } else {
+          remote.storeCharacter.rotation.x = lerp(remote.storeCharacter.rotation.x, 0, follow);
+          remote.storeCharacter.rotation.y += angleDelta(remote.storeCharacter.rotation.y, storeTarget.angle || Math.PI) * follow;
+          remote.storeCharacter.rotation.z = lerp(remote.storeCharacter.rotation.z, 0, follow);
+        }
       }
     }
   }
@@ -3763,6 +3958,11 @@ function resetGame() {
   player.group.visible = true;
   minimapEl.classList.remove("hidden");
   if (storeState.group) storeState.group.visible = false;
+  storeState.hp = 100;
+  storeState.dead = false;
+  storeState.deathY = 0;
+  if (storeState.character) storeState.character.rotation.set(0, storeState.angle, 0);
+  updateStoreHealthHud();
 
   player.x = 0;
   player.z = 48;
@@ -3872,6 +4072,8 @@ function update(dt) {
   } else if (running && !gameOver && gameMode === "store") {
     moveStoreCharacter(dt);
     updateStorePunch(dt);
+    updateStoreDeath(dt);
+    updateStoreHealthHud();
   }
   updateWantedMeter();
   updatePoliceLights(dt);
