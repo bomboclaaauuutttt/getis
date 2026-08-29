@@ -201,6 +201,7 @@ const storeState = {
   z: 220,
   angle: Math.PI,
   pitch: 0,
+  cameraMode: "third",
   turnVelocity: 0,
   walkCycle: 0,
   punchCharging: false,
@@ -1533,7 +1534,7 @@ function animateStoreCharacter(dt, moving) {
 
 function updateStorePunch(dt) {
   if (!storeState.fist) return;
-  storeState.fist.visible = gameMode === "store" && !transitionLock && !storeState.dead;
+  storeState.fist.visible = gameMode === "store" && storeState.cameraMode === "first" && !transitionLock && !storeState.dead;
 
   if (storeState.punchCharging) {
     storeState.punchCharge = Math.min(1, storeState.punchCharge + dt * 1.55);
@@ -1738,15 +1739,40 @@ function updateStoreCamera(dt) {
   const pitch = clamp(storeState.pitch, -0.58, 0.52);
   const forwardX = Math.sin(storeState.angle);
   const forwardZ = Math.cos(storeState.angle);
-  const flatAim = Math.cos(pitch) * 95;
-  const desired = new THREE.Vector3(storeState.x, 43 + bob, storeState.z);
-  const target = new THREE.Vector3(
-    storeState.x + forwardX * flatAim,
-    43 + bob + Math.sin(pitch) * 95,
-    storeState.z + forwardZ * flatAim
-  );
-  cameraState.position.lerp(desired, 1 - Math.exp(-dt * 16));
-  cameraState.target.lerp(target, 1 - Math.exp(-dt * 13));
+  let desired;
+  let target;
+  let followSpeed = 16;
+  let targetSpeed = 13;
+  let wantedFov = 66;
+
+  if (storeState.cameraMode === "first") {
+    const flatAim = Math.cos(pitch) * 95;
+    desired = new THREE.Vector3(storeState.x, 43 + bob, storeState.z);
+    target = new THREE.Vector3(
+      storeState.x + forwardX * flatAim,
+      43 + bob + Math.sin(pitch) * 95,
+      storeState.z + forwardZ * flatAim
+    );
+  } else {
+    const cameraDistance = 148 - Math.abs(pitch) * 26;
+    const cameraHeight = 84 + pitch * 74 + bob * 0.35;
+    desired = new THREE.Vector3(
+      storeState.x - forwardX * cameraDistance,
+      cameraHeight,
+      storeState.z - forwardZ * cameraDistance
+    );
+    target = new THREE.Vector3(
+      storeState.x + forwardX * 36,
+      32 + pitch * 16,
+      storeState.z + forwardZ * 36
+    );
+    followSpeed = 9;
+    targetSpeed = 11;
+    wantedFov = 58;
+  }
+
+  cameraState.position.lerp(desired, 1 - Math.exp(-dt * followSpeed));
+  cameraState.target.lerp(target, 1 - Math.exp(-dt * targetSpeed));
   camera.position.copy(cameraState.position);
   if (storeState.punchTimer > 0) {
     const kick = Math.sin(storeState.punchTimer * Math.PI) * (0.35 + storeState.lastPunchDamage * 0.006);
@@ -1760,7 +1786,7 @@ function updateStoreCamera(dt) {
     camera.position.y += Math.cos(pulse * 1.2) * hitShake * 0.45;
   }
   camera.lookAt(cameraState.target);
-  camera.fov = lerp(camera.fov, 66, 1 - Math.exp(-dt * 5));
+  camera.fov = lerp(camera.fov, wantedFov, 1 - Math.exp(-dt * 5));
   camera.updateProjectionMatrix();
 }
 
@@ -1782,6 +1808,7 @@ function enterStoreMode() {
     storeState.z = 220;
     storeState.angle = Math.PI;
     storeState.pitch = 0;
+    storeState.cameraMode = "third";
     storeState.turnVelocity = 0;
     storeState.walkCycle = 0;
     storeState.punchCharging = false;
@@ -1802,10 +1829,11 @@ function enterStoreMode() {
     damageFxEl.style.opacity = "0";
     storeState.character.position.set(storeState.x, 0, storeState.z);
     storeState.character.rotation.set(0, storeState.angle, 0);
-    storeState.character.visible = false;
-    cameraState.position.set(storeState.x, 43, storeState.z);
-    cameraState.target.set(storeState.x, 39, storeState.z - 95);
-    hintEl.textContent = inputState.mobile ? "Joystick walk + turn | green exit" : "Click to lock mouse | W/S walk";
+    storeState.character.visible = true;
+    if (storeState.fist) storeState.fist.visible = false;
+    cameraState.position.set(storeState.x, 84, storeState.z + 148);
+    cameraState.target.set(storeState.x, 32, storeState.z - 36);
+    hintEl.textContent = inputState.mobile ? "Joystick walk + turn | green exit" : "Third person | Click to lock mouse | F camera";
     updateStoreHealthHud();
     arrestFx.style.opacity = "0";
     window.setTimeout(() => {
@@ -1860,15 +1888,24 @@ function requestStorePointerLock() {
 
 function updatePointerLockHint() {
   if (gameMode !== "store" || inputState.mobile) return;
+  const modeText = storeState.cameraMode === "first" ? "First person" : "Third person";
   hintEl.textContent = document.pointerLockElement === canvas
-    ? "Mouse look | W/S walk | Esc unlocks"
-    : "Click to lock mouse | W/S walk";
+    ? `${modeText} | Mouse look | W/S walk | F camera | Esc unlocks`
+    : `${modeText} | Click to lock mouse | W/S walk | F camera`;
 }
 
 function handleStoreMouseLook(event) {
   if (gameMode !== "store" || document.pointerLockElement !== canvas) return;
   storeState.angle -= event.movementX * 0.0027;
   storeState.pitch = clamp(storeState.pitch - event.movementY * 0.0021, -0.58, 0.52);
+}
+
+function toggleStoreCameraMode() {
+  if (gameMode !== "store" || transitionLock || storeState.dead) return;
+  storeState.cameraMode = storeState.cameraMode === "first" ? "third" : "first";
+  storeState.character.visible = storeState.cameraMode !== "first";
+  if (storeState.fist) storeState.fist.visible = storeState.cameraMode === "first";
+  updatePointerLockHint();
 }
 
 function updateGlows(dt) {
@@ -3961,6 +3998,7 @@ function resetGame() {
   storeState.hp = 100;
   storeState.dead = false;
   storeState.deathY = 0;
+  storeState.cameraMode = "third";
   if (storeState.character) storeState.character.rotation.set(0, storeState.angle, 0);
   updateStoreHealthHud();
 
@@ -4101,6 +4139,10 @@ window.addEventListener("mousedown", startStorePunch);
 window.addEventListener("mouseup", releaseStorePunch);
 document.addEventListener("pointerlockchange", updatePointerLockHint);
 window.addEventListener("keydown", (event) => {
+  if (event.key.toLowerCase() === "f" && !event.repeat) {
+    toggleStoreCameraMode();
+    event.preventDefault();
+  }
   keys.add(event.key.toLowerCase());
   if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", " "].includes(event.key)) event.preventDefault();
 });
