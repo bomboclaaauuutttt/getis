@@ -682,14 +682,14 @@ function makeMarketSign() {
   ctx.textBaseline = "middle";
   ctx.lineWidth = 8;
   ctx.strokeStyle = "rgba(0, 34, 70, 0.8)";
-  ctx.strokeText("S MARKET", 256, 69);
+  ctx.strokeText("S-MARKET", 256, 69);
   ctx.fillStyle = "#ffffff";
-  ctx.fillText("S MARKET", 256, 69);
+  ctx.fillText("S-MARKET", 256, 69);
   ctx.font = "900 25px Arial, Helvetica, sans-serif";
   ctx.fillText("7-22  11-19", 256, 122);
   const texture = new THREE.CanvasTexture(canvas);
   texture.needsUpdate = true;
-  return new THREE.MeshBasicMaterial({ map: texture, transparent: true, side: THREE.DoubleSide });
+  return new THREE.MeshBasicMaterial({ map: texture, transparent: true });
 }
 
 function makeVehicle(kind, x, z, angle, paintColor = null) {
@@ -942,6 +942,29 @@ function addParkingStripe(parent, x, z, w, d, rot = 0) {
   parent.add(stripe);
 }
 
+function addParkingBayRow(parent, centerX, frontZ, count, stallW = 34, stallD = 60, side = 1) {
+  const totalW = count * stallW;
+  const backZ = frontZ + side * stallD;
+  const midZ = frontZ + side * stallD * 0.5;
+  addParkingStripe(parent, centerX, frontZ, totalW, 3.6);
+  addParkingStripe(parent, centerX, backZ, totalW, 3.6);
+
+  for (let i = 0; i <= count; i++) {
+    const x = centerX - totalW * 0.5 + i * stallW;
+    addParkingStripe(parent, x, midZ, 3.2, stallD);
+  }
+}
+
+function addDashedLaneLine(parent, x1, z1, x2, z2, pieces = 5) {
+  const dx = x2 - x1;
+  const dz = z2 - z1;
+  const angle = Math.atan2(dx, dz);
+  for (let i = 0; i < pieces; i++) {
+    const t = (i + 0.5) / pieces;
+    addParkingStripe(parent, x1 + dx * t, z1 + dz * t, 4, 24, angle);
+  }
+}
+
 function addCurb(parent, x, z, w, d) {
   const curb = makeBox(w, 1.4, d, mats.curb);
   curb.position.set(x, 0.7, z);
@@ -1042,6 +1065,7 @@ function addSMarket(parent, x, z) {
   signBack.position.set(x - 176, 75, z - 0.5);
   const sign = new THREE.Mesh(new THREE.PlaneGeometry(170, 52), makeMarketSign());
   sign.position.set(x - 176, 77, z - 3.2);
+  sign.rotation.y = Math.PI;
   sign.renderOrder = 8;
   parent.add(blueFacade, signBack, sign);
 
@@ -1064,13 +1088,12 @@ function addSMarket(parent, x, z) {
     parent.add(window);
   }
 
-  for (let row = 0; row < 4; row++) {
-    const rowZ = z - 142 + row * 42;
-    for (let col = -6; col <= 6; col++) {
-      addParkingStripe(parent, x + col * 42, rowZ, 4, 62);
-    }
-    addParkingStripe(parent, x, rowZ + 31, 560, 3.8);
-  }
+  addParkingBayRow(parent, x - 16, z - 160, 13, 42, 62, 1);
+  addParkingBayRow(parent, x - 16, z - 52, 13, 42, 62, -1);
+  addParkingBayRow(parent, x - 16, z - 24, 13, 42, 62, 1);
+  addParkingBayRow(parent, x - 16, z + 84, 13, 42, 62, -1);
+  addDashedLaneLine(parent, x - 294, z - 88, x + 274, z - 88, 12);
+  addDashedLaneLine(parent, x - 294, z + 48, x + 274, z + 48, 12);
 
   const hangout = makePlane(210, 82, mats.concrete, 0.23);
   hangout.position.set(x - 176, 0.23, z - 58);
@@ -1083,6 +1106,27 @@ function addSMarket(parent, x, z) {
     const bollard = new THREE.Mesh(new THREE.CylinderGeometry(1.35, 1.35, 12, 8), mats.marketBlue);
     bollard.position.set(bx, 6, z - 93);
     parent.add(bollard);
+  }
+
+  for (const [lx, lz] of [[x - 300, z - 130], [x + 250, z - 130], [x - 300, z + 28], [x + 250, z + 28]]) {
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(1.6, 1.6, 56, 8), mats.pumpDark);
+    pole.position.set(lx, 28, lz);
+    const lamp = makeBox(22, 4, 10, mats.light);
+    lamp.position.set(lx, 58, lz);
+    parent.add(pole, lamp);
+  }
+
+  const cartShelterRoof = makeBox(72, 5, 34, mats.marketBlue);
+  cartShelterRoof.position.set(x + 212, 18, z - 56);
+  const cartShelterBase = makeBox(64, 2, 28, mats.concrete);
+  cartShelterBase.position.set(x + 212, 1.2, z - 56);
+  parent.add(cartShelterRoof, cartShelterBase);
+  for (const sx of [-28, 28]) {
+    for (const sz of [-12, 12]) {
+      const leg = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 17, 8), mats.curb);
+      leg.position.set(x + 212 + sx, 8.5, z - 56 + sz);
+      parent.add(leg);
+    }
   }
 
   colliders.push({ type: "building", x: x + 42, z: z + 82, w: 466, d: 154, r: 250, chunkKey: parent.userData.chunkKey });
@@ -1157,13 +1201,12 @@ function makeSpawnArea(parent) {
   addCurb(parent, 0, -79, 340, 4);
   addCurb(parent, 0, 175, 340, 4);
 
-  for (let i = -4; i <= 4; i++) {
-    addParkingStripe(parent, i * 34, 48, 3.3, 148);
-  }
-  addParkingStripe(parent, 0, -38, 232, 4);
-  addParkingStripe(parent, 0, 134, 232, 4);
-  addParkingStripe(parent, -118, 48, 3.3, 116);
-  addParkingStripe(parent, 118, 48, 3.3, 116);
+  addParkingBayRow(parent, -42, -58, 6, 34, 56, 1);
+  addParkingBayRow(parent, 56, 154, 6, 34, 56, -1);
+  addParkingBayRow(parent, -132, 24, 3, 34, 56, 1);
+  addParkingBayRow(parent, 132, 78, 3, 34, 56, -1);
+  addDashedLaneLine(parent, -148, 48, 148, 48, 7);
+  addDashedLaneLine(parent, 0, -52, 0, 148, 5);
 
   const crosswalkZ = -58;
   for (let i = -4; i <= 4; i++) addParkingStripe(parent, i * 14, crosswalkZ, 9, 2.8);
@@ -1207,10 +1250,9 @@ function makeSpawnArea(parent) {
   addPump(parent, 260, 72, mats.pumpRed);
   addPump(parent, 324, 72, mats.pumpBlue);
 
-  addParkingStripe(parent, 292, -38, 146, 4);
-  addParkingStripe(parent, 292, 128, 146, 4);
-  addParkingStripe(parent, 402, -10, 3, 54);
-  addParkingStripe(parent, 430, -10, 3, 54);
+  addParkingBayRow(parent, 410, -44, 3, 34, 54, 1);
+  addParkingBayRow(parent, 410, 140, 3, 34, 54, -1);
+  addDashedLaneLine(parent, 214, 104, 462, 104, 6);
 
   const priceSignPole = new THREE.Mesh(new THREE.CylinderGeometry(2.2, 2.2, 42, 8), mats.pumpDark);
   priceSignPole.position.set(198, 21, 122);
