@@ -32,6 +32,7 @@ const transitionFadeEl = document.getElementById("transitionFade");
 const damageFxEl = document.getElementById("damageFx");
 const storeHealthEl = document.getElementById("storeHealth");
 const storeHealthFillEl = storeHealthEl.querySelector("b");
+const purchasePromptEl = document.getElementById("purchasePrompt");
 
 const minimap = document.createElement("canvas");
 const miniCtx = minimap.getContext("2d");
@@ -239,7 +240,11 @@ const storeState = {
   deathSpin: 0,
   colliders: [],
   vendor: null,
+  scanner: null,
   megaforceDisplay: null,
+  purchaseFx: null,
+  purchaseTimer: 0,
+  purchaseDuration: 0,
   drinkCan: null,
   hasMegaforce: false,
   drinking: false,
@@ -1653,6 +1658,7 @@ function createSMarketInterior() {
   const scanner = makeBox(26, 4, 18, mats.marketGlow);
   scanner.position.set(6050, 42.5, -149);
   group.add(scanner);
+  storeState.scanner = scanner;
   glowingObjects.push(scanner);
 
   const vendor = makeVendor();
@@ -1852,8 +1858,68 @@ function storeMegaforceDistance() {
   return Math.hypot(storeState.x - 6008, storeState.z + 132);
 }
 
+function removeStorePurchaseFx() {
+  if (!storeState.purchaseFx || !storeState.group) return;
+  storeState.group.remove(storeState.purchaseFx);
+  storeState.purchaseFx = null;
+}
+
+function startMegaforcePurchaseAnimation() {
+  removeStorePurchaseFx();
+  const fx = new THREE.Group();
+  fx.position.set(6008, 69, -151);
+  attachMegaforceModel(fx, 38);
+
+  const ring = new THREE.Mesh(new THREE.RingGeometry(24, 38, 32), makeGlowMaterial(0x39ff72, 0.7));
+  ring.rotation.x = -Math.PI / 2;
+  ring.position.y = -28;
+  fx.add(ring);
+  glowingObjects.push(ring);
+
+  storeState.group.add(fx);
+  storeState.purchaseFx = fx;
+  storeState.purchaseDuration = 1.15;
+  storeState.purchaseTimer = storeState.purchaseDuration;
+  if (storeState.scanner) storeState.scanner.scale.set(1.7, 1.45, 1.7);
+}
+
+function updateMegaforcePurchaseAnimation(dt) {
+  if (storeState.purchaseTimer <= 0) return;
+  storeState.purchaseTimer = Math.max(0, storeState.purchaseTimer - dt);
+  const t = 1 - storeState.purchaseTimer / Math.max(0.01, storeState.purchaseDuration);
+  const eased = 1 - Math.pow(1 - t, 3);
+  const wobble = Math.sin(t * Math.PI * 3) * (1 - t);
+  const targetX = storeState.x + Math.sin(storeState.angle) * 20 - Math.cos(storeState.angle) * 16;
+  const targetZ = storeState.z + Math.cos(storeState.angle) * 20 + Math.sin(storeState.angle) * 16;
+  const targetY = 58 + Math.sin(t * Math.PI) * 24;
+
+  if (storeState.purchaseFx) {
+    storeState.purchaseFx.position.set(
+      lerp(6008, targetX, eased),
+      lerp(69, targetY, eased),
+      lerp(-151, targetZ, eased)
+    );
+    storeState.purchaseFx.rotation.y += dt * (7 + wobble * 4);
+    storeState.purchaseFx.rotation.z = wobble * 0.28;
+    storeState.purchaseFx.scale.setScalar(1 + Math.sin(t * Math.PI) * 0.32);
+  }
+  if (storeState.scanner) {
+    const pulse = 1 + Math.sin(t * Math.PI) * 1.2;
+    storeState.scanner.scale.set(pulse, 1 + pulse * 0.18, pulse);
+  }
+
+  if (storeState.purchaseTimer <= 0) {
+    removeStorePurchaseFx();
+    if (storeState.scanner) storeState.scanner.scale.set(1, 1, 1);
+    storeState.hasMegaforce = true;
+    storeState.drinking = false;
+    storeState.drinkProgress = 0;
+    showNotification("Megis acquired - hold mouse to drink", true);
+  }
+}
+
 function tryBuyMegaforce() {
-  if (gameMode !== "store" || transitionLock || storeState.dead || storeState.drinking) return;
+  if (gameMode !== "store" || transitionLock || storeState.dead || storeState.drinking || storeState.purchaseTimer > 0) return;
   if (storeState.hasMegaforce) {
     showNotification("You already have Megaforce");
     return;
@@ -1873,13 +1939,15 @@ function tryBuyMegaforce() {
   storeState.drinkDuration = 2.35;
   storeState.drinkProgress = 0;
   storeState.drinkTimer = 0;
-  storeState.hasMegaforce = true;
+  storeState.hasMegaforce = false;
   storeState.drinking = false;
   storeState.boostReady = false;
-  showNotification(`${playerName} bought Megaforce`);
+  showNotification(`${playerName} purchased Megis`, true);
+  startMegaforcePurchaseAnimation();
 }
 
 function updateStoreShop(dt) {
+  updateMegaforcePurchaseAnimation(dt);
   if (storeState.drinking && storeState.hasMegaforce) {
     storeState.drinkDuration = storeState.drinkDuration || 2.35;
     storeState.drinkProgress = Math.min(storeState.drinkDuration, storeState.drinkProgress + dt);
@@ -1896,12 +1964,17 @@ function updateStoreShop(dt) {
     storeState.drinkTimer = storeState.hasMegaforce ? storeState.drinkProgress : 0;
   }
 
-  if (storeState.drinking) {
+  const nearCheckout = storeMegaforceDistance() < 96;
+  purchasePromptEl.classList.toggle("hidden", gameMode !== "store" || !nearCheckout || storeState.hasMegaforce || storeState.drinking || storeState.purchaseTimer > 0 || storeState.dead);
+
+  if (storeState.purchaseTimer > 0) {
+    hintEl.textContent = "Purchasing Megis...";
+  } else if (storeState.drinking) {
     hintEl.textContent = "Drinking Megaforce...";
   } else if (storeState.hasMegaforce) {
     hintEl.textContent = inputState.mobile ? "Hold punch to drink Megaforce" : "Hold left mouse to drink Megaforce";
-  } else if (storeMegaforceDistance() < 96) {
-    hintEl.textContent = inputState.mobile ? "Buy Megaforce 2e" : "Press E to buy Megaforce 2e";
+  } else if (nearCheckout) {
+    hintEl.textContent = inputState.mobile ? "Buy Megis 2e" : "E to purchase Megis";
   } else {
     updatePointerLockHint();
   }
@@ -2206,6 +2279,11 @@ function enterStoreMode() {
     storeState.drinkProgress = 0;
     storeState.drinkTimer = 0;
     storeState.drinkDuration = 0;
+    storeState.purchaseTimer = 0;
+    storeState.purchaseDuration = 0;
+    removeStorePurchaseFx();
+    if (storeState.scanner) storeState.scanner.scale.set(1, 1, 1);
+    purchasePromptEl.classList.add("hidden");
     storeState.boostReady = false;
     storeState.hp = 100;
     storeState.dead = false;
@@ -2258,6 +2336,11 @@ function enterDrivingMode() {
     storeState.drinkTimer = 0;
     storeState.drinkDuration = 0;
     storeState.boostReady = false;
+    storeState.purchaseTimer = 0;
+    storeState.purchaseDuration = 0;
+    removeStorePurchaseFx();
+    if (storeState.scanner) storeState.scanner.scale.set(1, 1, 1);
+    purchasePromptEl.classList.add("hidden");
     storeState.damageTimer = 0;
     storeState.damageShake = 0;
     damageFxEl.style.opacity = "0";
@@ -4430,6 +4513,14 @@ function resetGame() {
   storeState.deathY = 0;
   storeState.cameraMode = "third";
   storeState.cameraYaw = storeState.angle;
+  storeState.hasMegaforce = false;
+  storeState.drinking = false;
+  storeState.drinkProgress = 0;
+  storeState.drinkTimer = 0;
+  storeState.purchaseTimer = 0;
+  storeState.purchaseDuration = 0;
+  removeStorePurchaseFx();
+  purchasePromptEl.classList.add("hidden");
   if (storeState.character) storeState.character.rotation.set(0, storeState.angle, 0);
   updateStoreHealthHud();
 
