@@ -1411,10 +1411,10 @@ function makePerson() {
   const rightLeg = leg(1);
   rightLeg.position.set(5.2, 18, 0);
   const drinkCan = new THREE.Group();
-  drinkCan.position.set(0, -22, 4.3);
-  drinkCan.rotation.z = Math.PI * 0.5;
+  drinkCan.position.set(1.5, -24, 7.2);
+  drinkCan.rotation.set(1.1, 0.1, 0.05);
   drinkCan.visible = false;
-  attachMegaforceModel(drinkCan, 8);
+  attachMegaforceModel(drinkCan, 30);
   rightArm.add(drinkCan);
 
   detailBox(group, -13.2, 43.5, 0, 4.5, 7, 7, mats.personBody);
@@ -1453,40 +1453,41 @@ function makeFirstPersonFist() {
     return mesh;
   }
 
-  const upperSleeve = armCylinder(3.8, 4.7, 24, mats.personBody, 14, 0.5, -0.2);
-  upperSleeve.rotation.z = -0.08;
-  const forearmSleeve = armCylinder(3.05, 3.65, 30, mats.personShirtLight, -9, 0, 0);
-  forearmSleeve.rotation.z = 0.06;
-  const cuff = armCylinder(3.4, 3.4, 3.8, mats.personBody, -27.2, 0, 0);
-  const wrist = armCylinder(2.35, 2.65, 6.2, mats.personSkinShadow, -31.2, 0, 0);
+  const sleeve = armCylinder(3.2, 4.35, 62, mats.personShirtLight, -6, 0, 0);
+  sleeve.rotation.z = 0.04;
+  const wrist = new THREE.Mesh(new THREE.SphereGeometry(2.6, 10, 8), mats.personSkinShadow);
+  wrist.scale.set(0.9, 0.8, 1.15);
+  wrist.position.set(0, 0, -37);
+  wrist.castShadow = true;
+  wrist.receiveShadow = true;
   const fist = new THREE.Mesh(new THREE.SphereGeometry(4.8, 14, 10), mats.personHead);
   fist.scale.set(1.05, 0.86, 1.15);
-  fist.position.set(0, 0, -37.8);
+  fist.position.set(0, 0, -43);
   fist.castShadow = true;
   fist.receiveShadow = true;
   const knuckles = new THREE.Group();
   for (let i = 0; i < 4; i++) {
     const knuckle = new THREE.Mesh(new THREE.SphereGeometry(1.35, 8, 6), mats.personSkinShadow);
     knuckle.scale.set(1, 0.72, 0.75);
-    knuckle.position.set(-2.9 + i * 1.95, 2.5, -41.6);
+    knuckle.position.set(-2.9 + i * 1.95, 2.5, -46.8);
     knuckle.castShadow = true;
     knuckles.add(knuckle);
   }
   const thumb = new THREE.Mesh(new THREE.SphereGeometry(2.05, 8, 6), mats.personSkinShadow);
   thumb.scale.set(0.8, 1.05, 1.35);
-  thumb.position.set(4.4, -0.55, -38.4);
+  thumb.position.set(4.4, -0.55, -43.6);
   thumb.rotation.z = -0.45;
   thumb.castShadow = true;
   knuckles.add(thumb);
   const can = new THREE.Group();
-  can.position.set(-6.5, 4.4, -42.5);
-  can.rotation.set(0, 0.2, 0.12);
+  can.position.set(-10.5, 12.5, -49);
+  can.rotation.set(0, 0.18, 0.02);
   can.visible = false;
-  attachMegaforceModel(can, 44);
+  attachMegaforceModel(can, 118);
 
-  group.add(fist, knuckles, can);
+  group.add(wrist, fist, knuckles, can);
   group.userData.can = can;
-  group.position.set(19, -33, -50);
+  group.position.set(19, -35, -54);
   group.rotation.set(-0.06, -0.18, 0.06);
   group.scale.setScalar(0.48);
   camera.add(group);
@@ -1688,6 +1689,7 @@ function createSMarketInterior() {
   glowingObjects.push(exitRing, exitCore);
 
   const character = makePerson();
+  character.scale.setScalar(1.14);
   character.position.set(storeState.x, 0, storeState.z);
   group.add(character);
   storeState.character = character;
@@ -2119,10 +2121,10 @@ function updateStoreCamera(dt) {
 
   if (storeState.cameraMode === "first") {
     const flatAim = Math.cos(firstPersonPitch) * 95;
-    desired = new THREE.Vector3(storeState.x, 43 + bob, storeState.z);
+    desired = new THREE.Vector3(storeState.x, 61 + bob, storeState.z);
     target = new THREE.Vector3(
       storeState.x + forwardX * flatAim,
-      43 + bob + Math.sin(firstPersonPitch) * 95,
+      61 + bob + Math.sin(firstPersonPitch) * 95,
       storeState.z + forwardZ * flatAim
     );
   } else {
@@ -3983,6 +3985,7 @@ function applyRemoteState(peerId, state) {
   };
   if (!remote.storeCharacter && storeState.group) {
     remote.storeCharacter = makePerson();
+    remote.storeCharacter.scale.setScalar(1.14);
     remote.storeCharacter.position.set(remote.storeTarget.x, 0, remote.storeTarget.z);
     remote.storeCharacter.rotation.y = remote.storeTarget.angle;
     remote.storeCharacter.visible = false;
