@@ -971,6 +971,22 @@ function addCurb(parent, x, z, w, d) {
   parent.add(curb);
 }
 
+function addSolidRect(parent, x, z, w, d, padding = 0) {
+  colliders.push({
+    type: "building",
+    x,
+    z,
+    w: w + padding * 2,
+    d: d + padding * 2,
+    r: Math.hypot(w + padding * 2, d + padding * 2) * 0.5,
+    chunkKey: parent.userData.chunkKey,
+  });
+}
+
+function addSolidCircle(parent, x, z, r) {
+  colliders.push({ type: "tree", x, z, r, scale: 1, knocked: true, chunkKey: parent.userData.chunkKey });
+}
+
 function addPump(parent, x, z, colorMat) {
   const group = new THREE.Group();
   group.position.set(x, 0, z);
@@ -996,7 +1012,11 @@ function addPump(parent, x, z, colorMat) {
   }
 
   parent.add(group);
-  colliders.push({ type: "building", x, z, w: 27, d: 40, r: 25, chunkKey: parent.userData.chunkKey });
+  addSolidRect(parent, x, z, 33, 46, 4);
+  addSolidCircle(parent, x - 10.8, z - 14, 6);
+  addSolidCircle(parent, x + 10.8, z - 14, 6);
+  addSolidCircle(parent, x - 10.8, z + 14, 6);
+  addSolidCircle(parent, x + 10.8, z + 14, 6);
 }
 
 function addSpawnStore(parent, x, z) {
@@ -1106,6 +1126,7 @@ function addSMarket(parent, x, z) {
     const bollard = new THREE.Mesh(new THREE.CylinderGeometry(1.35, 1.35, 12, 8), mats.marketBlue);
     bollard.position.set(bx, 6, z - 93);
     parent.add(bollard);
+    addSolidCircle(parent, bx, z - 93, 6);
   }
 
   for (const [lx, lz] of [[x - 300, z - 130], [x + 250, z - 130], [x - 300, z + 28], [x + 250, z + 28]]) {
@@ -1114,6 +1135,7 @@ function addSMarket(parent, x, z) {
     const lamp = makeBox(22, 4, 10, mats.light);
     lamp.position.set(lx, 58, lz);
     parent.add(pole, lamp);
+    addSolidCircle(parent, lx, lz, 8);
   }
 
   const cartShelterRoof = makeBox(72, 5, 34, mats.marketBlue);
@@ -1126,12 +1148,15 @@ function addSMarket(parent, x, z) {
       const leg = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 17, 8), mats.curb);
       leg.position.set(x + 212 + sx, 8.5, z - 56 + sz);
       parent.add(leg);
+      addSolidCircle(parent, x + 212 + sx, z - 56 + sz, 5);
     }
   }
 
-  colliders.push({ type: "building", x: x + 42, z: z + 82, w: 466, d: 154, r: 250, chunkKey: parent.userData.chunkKey });
-  colliders.push({ type: "building", x: x - 176, z: z + 76, w: 194, d: 160, r: 126, chunkKey: parent.userData.chunkKey });
-  colliders.push({ type: "building", x: x + 338, z: z + 74, w: 206, d: 138, r: 124, chunkKey: parent.userData.chunkKey });
+  addSolidRect(parent, x + 42, z + 82, 478, 166, 8);
+  addSolidRect(parent, x - 176, z + 76, 204, 172, 8);
+  addSolidRect(parent, x + 338, z + 74, 216, 148, 8);
+  addSolidRect(parent, x - 176, z - 1, 114, 14, 8);
+  addSolidRect(parent, x + 212, z - 56, 78, 40, 5);
 }
 
 function biomeForChunk(cx, cz) {
@@ -1232,7 +1257,8 @@ function makeSpawnArea(parent) {
   const sign = makeBox(82, 12, 3, mats.pumpBlue);
   sign.position.set(414, 36, 56.5);
   parent.add(shop, shopRoof, shopGlass, shopDoor, sign);
-  colliders.push({ type: "building", x: 414, z: 103, w: 132, d: 90, r: 80, chunkKey: parent.userData.chunkKey });
+  addSolidRect(parent, 414, 103, 144, 98, 8);
+  addSolidRect(parent, 414, 57, 92, 12, 6);
 
   const canopyRoof = makeBox(160, 7, 96, mats.stationTrim);
   canopyRoof.position.set(292, 41, 20);
@@ -1242,6 +1268,7 @@ function makeSpawnArea(parent) {
       const pole = new THREE.Mesh(new THREE.CylinderGeometry(2.3, 2.3, 39, 8), mats.curb);
       pole.position.set(sx, 18, sz);
       parent.add(pole);
+      addSolidCircle(parent, sx, sz, 8);
     }
   }
 
@@ -1259,6 +1286,7 @@ function makeSpawnArea(parent) {
   const priceSign = makeBox(34, 26, 4, mats.stationTrim);
   priceSign.position.set(198, 48, 122);
   parent.add(priceSignPole, priceSign);
+  addSolidCircle(parent, 198, 122, 9);
 
   addSMarket(parent, -470, 42);
 }
