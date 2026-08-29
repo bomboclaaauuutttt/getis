@@ -195,6 +195,7 @@ const storeState = {
   x: 6000,
   z: 220,
   angle: Math.PI,
+  pitch: 0,
   turnVelocity: 0,
   walkCycle: 0,
   colliders: [],
@@ -1366,9 +1367,12 @@ function storeRectCollision(x, z, radius, rect) {
 }
 
 function moveStoreCharacter(dt) {
+  const mouseLocked = document.pointerLockElement === canvas;
   const steerInput = inputState.mobile
     ? inputState.steer
-    : (keys.has("a") || keys.has("arrowleft") ? 1 : 0) + (keys.has("d") || keys.has("arrowright") ? -1 : 0);
+    : mouseLocked
+      ? 0
+      : (keys.has("a") || keys.has("arrowleft") ? 1 : 0) + (keys.has("d") || keys.has("arrowright") ? -1 : 0);
   const moveInput = inputState.mobile
     ? inputState.throttle
     : (keys.has("w") || keys.has("arrowup") ? 1 : 0) + (keys.has("s") || keys.has("arrowdown") ? -1 : 0);
@@ -1426,13 +1430,15 @@ function animateStoreCharacter(dt, moving) {
 
 function updateStoreCamera(dt) {
   const bob = Math.abs(Math.sin(storeState.walkCycle)) * 1.6;
+  const pitch = clamp(storeState.pitch, -0.58, 0.52);
   const forwardX = Math.sin(storeState.angle);
   const forwardZ = Math.cos(storeState.angle);
+  const flatAim = Math.cos(pitch) * 95;
   const desired = new THREE.Vector3(storeState.x, 43 + bob, storeState.z);
   const target = new THREE.Vector3(
-    storeState.x + forwardX * 95,
-    39 + bob * 0.35,
-    storeState.z + forwardZ * 95
+    storeState.x + forwardX * flatAim,
+    43 + bob + Math.sin(pitch) * 95,
+    storeState.z + forwardZ * flatAim
   );
   cameraState.position.lerp(desired, 1 - Math.exp(-dt * 16));
   cameraState.target.lerp(target, 1 - Math.exp(-dt * 13));
@@ -1459,13 +1465,14 @@ function enterStoreMode() {
     storeState.x = 6000;
     storeState.z = 220;
     storeState.angle = Math.PI;
+    storeState.pitch = 0;
     storeState.turnVelocity = 0;
     storeState.walkCycle = 0;
     storeState.character.position.set(storeState.x, 0, storeState.z);
     storeState.character.visible = false;
     cameraState.position.set(storeState.x, 43, storeState.z);
     cameraState.target.set(storeState.x, 39, storeState.z - 95);
-    hintEl.textContent = inputState.mobile ? "Joystick walk + turn | green exit" : "W/S walk, A/D turn | green exit";
+    hintEl.textContent = inputState.mobile ? "Joystick walk + turn | green exit" : "Click to lock mouse | W/S walk";
     arrestFx.style.opacity = "0";
     window.setTimeout(() => {
       setTransition(false);
@@ -1478,6 +1485,7 @@ function enterDrivingMode() {
   if (transitionLock || gameMode !== "store") return;
   transitionLock = true;
   setTransition(true);
+  if (document.pointerLockElement === canvas) document.exitPointerLock();
   window.setTimeout(() => {
     gameMode = "driving";
     world.visible = true;
@@ -1499,6 +1507,26 @@ function enterDrivingMode() {
       transitionLock = false;
     }, 260);
   }, 420);
+}
+
+function requestStorePointerLock() {
+  if (gameMode !== "store" || transitionLock || inputState.mobile) return;
+  if (document.pointerLockElement !== canvas && canvas.requestPointerLock) {
+    canvas.requestPointerLock();
+  }
+}
+
+function updatePointerLockHint() {
+  if (gameMode !== "store" || inputState.mobile) return;
+  hintEl.textContent = document.pointerLockElement === canvas
+    ? "Mouse look | W/S walk | Esc unlocks"
+    : "Click to lock mouse | W/S walk";
+}
+
+function handleStoreMouseLook(event) {
+  if (gameMode !== "store" || document.pointerLockElement !== canvas) return;
+  storeState.angle -= event.movementX * 0.0027;
+  storeState.pitch = clamp(storeState.pitch - event.movementY * 0.0021, -0.58, 0.52);
 }
 
 function updateGlows(dt) {
@@ -3528,6 +3556,7 @@ function updateJoystickFromPointer(event) {
 }
 
 function resetGame() {
+  if (document.pointerLockElement === canvas) document.exitPointerLock();
   gameMode = "driving";
   transitionLock = false;
   setTransition(false);
@@ -3664,6 +3693,8 @@ function loop() {
 }
 
 window.addEventListener("resize", resize);
+window.addEventListener("mousemove", handleStoreMouseLook);
+document.addEventListener("pointerlockchange", updatePointerLockHint);
 window.addEventListener("keydown", (event) => {
   keys.add(event.key.toLowerCase());
   if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", " "].includes(event.key)) event.preventDefault();
@@ -3692,6 +3723,7 @@ joystickEl.addEventListener("pointerup", (event) => {
 joystickEl.addEventListener("pointercancel", (event) => {
   if (inputState.joystickPointerId === event.pointerId) resetJoystick();
 });
+canvas.addEventListener("click", requestStorePointerLock);
 singleplayerButton.addEventListener("click", startSingleplayer);
 createGameButton.addEventListener("click", createGame);
 joinGameButton.addEventListener("click", showJoinGame);
