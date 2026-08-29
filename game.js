@@ -27,6 +27,7 @@ const menuStatusEl = document.getElementById("menuStatus");
 const gameCodeEl = document.getElementById("gameCode");
 const restartButton = document.getElementById("restartButton");
 const minimapEl = document.getElementById("minimap");
+const transitionFadeEl = document.getElementById("transitionFade");
 
 const minimap = document.createElement("canvas");
 const miniCtx = minimap.getContext("2d");
@@ -110,6 +111,16 @@ const mats = {
   marketBrick: new THREE.MeshLambertMaterial({ color: 0x9a5c45 }),
   marketBlue: new THREE.MeshBasicMaterial({ color: 0x1b8fe8 }),
   marketGlow: new THREE.MeshBasicMaterial({ color: 0x68cfff, transparent: true, opacity: 0.42, depthWrite: false }),
+  entranceGreen: new THREE.MeshBasicMaterial({ color: 0x39ff72, transparent: true, opacity: 0.64, depthWrite: false }),
+  entranceGreenSolid: new THREE.MeshBasicMaterial({ color: 0x39ff72 }),
+  storeFloor: new THREE.MeshLambertMaterial({ color: 0x9ea18f }),
+  storeWall: new THREE.MeshLambertMaterial({ color: 0xd8d1bf }),
+  shelf: new THREE.MeshLambertMaterial({ color: 0x315d42 }),
+  productRed: new THREE.MeshLambertMaterial({ color: 0xd4483f }),
+  productYellow: new THREE.MeshLambertMaterial({ color: 0xe6d45c }),
+  cashier: new THREE.MeshLambertMaterial({ color: 0x2a9be8 }),
+  personBody: new THREE.MeshLambertMaterial({ color: 0x2f6fd0 }),
+  personHead: new THREE.MeshLambertMaterial({ color: 0xf1c08a }),
   pumpBlue: new THREE.MeshLambertMaterial({ color: 0x2a66c9 }),
   pumpRed: new THREE.MeshLambertMaterial({ color: 0xdc2f2f }),
   pumpDark: new THREE.MeshLambertMaterial({ color: 0x1f2427 }),
@@ -154,6 +165,7 @@ const speedLines = [];
 const debris = [];
 const tireParticles = [];
 const fallingTrees = [];
+const glowingObjects = [];
 
 const effectGeometry = {
   dust: new THREE.CircleGeometry(1, 12),
@@ -172,6 +184,19 @@ let lastPlayerZ = 48;
 let playerName = localStorage.getItem("policeGetawayName") || "";
 let playerColor = colorForName(playerName || "Driver");
 let lastWantedNoticeLevel = 0;
+let gameMode = "driving";
+let transitionLock = false;
+
+const SMARKET_ENTRANCE = { x: -646, z: -20, radius: 54 };
+const SMARKET_EXIT = { x: 6000, z: 238, radius: 44 };
+const storeState = {
+  group: null,
+  character: null,
+  x: 6000,
+  z: 170,
+  angle: 0,
+  colliders: [],
+};
 
 const cameraState = {
   position: new THREE.Vector3(0, 136, 190),
@@ -983,6 +1008,44 @@ function addSolidRect(parent, x, z, w, d, padding = 0) {
   });
 }
 
+function makeGlowMaterial(color, opacity) {
+  return new THREE.MeshBasicMaterial({
+    color,
+    transparent: true,
+    opacity,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+  });
+}
+
+function addSMarketEntranceGlow(parent, x, z) {
+  const ring = new THREE.Mesh(new THREE.RingGeometry(26, 43, 36), makeGlowMaterial(0x39ff72, 0.72));
+  ring.rotation.x = -Math.PI / 2;
+  ring.position.set(x, 0.72, z);
+  ring.renderOrder = 10;
+
+  const core = new THREE.Mesh(new THREE.CircleGeometry(28, 36), makeGlowMaterial(0x39ff72, 0.28));
+  core.rotation.x = -Math.PI / 2;
+  core.position.set(x, 0.73, z);
+  core.renderOrder = 9;
+
+  const beam = makeBox(88, 52, 4, makeGlowMaterial(0x39ff72, 0.36));
+  beam.position.set(x, 27, z + 27);
+  beam.renderOrder = 11;
+
+  const leftPost = makeBox(7, 42, 7, mats.entranceGreenSolid);
+  leftPost.position.set(x - 48, 21, z + 25);
+  const rightPost = makeBox(7, 42, 7, mats.entranceGreenSolid);
+  rightPost.position.set(x + 48, 21, z + 25);
+  const topBar = makeBox(104, 8, 8, mats.entranceGreenSolid);
+  topBar.position.set(x, 45, z + 25);
+
+  const label = makeBox(78, 10, 3, makeGlowMaterial(0x9dffb7, 0.78));
+  label.position.set(x, 56, z + 22);
+  parent.add(core, ring, beam, leftPost, rightPost, topBar, label);
+  glowingObjects.push(ring, core, beam, label);
+}
+
 function addPump(parent, x, z, colorMat) {
   const group = new THREE.Group();
   group.position.set(x, 0, z);
@@ -1093,6 +1156,7 @@ function addSMarket(parent, x, z) {
   const entryGlassRight = makeBox(42, 34, 2.2, mats.glass);
   entryGlassRight.position.set(x - 147, 18, z - 3.2);
   parent.add(entryFrame, entryGlassLeft, entryGlassRight);
+  addSMarketEntranceGlow(parent, x - 176, z - 62);
 
   for (let i = 0; i < 12; i++) {
     const window = makeBox(22, 24, 1.4, mats.glass);
@@ -1144,6 +1208,226 @@ function addSMarket(parent, x, z) {
   addSolidRect(parent, x + 42, z + 82, 440, 132, 4);
   addSolidRect(parent, x - 176, z + 76, 172, 140, 4);
   addSolidRect(parent, x + 338, z + 74, 190, 120, 4);
+}
+
+function addStoreCollider(x, z, w, d) {
+  storeState.colliders.push({ x, z, w, d });
+}
+
+function addStoreBox(parent, x, z, w, h, d, material, solid = true) {
+  const mesh = makeBox(w, h, d, material);
+  mesh.position.set(x, h * 0.5, z);
+  parent.add(mesh);
+  if (solid) addStoreCollider(x, z, w, d);
+  return mesh;
+}
+
+function makePerson() {
+  const group = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(7, 8, 21, 12), mats.personBody);
+  body.position.y = 18;
+  const head = new THREE.Mesh(new THREE.SphereGeometry(6.5, 14, 10), mats.personHead);
+  head.position.y = 33;
+  const footLeft = makeBox(4, 3, 8, mats.pumpDark);
+  footLeft.position.set(-4, 1.5, -2);
+  const footRight = makeBox(4, 3, 8, mats.pumpDark);
+  footRight.position.set(4, 1.5, -2);
+  group.add(body, head, footLeft, footRight);
+  return group;
+}
+
+function createSMarketInterior() {
+  const group = new THREE.Group();
+  group.visible = false;
+  scene.add(group);
+  storeState.group = group;
+  storeState.colliders.length = 0;
+
+  const floor = makePlane(520, 360, mats.storeFloor, 0.06);
+  floor.position.set(6000, 0.06, 0);
+  group.add(floor);
+
+  addStoreBox(group, 6000, -184, 540, 48, 18, mats.storeWall);
+  addStoreBox(group, 6000, 184, 540, 48, 18, mats.storeWall);
+  addStoreBox(group, 5728, 0, 18, 48, 360, mats.storeWall);
+  addStoreBox(group, 6272, 0, 18, 48, 360, mats.storeWall);
+
+  for (const x of [5850, 5925, 6000, 6075, 6150]) {
+    addStoreBox(group, x, -74, 42, 26, 118, mats.shelf);
+    addStoreBox(group, x, 72, 42, 26, 118, mats.shelf);
+    for (let i = 0; i < 4; i++) {
+      const product = makeBox(10, 6, 10, i % 2 ? mats.productYellow : mats.productRed);
+      product.position.set(x - 14 + i * 9, 31, -112);
+      group.add(product);
+      const product2 = makeBox(10, 6, 10, i % 2 ? mats.productRed : mats.productYellow);
+      product2.position.set(x - 14 + i * 9, 31, 110);
+      group.add(product2);
+    }
+  }
+
+  addStoreBox(group, 5795, 136, 86, 22, 38, mats.cashier);
+  addStoreBox(group, 5898, 136, 86, 22, 38, mats.cashier);
+  addStoreBox(group, 6215, -130, 78, 34, 42, mats.glass);
+
+  const exitRing = new THREE.Mesh(new THREE.RingGeometry(24, 40, 32), makeGlowMaterial(0x39ff72, 0.72));
+  exitRing.rotation.x = -Math.PI / 2;
+  exitRing.position.set(SMARKET_EXIT.x, 0.5, SMARKET_EXIT.z);
+  const exitCore = new THREE.Mesh(new THREE.CircleGeometry(25, 32), makeGlowMaterial(0x39ff72, 0.24));
+  exitCore.rotation.x = -Math.PI / 2;
+  exitCore.position.set(SMARKET_EXIT.x, 0.51, SMARKET_EXIT.z);
+  group.add(exitRing, exitCore);
+  glowingObjects.push(exitRing, exitCore);
+
+  const character = makePerson();
+  character.position.set(storeState.x, 0, storeState.z);
+  group.add(character);
+  storeState.character = character;
+}
+
+function storeRectCollision(x, z, radius, rect) {
+  const hx = rect.w * 0.5;
+  const hz = rect.d * 0.5;
+  const closestX = clamp(x, rect.x - hx, rect.x + hx);
+  const closestZ = clamp(z, rect.z - hz, rect.z + hz);
+  const dx = x - closestX;
+  const dz = z - closestZ;
+  const d = Math.hypot(dx, dz);
+  if (d >= radius) return null;
+  if (d > 0.001) return { nx: dx / d, nz: dz / d, overlap: radius - d };
+
+  const left = Math.abs(x - (rect.x - hx));
+  const right = Math.abs((rect.x + hx) - x);
+  const top = Math.abs(z - (rect.z - hz));
+  const bottom = Math.abs((rect.z + hz) - z);
+  const min = Math.min(left, right, top, bottom);
+  if (min === left) return { nx: -1, nz: 0, overlap: radius };
+  if (min === right) return { nx: 1, nz: 0, overlap: radius };
+  if (min === top) return { nx: 0, nz: -1, overlap: radius };
+  return { nx: 0, nz: 1, overlap: radius };
+}
+
+function moveStoreCharacter(dt) {
+  let dx = inputState.mobile ? inputState.steer : 0;
+  let dz = inputState.mobile ? -inputState.throttle : 0;
+  if (keys.has("a") || keys.has("arrowleft")) dx -= 1;
+  if (keys.has("d") || keys.has("arrowright")) dx += 1;
+  if (keys.has("w") || keys.has("arrowup")) dz -= 1;
+  if (keys.has("s") || keys.has("arrowdown")) dz += 1;
+
+  const length = Math.hypot(dx, dz);
+  if (length > 0) {
+    dx /= length;
+    dz /= length;
+    storeState.x += dx * 128 * dt;
+    storeState.z += dz * 128 * dt;
+    storeState.angle = Math.atan2(dx, dz);
+  }
+
+  const radius = 13;
+  for (const rect of storeState.colliders) {
+    const hit = storeRectCollision(storeState.x, storeState.z, radius, rect);
+    if (!hit) continue;
+    storeState.x += hit.nx * (hit.overlap + 0.4);
+    storeState.z += hit.nz * (hit.overlap + 0.4);
+  }
+
+  storeState.x = clamp(storeState.x, 5755, 6245);
+  storeState.z = clamp(storeState.z, -152, 238);
+  storeState.character.position.set(storeState.x, 0, storeState.z);
+  storeState.character.rotation.y = storeState.angle;
+
+  if (Math.hypot(storeState.x - SMARKET_EXIT.x, storeState.z - SMARKET_EXIT.z) < SMARKET_EXIT.radius && !transitionLock) {
+    enterDrivingMode();
+  }
+}
+
+function updateStoreCamera(dt) {
+  const desired = new THREE.Vector3(storeState.x, 285, storeState.z + 245);
+  const target = new THREE.Vector3(storeState.x, 0, storeState.z - 26);
+  cameraState.position.lerp(desired, 1 - Math.exp(-dt * 5.4));
+  cameraState.target.lerp(target, 1 - Math.exp(-dt * 7));
+  camera.position.copy(cameraState.position);
+  camera.lookAt(cameraState.target);
+  camera.fov = lerp(camera.fov, 48, 1 - Math.exp(-dt * 4));
+  camera.updateProjectionMatrix();
+}
+
+function setTransition(active) {
+  transitionFadeEl.classList.toggle("active", active);
+}
+
+function enterStoreMode() {
+  if (transitionLock || gameMode !== "driving") return;
+  transitionLock = true;
+  setTransition(true);
+  window.setTimeout(() => {
+    gameMode = "store";
+    world.visible = false;
+    player.group.visible = false;
+    storeState.group.visible = true;
+    minimapEl.classList.add("hidden");
+    storeState.x = 6000;
+    storeState.z = 170;
+    storeState.angle = 0;
+    storeState.character.position.set(storeState.x, 0, storeState.z);
+    cameraState.position.set(storeState.x, 285, storeState.z + 245);
+    cameraState.target.set(storeState.x, 0, storeState.z - 26);
+    hintEl.textContent = inputState.mobile ? "Joystick walk | green circle exits" : "WASD walk | green circle exits";
+    arrestFx.style.opacity = "0";
+    window.setTimeout(() => {
+      setTransition(false);
+      transitionLock = false;
+    }, 260);
+  }, 420);
+}
+
+function enterDrivingMode() {
+  if (transitionLock || gameMode !== "store") return;
+  transitionLock = true;
+  setTransition(true);
+  window.setTimeout(() => {
+    gameMode = "driving";
+    world.visible = true;
+    player.group.visible = true;
+    minimapEl.classList.remove("hidden");
+    player.x = SMARKET_ENTRANCE.x;
+    player.z = SMARKET_ENTRANCE.z - 70;
+    player.vx = 0;
+    player.vz = 0;
+    player.angle = 0;
+    syncVehicle(player);
+    storeState.group.visible = false;
+    cameraState.position.set(player.x, 210, player.z + 210);
+    cameraState.target.set(player.x, 0, player.z - 28);
+    hintEl.textContent = inputState.mobile ? "Joystick drive" : "W/S drive, A/D turn";
+    window.setTimeout(() => {
+      setTransition(false);
+      transitionLock = false;
+    }, 260);
+  }, 420);
+}
+
+function updateGlows(dt) {
+  const t = performance.now() * 0.004;
+  for (let i = glowingObjects.length - 1; i >= 0; i--) {
+    const mesh = glowingObjects[i];
+    if (!mesh.parent) {
+      glowingObjects.splice(i, 1);
+      continue;
+    }
+    const pulse = 0.78 + Math.sin(t + i * 0.7) * 0.16;
+    mesh.scale.setScalar(pulse);
+    if (mesh.material && "opacity" in mesh.material) {
+      mesh.material.opacity = clamp(0.22 + pulse * 0.42, 0.2, 0.78);
+    }
+  }
+}
+
+function checkSMarketEntrance() {
+  if (transitionLock || gameMode !== "driving") return;
+  if (Math.hypot(player.x - SMARKET_ENTRANCE.x, player.z - SMARKET_ENTRANCE.z) < SMARKET_ENTRANCE.radius) {
+    enterStoreMode();
+  }
 }
 
 function biomeForChunk(cx, cz) {
@@ -3150,6 +3434,14 @@ function updateJoystickFromPointer(event) {
 }
 
 function resetGame() {
+  gameMode = "driving";
+  transitionLock = false;
+  setTransition(false);
+  world.visible = true;
+  player.group.visible = true;
+  minimapEl.classList.remove("hidden");
+  if (storeState.group) storeState.group.visible = false;
+
   player.x = 0;
   player.z = 48;
   player.vx = 0;
@@ -3241,9 +3533,10 @@ function loseGame() {
 }
 
 function update(dt) {
-  updateChunks();
-  if (running && !gameOver) {
+  if (gameMode === "driving") updateChunks();
+  if (running && !gameOver && gameMode === "driving") {
     updatePlayer(dt);
+    checkSMarketEntrance();
     if (worldHostControlsSimulation()) {
       updateTraffic(dt);
       updateCops(dt);
@@ -3253,13 +3546,20 @@ function update(dt) {
     updateCollisions(dt, worldHostControlsSimulation());
     sendNetworkState(dt);
     if (chaseTime > 3.2 && cops.length > 0) hintEl.textContent += ` | ${cops.length} cops`;
+  } else if (running && !gameOver && gameMode === "store") {
+    moveStoreCharacter(dt);
   }
   updateWantedMeter();
   updatePoliceLights(dt);
   updateRemotePlayers(dt);
   updateDriveEffects(dt);
-  updateCamera(dt);
-  drawMinimap();
+  updateGlows(dt);
+  if (gameMode === "store") {
+    updateStoreCamera(dt);
+  } else {
+    updateCamera(dt);
+    drawMinimap();
+  }
 }
 
 function loop() {
@@ -3312,6 +3612,7 @@ joinForm.addEventListener("submit", (event) => {
 restartButton.addEventListener("click", resetGame);
 
 resize();
+createSMarketInterior();
 updateChunks();
 updateCamera(0.016);
 if (new URLSearchParams(window.location.search).has("play")) {
