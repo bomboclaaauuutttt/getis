@@ -124,7 +124,13 @@ const mats = {
   productYellow: new THREE.MeshLambertMaterial({ color: 0xe6d45c }),
   cashier: new THREE.MeshLambertMaterial({ color: 0x2a9be8 }),
   personBody: new THREE.MeshLambertMaterial({ color: 0x2f6fd0 }),
+  personShirtLight: new THREE.MeshLambertMaterial({ color: 0x4b8dff }),
+  personPants: new THREE.MeshLambertMaterial({ color: 0x123d87 }),
   personHead: new THREE.MeshLambertMaterial({ color: 0xf1c08a }),
+  personSkinShadow: new THREE.MeshLambertMaterial({ color: 0xc99665 }),
+  personHair: new THREE.MeshLambertMaterial({ color: 0x171411 }),
+  personShoe: new THREE.MeshLambertMaterial({ color: 0x111315 }),
+  eyeWhite: new THREE.MeshBasicMaterial({ color: 0xf3f2e8 }),
   pumpBlue: new THREE.MeshLambertMaterial({ color: 0x2a66c9 }),
   pumpRed: new THREE.MeshLambertMaterial({ color: 0xdc2f2f }),
   pumpDark: new THREE.MeshLambertMaterial({ color: 0x1f2427 }),
@@ -1301,50 +1307,94 @@ function addStoreBox(parent, x, z, w, h, d, material, solid = true) {
 function makePerson() {
   const group = new THREE.Group();
 
-  const hips = makeBox(17, 7, 10, mats.personBody);
-  hips.position.set(0, 17, 0);
-  const torso = makeBox(19, 23, 11, mats.personBody);
-  torso.position.set(0, 30, 0);
-  const neck = makeBox(7, 4, 6, mats.personHead);
-  neck.position.set(0, 44, 0);
-  const head = new THREE.Mesh(new THREE.SphereGeometry(7.2, 16, 12), mats.personHead);
-  head.position.set(0, 52, 0);
-  const hair = makeBox(13, 4, 11, mats.pumpDark);
-  hair.position.set(0, 58, -1);
-
-  function limb(w, h, d, material, foot = false) {
-    const pivot = new THREE.Group();
+  function detailBox(parent, x, y, z, w, h, d, material) {
     const mesh = makeBox(w, h, d, material);
-    mesh.position.y = -h * 0.5;
-    pivot.add(mesh);
-    if (foot) {
-      const shoe = makeBox(w + 1.5, 3, d + 5, mats.pumpDark);
-      shoe.position.set(0, -h - 1.5, -2.5);
-      pivot.add(shoe);
-    }
+    mesh.position.set(x, y, z);
+    parent.add(mesh);
+    return mesh;
+  }
+
+  function detailSphere(parent, x, y, z, radius, scale, material, segments = 12) {
+    const mesh = new THREE.Mesh(new THREE.SphereGeometry(radius, segments, Math.max(8, segments - 2)), material);
+    mesh.scale.set(scale.x, scale.y, scale.z);
+    mesh.position.set(x, y, z);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    parent.add(mesh);
+    return mesh;
+  }
+
+  const hips = makeBox(18, 8, 11, mats.personPants);
+  hips.position.set(0, 18, 0);
+  const belt = makeBox(19, 2.2, 11.6, mats.personShoe);
+  belt.position.set(0, 22.8, -0.2);
+  const torso = makeBox(20, 24, 12, mats.personBody);
+  torso.position.set(0, 34, 0);
+  const chest = makeBox(13.5, 18, 12.7, mats.personShirtLight);
+  chest.position.set(0, 34.5, -0.42);
+  const collar = makeBox(12, 2.6, 13, mats.personShoe);
+  collar.position.set(0, 46, -0.5);
+  const neck = makeBox(6.5, 5, 6, mats.personSkinShadow);
+  neck.position.set(0, 48, 0);
+
+  const headPivot = new THREE.Group();
+  headPivot.position.set(0, 49.5, 0);
+  const head = detailSphere(headPivot, 0, 6, 0, 7.4, { x: 0.95, y: 1.08, z: 0.9 }, mats.personHead, 16);
+  const hairCap = detailSphere(headPivot, 0, 9.6, -0.7, 7.1, { x: 0.95, y: 0.35, z: 0.86 }, mats.personHair, 14);
+  const hairFront = detailBox(headPivot, 0, 10.1, -5.35, 12.2, 3.2, 2.1, mats.personHair);
+  const leftSideburn = detailBox(headPivot, -6.2, 6.5, -2.8, 1.8, 5.8, 2, mats.personHair);
+  const rightSideburn = detailBox(headPivot, 6.2, 6.5, -2.8, 1.8, 5.8, 2, mats.personHair);
+  const leftEye = detailBox(headPivot, -2.6, 6.5, -6.1, 2.1, 1.25, 0.8, mats.eyeWhite);
+  const rightEye = detailBox(headPivot, 2.6, 6.5, -6.1, 2.1, 1.25, 0.8, mats.eyeWhite);
+  detailBox(headPivot, -2.6, 6.35, -6.62, 0.75, 0.95, 0.55, mats.glass);
+  detailBox(headPivot, 2.6, 6.35, -6.62, 0.75, 0.95, 0.55, mats.glass);
+  detailBox(headPivot, 0, 4.6, -6.45, 1.35, 2.1, 0.75, mats.personSkinShadow);
+  const face = detailBox(headPivot, 0, 2.4, -6.35, 5.6, 0.9, 0.65, mats.glass);
+
+  function arm(side) {
+    const pivot = new THREE.Group();
+    detailBox(pivot, 0, -5, 0, 6.2, 10, 6, mats.personBody);
+    detailBox(pivot, side * 0.3, -15, 0, 5.2, 11, 5.4, mats.personHead);
+    detailSphere(pivot, side * 0.45, -22.2, -0.2, 3.35, { x: 0.9, y: 0.9, z: 1.02 }, mats.personHead, 10);
     return pivot;
   }
 
-  const leftArm = limb(5, 24, 5, mats.personHead);
-  leftArm.position.set(-13, 40, 0);
-  const rightArm = limb(5, 24, 5, mats.personHead);
-  rightArm.position.set(13, 40, 0);
-  const leftLeg = limb(6, 22, 6, mats.personBody, true);
-  leftLeg.position.set(-5, 17, 0);
-  const rightLeg = limb(6, 22, 6, mats.personBody, true);
-  rightLeg.position.set(5, 17, 0);
+  function leg(side) {
+    const pivot = new THREE.Group();
+    detailBox(pivot, 0, -7.5, 0, 6.4, 15, 6.2, mats.personPants);
+    detailBox(pivot, 0, -18.5, 0, 5.4, 10, 5.4, mats.personPants);
+    detailBox(pivot, 0, -25.2, -2.4, 7.4, 3.7, 10.2, mats.personShoe);
+    detailBox(pivot, side * 1.9, -24.1, -2.3, 1.2, 2, 7.4, mats.pumpDark);
+    return pivot;
+  }
 
-  const face = makeBox(8, 3, 1.2, mats.glass);
-  face.position.set(0, 52, -6.6);
+  const leftArm = arm(-1);
+  leftArm.position.set(-13.4, 44, 0);
+  const rightArm = arm(1);
+  rightArm.position.set(13.4, 44, 0);
+  const leftLeg = leg(-1);
+  leftLeg.position.set(-5.2, 18, 0);
+  const rightLeg = leg(1);
+  rightLeg.position.set(5.2, 18, 0);
 
-  group.add(hips, torso, neck, head, hair, face, leftArm, rightArm, leftLeg, rightLeg);
+  detailBox(group, -13.2, 43.5, 0, 4.5, 7, 7, mats.personBody);
+  detailBox(group, 13.2, 43.5, 0, 4.5, 7, 7, mats.personBody);
+  detailBox(group, 0, 34.2, -6.55, 7.2, 16, 0.9, mats.personShirtLight);
+  detailBox(group, 0, 23.9, -6.65, 15, 1.7, 0.8, mats.personShoe);
+
+  group.add(hips, belt, torso, chest, collar, neck, headPivot, leftArm, rightArm, leftLeg, rightLeg);
   group.userData.leftArm = leftArm;
   group.userData.rightArm = rightArm;
   group.userData.leftLeg = leftLeg;
   group.userData.rightLeg = rightLeg;
-  group.userData.head = head;
-  group.userData.hair = hair;
-  group.userData.face = face;
+  group.userData.head = headPivot;
+  group.userData.hair = headPivot;
+  group.userData.face = headPivot;
+  group.userData.headMesh = head;
+  group.userData.faceMesh = face;
+  group.userData.hairMesh = hairCap;
+  group.userData.leftEye = leftEye;
+  group.userData.rightEye = rightEye;
   return group;
 }
 
@@ -1354,14 +1404,16 @@ function makeFirstPersonFist() {
 
   const sleeve = makeBox(8, 8, 18, mats.personBody);
   sleeve.position.set(0, 0, 8);
-  const wrist = makeBox(6, 6, 6, mats.personHead);
+  const cuff = makeBox(8.8, 8.8, 2.5, mats.personShirtLight);
+  cuff.position.set(0, 0, -1.2);
+  const wrist = makeBox(6, 6, 6, mats.personSkinShadow);
   wrist.position.set(0, 0, -4);
   const fist = makeBox(10, 8, 9, mats.personHead);
   fist.position.set(0, 0, -12);
-  const knuckles = makeBox(10, 2, 3, mats.pumpDark);
+  const knuckles = makeBox(10, 2, 3, mats.personSkinShadow);
   knuckles.position.set(0, 3.8, -16);
 
-  group.add(sleeve, wrist, fist, knuckles);
+  group.add(sleeve, cuff, wrist, fist, knuckles);
   group.position.set(17, -13, -36);
   group.rotation.set(-0.18, -0.28, 0.08);
   camera.add(group);
