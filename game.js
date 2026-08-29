@@ -402,6 +402,11 @@ function lerp(a, b, t) {
   return a + (b - a) * t;
 }
 
+function smoothStep01(t) {
+  const x = clamp(t, 0, 1);
+  return x * x * (3 - 2 * x);
+}
+
 function moveToward(value, target, amount) {
   if (value < target) return Math.min(value + amount, target);
   return Math.max(value - amount, target);
@@ -1789,14 +1794,15 @@ function animateStoreCharacter(dt, moving) {
   const strike = thirdPersonPunch && storeState.punchTimer > 0 ? Math.sin(storeState.punchTimer * Math.PI) : 0;
   const carryingDrink = storeState.hasMegaforce || storeState.drinking;
   const drinkProgress = clamp(storeState.drinkProgress / Math.max(0.01, storeState.drinkDuration || 1), 0, 1);
-  const drink = storeState.drinking ? Math.sin(drinkProgress * Math.PI) : 0;
+  const drinkLift = storeState.drinking ? smoothStep01(drinkProgress * 2.4) : 0;
+  const drinkSip = storeState.drinking ? Math.sin(performance.now() * 0.018) * 0.08 : 0;
   const headPitch = clamp(storeState.pitch, -1.1, 1.1) * 0.62;
   const ease = 1 - Math.exp(-dt * 12);
   character.position.y = lerp(character.position.y, bounce, ease);
   character.userData.leftArm.rotation.x = lerp(character.userData.leftArm.rotation.x, swing, ease);
-  const rightArmX = carryingDrink ? -1.1 - drink * 0.82 : -swing + windup * 1.15 - strike * 1.75;
-  const rightArmY = carryingDrink ? -0.16 - drink * 0.08 : windup * 0.45 - strike * 0.18;
-  const rightArmZ = carryingDrink ? -0.28 - drink * 0.1 : -windup * 0.32 + strike * 0.18;
+  const rightArmX = carryingDrink ? -0.82 - drinkLift * 1.22 + drinkSip : -swing + windup * 1.15 - strike * 1.75;
+  const rightArmY = carryingDrink ? -0.1 - drinkLift * 0.18 : windup * 0.45 - strike * 0.18;
+  const rightArmZ = carryingDrink ? -0.2 - drinkLift * 0.18 : -windup * 0.32 + strike * 0.18;
   character.userData.rightArm.rotation.x = lerp(character.userData.rightArm.rotation.x, rightArmX, ease);
   character.userData.rightArm.rotation.y = lerp(character.userData.rightArm.rotation.y, rightArmY, ease);
   character.userData.rightArm.rotation.z = lerp(character.userData.rightArm.rotation.z, rightArmZ, ease);
@@ -1806,7 +1812,11 @@ function animateStoreCharacter(dt, moving) {
   character.userData.head.rotation.x = lerp(character.userData.head.rotation.x, headPitch, ease);
   character.userData.hair.rotation.x = lerp(character.userData.hair.rotation.x, headPitch, ease);
   character.userData.face.rotation.x = lerp(character.userData.face.rotation.x, headPitch, ease);
-  if (character.userData.drinkCan) character.userData.drinkCan.visible = carryingDrink;
+  if (character.userData.drinkCan) {
+    character.userData.drinkCan.visible = carryingDrink;
+    character.userData.drinkCan.rotation.x = lerp(character.userData.drinkCan.rotation.x, 0.25 + drinkLift * 0.95, ease);
+    character.userData.drinkCan.rotation.z = lerp(character.userData.drinkCan.rotation.z, 0.05 - drinkLift * 0.18, ease);
+  }
 }
 
 function updateStorePunch(dt) {
@@ -1821,19 +1831,24 @@ function updateStorePunch(dt) {
   const windup = storeState.punchCharging ? storeState.punchCharge : 0;
   const strike = storeState.punchTimer > 0 ? Math.sin(storeState.punchTimer * Math.PI) : 0;
   const drinkProgress = clamp(storeState.drinkProgress / Math.max(0.01, storeState.drinkDuration || 1), 0, 1);
-  const drink = storeState.drinking ? Math.sin(drinkProgress * Math.PI) : 0;
+  const drinkLift = storeState.drinking ? smoothStep01(drinkProgress * 2.4) : 0;
+  const drinkSip = storeState.drinking ? Math.sin(performance.now() * 0.02) * 0.9 : 0;
   const carryingDrink = storeState.hasMegaforce || storeState.drinking;
   const settle = 1 - Math.exp(-dt * 14);
   const wantedX = carryingDrink ? 18 : 19 - strike * 5;
-  const wantedY = carryingDrink ? -32 + drink * 9 : -33 + strike * 3;
-  const wantedZ = carryingDrink ? -66 + drink * 14 : -70 + windup * 18 - strike * (32 + storeState.lastPunchDamage * 0.13);
+  const wantedY = carryingDrink ? -32 + drinkLift * 14 + drinkSip : -33 + strike * 3;
+  const wantedZ = carryingDrink ? -66 + drinkLift * 24 : -70 + windup * 18 - strike * (32 + storeState.lastPunchDamage * 0.13);
   storeState.fist.position.x = lerp(storeState.fist.position.x, wantedX, settle);
   storeState.fist.position.y = lerp(storeState.fist.position.y, wantedY, settle);
   storeState.fist.position.z = lerp(storeState.fist.position.z, wantedZ, settle);
-  storeState.fist.rotation.x = lerp(storeState.fist.rotation.x, carryingDrink ? -0.32 - drink * 0.55 : -0.12 - windup * 0.55 + strike * 0.36, settle);
-  storeState.fist.rotation.y = lerp(storeState.fist.rotation.y, carryingDrink ? -0.1 : -0.2 + strike * 0.18, settle);
-  storeState.fist.rotation.z = lerp(storeState.fist.rotation.z, carryingDrink ? 0.18 + drink * 0.12 : 0.06 + windup * 0.14 - strike * 0.13, settle);
-  if (storeState.fist.userData.can) storeState.fist.userData.can.visible = carryingDrink;
+  storeState.fist.rotation.x = lerp(storeState.fist.rotation.x, carryingDrink ? -0.28 - drinkLift * 0.72 : -0.12 - windup * 0.55 + strike * 0.36, settle);
+  storeState.fist.rotation.y = lerp(storeState.fist.rotation.y, carryingDrink ? -0.1 + drinkLift * 0.08 : -0.2 + strike * 0.18, settle);
+  storeState.fist.rotation.z = lerp(storeState.fist.rotation.z, carryingDrink ? 0.16 + drinkLift * 0.22 : 0.06 + windup * 0.14 - strike * 0.13, settle);
+  if (storeState.fist.userData.can) {
+    storeState.fist.userData.can.visible = carryingDrink;
+    storeState.fist.userData.can.rotation.x = lerp(storeState.fist.userData.can.rotation.x, drinkLift * 1.08, settle);
+    storeState.fist.userData.can.rotation.z = lerp(storeState.fist.userData.can.rotation.z, 0.02 + drinkLift * 0.32, settle);
+  }
 
   storeState.damageTimer = Math.max(0, storeState.damageTimer - dt * 1.75);
   storeState.damageShake = Math.max(0, storeState.damageShake - dt * 4.4);
@@ -1843,14 +1858,18 @@ function updateStorePunch(dt) {
 function startStorePunch(event) {
   if (event.button !== 0 || gameMode !== "store" || transitionLock || storeState.dead) return;
   if (!inputState.mobile && document.pointerLockElement !== canvas) requestStorePointerLock();
-  if (storeState.hasMegaforce) {
-    storeState.drinking = true;
-    storeState.punchCharging = false;
-    storeState.punchTimer = 0;
-    return;
-  }
   storeState.punchCharging = true;
   storeState.punchCharge = 0;
+  storeState.punchTimer = 0;
+}
+
+function startStoreDrink(event) {
+  if (event.button !== 2 || gameMode !== "store" || transitionLock || storeState.dead) return;
+  event.preventDefault();
+  if (!inputState.mobile && document.pointerLockElement !== canvas) requestStorePointerLock();
+  if (!storeState.hasMegaforce) return;
+  storeState.drinking = true;
+  storeState.punchCharging = false;
   storeState.punchTimer = 0;
 }
 
@@ -1914,7 +1933,7 @@ function updateMegaforcePurchaseAnimation(dt) {
     storeState.hasMegaforce = true;
     storeState.drinking = false;
     storeState.drinkProgress = 0;
-    showNotification("Megis acquired - hold mouse to drink", true);
+    showNotification("Megis acquired - hold right mouse to drink", true);
   }
 }
 
@@ -1972,7 +1991,7 @@ function updateStoreShop(dt) {
   } else if (storeState.drinking) {
     hintEl.textContent = "Drinking Megaforce...";
   } else if (storeState.hasMegaforce) {
-    hintEl.textContent = inputState.mobile ? "Hold punch to drink Megaforce" : "Hold left mouse to drink Megaforce";
+    hintEl.textContent = inputState.mobile ? "Hold punch to drink Megaforce" : "Hold right mouse to drink Megaforce";
   } else if (nearCheckout) {
     hintEl.textContent = inputState.mobile ? "Buy Megis 2e" : "E to purchase Megis";
   } else {
@@ -1981,10 +2000,6 @@ function updateStoreShop(dt) {
 }
 
 function releaseStorePunch(event) {
-  if (event.button === 0 && storeState.drinking) {
-    storeState.drinking = false;
-    return;
-  }
   if (event.button !== 0 || !storeState.punchCharging || storeState.dead) return;
   storeState.punchCharging = false;
   storeState.lastPunchDamage = Math.round(18 + storeState.punchCharge * 82);
@@ -1994,6 +2009,12 @@ function releaseStorePunch(event) {
   showNotification(hit ? `Hit ${hit.name} for ${storeState.lastPunchDamage}` : `Punch damage ${storeState.lastPunchDamage}`);
   sendStorePunch(hit ? hit.peerId : "");
   storeState.punchCharge = 0;
+}
+
+function stopStoreDrink(event) {
+  if (event.button !== 2 || !storeState.drinking) return;
+  event.preventDefault();
+  storeState.drinking = false;
 }
 
 function findStorePunchTarget(damage) {
@@ -2147,14 +2168,15 @@ function animateRemoteStoreCharacter(remote, dt, moving) {
   const strike = (target.punchTimer || 0) > 0 ? Math.sin((target.punchTimer || 0) * Math.PI) : 0;
   const carryingDrink = !!target.hasMegaforce || !!target.drinking;
   const drinkProgress = clamp((target.drinkProgress || target.drinkTimer || 0) / Math.max(0.01, target.drinkDuration || 1), 0, 1);
-  const drink = target.drinking ? Math.sin(drinkProgress * Math.PI) : 0;
+  const drinkLift = target.drinking ? smoothStep01(drinkProgress * 2.4) : 0;
+  const drinkSip = target.drinking ? Math.sin(performance.now() * 0.018) * 0.08 : 0;
   const headPitch = clamp(target.pitch || 0, -1.1, 1.1) * 0.62;
   const ease = 1 - Math.exp(-dt * 12);
 
   character.userData.leftArm.rotation.x = lerp(character.userData.leftArm.rotation.x, swing, ease);
-  const rightArmX = carryingDrink ? -1.1 - drink * 0.82 : -swing + windup * 1.15 - strike * 1.75;
-  const rightArmY = carryingDrink ? -0.16 - drink * 0.08 : windup * 0.45 - strike * 0.18;
-  const rightArmZ = carryingDrink ? -0.28 - drink * 0.1 : -windup * 0.32 + strike * 0.18;
+  const rightArmX = carryingDrink ? -0.82 - drinkLift * 1.22 + drinkSip : -swing + windup * 1.15 - strike * 1.75;
+  const rightArmY = carryingDrink ? -0.1 - drinkLift * 0.18 : windup * 0.45 - strike * 0.18;
+  const rightArmZ = carryingDrink ? -0.2 - drinkLift * 0.18 : -windup * 0.32 + strike * 0.18;
   character.userData.rightArm.rotation.x = lerp(character.userData.rightArm.rotation.x, rightArmX, ease);
   character.userData.rightArm.rotation.y = lerp(character.userData.rightArm.rotation.y, rightArmY, ease);
   character.userData.rightArm.rotation.z = lerp(character.userData.rightArm.rotation.z, rightArmZ, ease);
@@ -2164,7 +2186,11 @@ function animateRemoteStoreCharacter(remote, dt, moving) {
   character.userData.head.rotation.x = lerp(character.userData.head.rotation.x, headPitch, ease);
   character.userData.hair.rotation.x = lerp(character.userData.hair.rotation.x, headPitch, ease);
   character.userData.face.rotation.x = lerp(character.userData.face.rotation.x, headPitch, ease);
-  if (character.userData.drinkCan) character.userData.drinkCan.visible = carryingDrink;
+  if (character.userData.drinkCan) {
+    character.userData.drinkCan.visible = carryingDrink;
+    character.userData.drinkCan.rotation.x = lerp(character.userData.drinkCan.rotation.x, 0.25 + drinkLift * 0.95, ease);
+    character.userData.drinkCan.rotation.z = lerp(character.userData.drinkCan.rotation.z, 0.05 - drinkLift * 0.18, ease);
+  }
 }
 
 function updateStoreCamera(dt) {
@@ -4660,7 +4686,12 @@ function loop() {
 window.addEventListener("resize", resize);
 window.addEventListener("mousemove", handleStoreMouseLook);
 window.addEventListener("mousedown", startStorePunch);
+window.addEventListener("mousedown", startStoreDrink);
 window.addEventListener("mouseup", releaseStorePunch);
+window.addEventListener("mouseup", stopStoreDrink);
+canvas.addEventListener("contextmenu", (event) => {
+  if (gameMode === "store") event.preventDefault();
+});
 document.addEventListener("pointerlockchange", updatePointerLockHint);
 window.addEventListener("keydown", (event) => {
   if (event.key.toLowerCase() === "f" && !event.repeat) {
