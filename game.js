@@ -1343,6 +1343,8 @@ function makePerson() {
   group.userData.leftLeg = leftLeg;
   group.userData.rightLeg = rightLeg;
   group.userData.head = head;
+  group.userData.hair = hair;
+  group.userData.face = face;
   return group;
 }
 
@@ -1523,13 +1525,22 @@ function animateStoreCharacter(dt, moving) {
   const swing = moving ? Math.sin(t) * 0.72 : 0;
   const side = moving ? Math.sin(t * 2) * 0.05 : 0;
   const bounce = moving ? Math.abs(Math.sin(t)) * 1.8 : 0;
+  const thirdPersonPunch = storeState.cameraMode === "third";
+  const windup = thirdPersonPunch && storeState.punchCharging ? storeState.punchCharge : 0;
+  const strike = thirdPersonPunch && storeState.punchTimer > 0 ? Math.sin(storeState.punchTimer * Math.PI) : 0;
+  const headPitch = clamp(storeState.pitch, -0.58, 0.52) * 0.62;
   const ease = 1 - Math.exp(-dt * 12);
   character.position.y = lerp(character.position.y, bounce, ease);
   character.userData.leftArm.rotation.x = lerp(character.userData.leftArm.rotation.x, swing, ease);
-  character.userData.rightArm.rotation.x = lerp(character.userData.rightArm.rotation.x, -swing, ease);
+  character.userData.rightArm.rotation.x = lerp(character.userData.rightArm.rotation.x, -swing - windup * 1.15 + strike * 1.75, ease);
+  character.userData.rightArm.rotation.y = lerp(character.userData.rightArm.rotation.y, -windup * 0.45 + strike * 0.18, ease);
+  character.userData.rightArm.rotation.z = lerp(character.userData.rightArm.rotation.z, windup * 0.32 - strike * 0.18, ease);
   character.userData.leftLeg.rotation.x = lerp(character.userData.leftLeg.rotation.x, -swing * 0.82, ease);
   character.userData.rightLeg.rotation.x = lerp(character.userData.rightLeg.rotation.x, swing * 0.82, ease);
   character.userData.head.rotation.z = lerp(character.userData.head.rotation.z, side, ease);
+  character.userData.head.rotation.x = lerp(character.userData.head.rotation.x, headPitch, ease);
+  character.userData.hair.rotation.x = lerp(character.userData.hair.rotation.x, headPitch, ease);
+  character.userData.face.rotation.x = lerp(character.userData.face.rotation.x, headPitch, ease);
 }
 
 function updateStorePunch(dt) {
@@ -1714,6 +1725,33 @@ function updateStoreHealthHud() {
     : hp < 58
       ? "linear-gradient(90deg, #ffb000, #fff052)"
       : "linear-gradient(90deg, #2dff64, #e9ff52)";
+}
+
+function animateRemoteStoreCharacter(remote, dt, moving) {
+  const character = remote.storeCharacter;
+  const target = remote.storeTarget || {};
+  if (!character || !character.userData.head) return;
+  remote.storeWalkCycle = moving
+    ? (remote.storeWalkCycle || 0) + dt * 8.2
+    : lerp(remote.storeWalkCycle || 0, Math.round((remote.storeWalkCycle || 0) / Math.PI) * Math.PI, 1 - Math.exp(-dt * 5));
+  const t = remote.storeWalkCycle || 0;
+  const swing = moving ? Math.sin(t) * 0.72 : 0;
+  const side = moving ? Math.sin(t * 2) * 0.05 : 0;
+  const windup = target.punchCharging ? target.punchCharge || 0 : 0;
+  const strike = (target.punchTimer || 0) > 0 ? Math.sin((target.punchTimer || 0) * Math.PI) : 0;
+  const headPitch = clamp(target.pitch || 0, -0.58, 0.52) * 0.62;
+  const ease = 1 - Math.exp(-dt * 12);
+
+  character.userData.leftArm.rotation.x = lerp(character.userData.leftArm.rotation.x, swing, ease);
+  character.userData.rightArm.rotation.x = lerp(character.userData.rightArm.rotation.x, -swing - windup * 1.15 + strike * 1.75, ease);
+  character.userData.rightArm.rotation.y = lerp(character.userData.rightArm.rotation.y, -windup * 0.45 + strike * 0.18, ease);
+  character.userData.rightArm.rotation.z = lerp(character.userData.rightArm.rotation.z, windup * 0.32 - strike * 0.18, ease);
+  character.userData.leftLeg.rotation.x = lerp(character.userData.leftLeg.rotation.x, -swing * 0.82, ease);
+  character.userData.rightLeg.rotation.x = lerp(character.userData.rightLeg.rotation.x, swing * 0.82, ease);
+  character.userData.head.rotation.z = lerp(character.userData.head.rotation.z, side, ease);
+  character.userData.head.rotation.x = lerp(character.userData.head.rotation.x, headPitch, ease);
+  character.userData.hair.rotation.x = lerp(character.userData.hair.rotation.x, headPitch, ease);
+  character.userData.face.rotation.x = lerp(character.userData.face.rotation.x, headPitch, ease);
 }
 
 function updateStoreCamera(dt) {
@@ -3485,6 +3523,10 @@ function localNetworkState() {
     storeZ: storeState.z,
     storeAngle: storeState.angle,
     storePitch: storeState.pitch,
+    storeCameraMode: storeState.cameraMode,
+    storePunchCharge: storeState.punchCharge,
+    storePunchCharging: storeState.punchCharging,
+    storePunchTimer: storeState.punchTimer,
     storeHp: storeState.hp,
     storeDead: storeState.dead,
     storeDeathY: storeState.deathY,
@@ -3566,6 +3608,11 @@ function applyRemoteState(peerId, state) {
     x: Number.isFinite(state.storeX) ? state.storeX : 6000,
     z: Number.isFinite(state.storeZ) ? state.storeZ : 220,
     angle: Number.isFinite(state.storeAngle) ? state.storeAngle : Math.PI,
+    pitch: Number.isFinite(state.storePitch) ? state.storePitch : 0,
+    cameraMode: state.storeCameraMode || "third",
+    punchCharge: Number.isFinite(state.storePunchCharge) ? state.storePunchCharge : 0,
+    punchCharging: !!state.storePunchCharging,
+    punchTimer: Number.isFinite(state.storePunchTimer) ? state.storePunchTimer : 0,
     hp: Number.isFinite(state.storeHp) ? state.storeHp : 100,
     dead: !!state.storeDead,
     deathY: Number.isFinite(state.storeDeathY) ? state.storeDeathY : 0,
@@ -3688,6 +3735,8 @@ function updateRemotePlayers(dt) {
       remote.storeCharacter.visible = visibleInStore;
       if (remote.storeNameTag) remote.storeNameTag.visible = visibleInStore && !storeTarget.dead;
       if (visibleInStore) {
+        const previousStoreX = remote.storeCharacter.position.x;
+        const previousStoreZ = remote.storeCharacter.position.z;
         remote.storeCharacter.position.x = lerp(remote.storeCharacter.position.x, storeTarget.x || 6000, follow);
         remote.storeCharacter.position.y = lerp(remote.storeCharacter.position.y, storeTarget.deathY || 0, follow);
         remote.storeCharacter.position.z = lerp(remote.storeCharacter.position.z, storeTarget.z || 220, follow);
@@ -3699,6 +3748,11 @@ function updateRemotePlayers(dt) {
           remote.storeCharacter.rotation.x = lerp(remote.storeCharacter.rotation.x, 0, follow);
           remote.storeCharacter.rotation.y += angleDelta(remote.storeCharacter.rotation.y, storeTarget.angle || Math.PI) * follow;
           remote.storeCharacter.rotation.z = lerp(remote.storeCharacter.rotation.z, 0, follow);
+          animateRemoteStoreCharacter(
+            remote,
+            dt,
+            Math.hypot(remote.storeCharacter.position.x - previousStoreX, remote.storeCharacter.position.z - previousStoreZ) > 0.2
+          );
         }
       }
     }
