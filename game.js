@@ -81,6 +81,23 @@ const inputState = {
   throttle: 0,
   joystickPointerId: null,
 };
+
+const audioState = {
+  ctx: null,
+  master: null,
+  engineOsc: null,
+  engineGain: null,
+  driftSource: null,
+  driftGain: null,
+  sirenOsc: null,
+  sirenGain: null,
+  sirenPhase: 0,
+  driveSpeed: 0,
+  driftIntensity: 0,
+  storeMoving: false,
+  nextFootstep: 0,
+  lastCrash: 0,
+};
 const clock = new THREE.Clock();
 const gltfLoader = new GLTFLoader();
 let seed = Math.floor(Math.random() * 999999);
@@ -408,6 +425,162 @@ function lerp(a, b, t) {
 function smoothStep01(t) {
   const x = clamp(t, 0, 1);
   return x * x * (3 - 2 * x);
+}
+
+function initAudio() {
+  if (audioState.ctx) return audioState.ctx;
+  const AudioCtx = window.AudioContext || window.webkitAudioContext;
+  if (!AudioCtx) return null;
+  const ctx = new AudioCtx();
+  const master = ctx.createGain();
+  master.gain.value = 0.38;
+  master.connect(ctx.destination);
+
+  const engineOsc = ctx.createOscillator();
+  const engineGain = ctx.createGain();
+  const engineFilter = ctx.createBiquadFilter();
+  engineOsc.type = "sawtooth";
+  engineOsc.frequency.value = 48;
+  engineFilter.type = "lowpass";
+  engineFilter.frequency.value = 520;
+  engineGain.gain.value = 0;
+  engineOsc.connect(engineFilter);
+  engineFilter.connect(engineGain);
+  engineGain.connect(master);
+  engineOsc.start();
+
+  const noiseBuffer = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate);
+  const noise = noiseBuffer.getChannelData(0);
+  for (let i = 0; i < noise.length; i++) noise[i] = Math.random() * 2 - 1;
+  const driftSource = ctx.createBufferSource();
+  const driftFilter = ctx.createBiquadFilter();
+  const driftGain = ctx.createGain();
+  driftSource.buffer = noiseBuffer;
+  driftSource.loop = true;
+  driftFilter.type = "bandpass";
+  driftFilter.frequency.value = 920;
+  driftFilter.Q.value = 1.4;
+  driftGain.gain.value = 0;
+  driftSource.connect(driftFilter);
+  driftFilter.connect(driftGain);
+  driftGain.connect(master);
+  driftSource.start();
+
+  const sirenOsc = ctx.createOscillator();
+  const sirenGain = ctx.createGain();
+  sirenOsc.type = "triangle";
+  sirenOsc.frequency.value = 520;
+  sirenGain.gain.value = 0;
+  sirenOsc.connect(sirenGain);
+  sirenGain.connect(master);
+  sirenOsc.start();
+
+  Object.assign(audioState, { ctx, master, engineOsc, engineGain, engineFilter, driftSource, driftGain, driftFilter, sirenOsc, sirenGain });
+  return ctx;
+}
+
+function unlockAudio() {
+  const ctx = initAudio();
+  if (ctx && ctx.state === "suspended") ctx.resume();
+}
+
+function playTone(freq, duration = 0.12, type = "sine", gain = 0.08, delay = 0) {
+  const ctx = initAudio();
+  if (!ctx || !audioState.master) return;
+  const now = ctx.currentTime + delay;
+  const osc = ctx.createOscillator();
+  const amp = ctx.createGain();
+  osc.type = type;
+  osc.frequency.setValueAtTime(freq, now);
+  amp.gain.setValueAtTime(0.001, now);
+  amp.gain.exponentialRampToValueAtTime(Math.max(0.002, gain), now + 0.012);
+  amp.gain.exponentialRampToValueAtTime(0.001, now + duration);
+  osc.connect(amp);
+  amp.connect(audioState.master);
+  osc.start(now);
+  osc.stop(now + duration + 0.04);
+}
+
+function playNoiseHit(duration = 0.14, gain = 0.12, filterFreq = 520) {
+  const ctx = initAudio();
+  if (!ctx || !audioState.master) return;
+  const buffer = ctx.createBuffer(1, Math.max(1, Math.floor(ctx.sampleRate * duration)), ctx.sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let i = 0; i < data.length; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / data.length);
+  const source = ctx.createBufferSource();
+  const filter = ctx.createBiquadFilter();
+  const amp = ctx.createGain();
+  source.buffer = buffer;
+  filter.type = "lowpass";
+  filter.frequency.value = filterFreq;
+  amp.gain.value = gain;
+  source.connect(filter);
+  filter.connect(amp);
+  amp.connect(audioState.master);
+  source.start();
+}
+
+function playUiClick() {
+  playTone(620, 0.045, "square", 0.035);
+  playTone(920, 0.06, "sine", 0.025, 0.035);
+}
+
+function playPurchaseSound() {
+  playTone(740, 0.08, "triangle", 0.08);
+  playTone(1040, 0.12, "triangle", 0.075, 0.075);
+  playNoiseHit(0.08, 0.035, 2400);
+}
+
+function playDrinkSound() {
+  playNoiseHit(0.34, 0.055, 1450);
+  playTone(260, 0.18, "sine", 0.028, 0.08);
+}
+
+function playPunchSound(hit = false) {
+  playNoiseHit(hit ? 0.16 : 0.11, hit ? 0.13 : 0.07, hit ? 620 : 980);
+  if (hit) playTone(92, 0.12, "sine", 0.08);
+}
+
+function playCrashSound(power = 120) {
+  const now = performance.now();
+  if (now - audioState.lastCrash < 110) return;
+  audioState.lastCrash = now;
+  const intensity = clamp(power / 220, 0.25, 1);
+  playNoiseHit(0.18 + intensity * 0.18, 0.1 + intensity * 0.2, 260 + intensity * 540);
+  playTone(54 + intensity * 28, 0.24, "sawtooth", 0.08 + intensity * 0.08);
+}
+
+function playArrestSound() {
+  playTone(220, 0.18, "sawtooth", 0.12);
+  playTone(164, 0.28, "sawtooth", 0.12, 0.14);
+  playTone(98, 0.38, "sawtooth", 0.1, 0.34);
+}
+
+function updateAudio(dt) {
+  if (!audioState.ctx) return;
+  const ctx = audioState.ctx;
+  const now = ctx.currentTime;
+  const driving = running && !gameOver && gameMode === "driving";
+  const speed01 = clamp(audioState.driveSpeed / 260, 0, 1);
+  const drift01 = driving ? clamp(audioState.driftIntensity, 0, 1) : 0;
+  const copDistance = cops.reduce((best, cop) => Math.min(best, dist(player, cop)), Infinity);
+  const siren01 = driving && cops.length > 0 ? clamp(1 - (copDistance - 150) / 760, 0.08, 0.75) : 0;
+
+  audioState.engineOsc.frequency.setTargetAtTime(42 + speed01 * 132, now, 0.08);
+  audioState.engineGain.gain.setTargetAtTime(driving ? 0.025 + speed01 * 0.13 : 0, now, 0.14);
+  audioState.engineFilter.frequency.setTargetAtTime(360 + speed01 * 1250, now, 0.1);
+  audioState.driftGain.gain.setTargetAtTime(drift01 * 0.18, now, 0.055);
+  audioState.driftFilter.frequency.setTargetAtTime(720 + speed01 * 1550, now, 0.08);
+
+  audioState.sirenPhase += dt * (1.15 + siren01 * 0.9);
+  const sirenSweep = Math.sin(audioState.sirenPhase * Math.PI * 2) * 0.5 + 0.5;
+  audioState.sirenOsc.frequency.setTargetAtTime(430 + sirenSweep * 360, now, 0.035);
+  audioState.sirenGain.gain.setTargetAtTime(siren01 * 0.12, now, 0.12);
+
+  if (running && !gameOver && gameMode === "store" && !storeState.dead && audioState.storeMoving && performance.now() > audioState.nextFootstep) {
+    audioState.nextFootstep = performance.now() + 315;
+    playNoiseHit(0.055, 0.028, 420);
+  }
 }
 
 function moveToward(value, target, amount) {
@@ -1786,6 +1959,7 @@ function moveStoreCharacter(dt) {
   const walkSpeed = 138;
   const moveLen = Math.hypot(moveInput, strafeInput);
   const moving = moveLen > 0.05;
+  audioState.storeMoving = moving;
   if (moving) {
     const scale = 1 / Math.max(1, moveLen);
     const moveYaw = storeState.angle + Math.atan2(-strafeInput, moveInput || 0.0001);
@@ -1916,6 +2090,7 @@ function startStoreDrink(event) {
   storeState.punchCharging = false;
   storeState.punchTimer = 0;
   storeState.punchCooldown = 0;
+  playDrinkSound();
 }
 
 function storeMegaforceDistance() {
@@ -1998,6 +2173,7 @@ function tryBuyMegaforce() {
   }
   money -= 2;
   moneyEl.textContent = "$" + Math.floor(money);
+  playPurchaseSound();
   storeState.punchCharging = false;
   storeState.punchTimer = 0;
   storeState.drinkDuration = 2.35;
@@ -2052,6 +2228,7 @@ function releaseStorePunch(event) {
   storeState.punchCooldown = storeState.punchCooldownDuration;
   cameraState.shake = Math.max(cameraState.shake, 0.08 + storeState.punchCharge * 0.24);
   const hit = findStorePunchTarget(storeState.lastPunchDamage);
+  playPunchSound(!!hit);
   showNotification(hit ? `Hit ${hit.name} for ${storeState.lastPunchDamage}` : `Punch damage ${storeState.lastPunchDamage}`);
   sendStorePunch(hit ? hit.peerId : "");
   storeState.punchCharge = 0;
@@ -2133,6 +2310,7 @@ function applyStoreDamage(damage, attacker, message = {}) {
   storeState.hp = clamp(storeState.hp - damage, 0, 100);
   storeState.damageTimer = clamp(0.25 + damage / 115, 0.35, 0.95);
   storeState.damageShake = Math.max(storeState.damageShake, 0.8 + damage * 0.018);
+  playPunchSound(true);
   showNotification(`${attacker} hit you for ${damage}`, true);
   updateStoreHealthHud();
   if (storeState.hp <= 0) {
@@ -2327,6 +2505,8 @@ function setTransition(active) {
 function enterStoreMode() {
   if (transitionLock || gameMode !== "driving") return;
   transitionLock = true;
+  playTone(320, 0.16, "triangle", 0.06);
+  playTone(520, 0.22, "triangle", 0.045, 0.12);
   setTransition(true);
   window.setTimeout(() => {
     gameMode = "store";
@@ -2389,6 +2569,8 @@ function enterStoreMode() {
 function enterDrivingMode() {
   if (transitionLock || gameMode !== "store") return;
   transitionLock = true;
+  playTone(420, 0.12, "triangle", 0.045);
+  playTone(240, 0.18, "triangle", 0.055, 0.08);
   setTransition(true);
   if (document.pointerLockElement === canvas) document.exitPointerLock();
   window.setTimeout(() => {
@@ -3201,6 +3383,7 @@ function makeDebrisBurst(x, z, count, power, color = 0x2b2b2b) {
 
 function hardCrashFx(x, z, power) {
   const intensity = clamp(power / 210, 0.35, 1.4);
+  playCrashSound(power);
   for (let i = 0; i < 5 + intensity * 5; i++) {
     makeSmoke(x + (Math.random() - 0.5) * 12, z + (Math.random() - 0.5) * 12, 2.4 + intensity * 3.1, 0xc8c2b7, 0.42 + intensity * 0.2);
   }
@@ -3223,6 +3406,8 @@ function knockTree(tree, hitX, hitZ, power) {
     life: 5,
     broken: false,
   });
+  playNoiseHit(0.22, 0.11, 360);
+  playTone(118, 0.2, "sawtooth", 0.06);
   makeDebrisBurst(tree.x, tree.z, 8, 42 + power * 0.18, 0x6b4a2c);
   makeSmoke(tree.x, tree.z, 5.5, 0x9b8a66, 0.75);
 }
@@ -3362,6 +3547,8 @@ function updatePlayer(dt) {
   const surface = playerSurfaceTuning();
   const motion = driveVehicle(player, { steer, throttle }, dt, surface.tune);
   collideWorld(player);
+  audioState.driveSpeed = motion.total;
+  audioState.driftIntensity = 0;
 
   if (motion.total > 95) money += (motion.total - 90) * dt * (surface.onRoad ? 0.18 : 0.11);
 
@@ -3369,6 +3556,7 @@ function updatePlayer(dt) {
   const driftTrigger = motion.slip > 0.08 || driftAmount > (surface.onRoad ? 16 : 10);
   if (motion.total > 48 && driftTrigger) {
     const intensity = clamp(Math.max((driftAmount - 10) / 54, motion.slip * 1.35), 0, 1);
+    audioState.driftIntensity = intensity;
     money += driftAmount * dt * (surface.onRoad ? 0.42 : 0.24);
     if (Math.random() < (surface.onRoad ? 0.82 : 0.98)) makeTireSpray(player, 0.55 + intensity * 0.9, surface.onRoad);
     if (Math.random() < (surface.onRoad ? 0.32 : 0.54)) makeSmoke(player.x + Math.sin(player.angle) * 16, player.z + Math.cos(player.angle) * 16, 2.2 + intensity * 1.7, surface.onRoad ? 0xd0d0d0 : 0xbba36f, 0.34 + intensity * 0.18);
@@ -3713,6 +3901,7 @@ function collideVehicles(a, b) {
   syncVehicle(a);
   syncVehicle(b);
   if (a === player || b === player) cameraState.shake = Math.max(cameraState.shake, 0.55);
+  if (impactSpeed > 32) playCrashSound(impactSpeed * 0.72);
   if (impactSpeed > 105 && (a === player || b === player)) {
     const other = a === player ? b : a;
     const dirX = other === b ? -nx : nx;
@@ -4680,6 +4869,7 @@ function resetGame() {
 function loseGame() {
   if (gameOver) return;
   showNotification(`${playerName} got arrested`, true);
+  playArrestSound();
   if (multiplayer.mode === "host") {
     broadcastNetworkMessage({ type: "event", event: "arrested", name: playerName });
   } else if (multiplayer.mode === "client") {
@@ -4724,6 +4914,7 @@ function update(dt) {
     updateCamera(dt);
     drawMinimap();
   }
+  updateAudio(dt);
 }
 
 function loop() {
@@ -4735,6 +4926,7 @@ function loop() {
 
 window.addEventListener("resize", resize);
 window.addEventListener("mousemove", handleStoreMouseLook);
+window.addEventListener("pointerdown", unlockAudio);
 window.addEventListener("mousedown", startStorePunch);
 window.addEventListener("mousedown", startStoreDrink);
 window.addEventListener("mouseup", releaseStorePunch);
@@ -4743,7 +4935,11 @@ canvas.addEventListener("contextmenu", (event) => {
   if (gameMode === "store") event.preventDefault();
 });
 document.addEventListener("pointerlockchange", updatePointerLockHint);
+document.addEventListener("click", (event) => {
+  if (event.target.closest("button")) playUiClick();
+});
 window.addEventListener("keydown", (event) => {
+  unlockAudio();
   if (event.key.toLowerCase() === "f" && !event.repeat) {
     toggleStoreCameraMode();
     event.preventDefault();
