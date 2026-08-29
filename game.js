@@ -100,6 +100,8 @@ const audioState = {
   nextDrinkGulp: 0,
   lastCrash: 0,
 };
+const AUDIO_MASTER_VOLUME = 0.98;
+const AUDIO_SFX_BOOST = 3.6;
 const clock = new THREE.Clock();
 const gltfLoader = new GLTFLoader();
 let seed = Math.floor(Math.random() * 999999);
@@ -435,8 +437,15 @@ function initAudio() {
   if (!AudioCtx) return null;
   const ctx = new AudioCtx();
   const master = ctx.createGain();
-  master.gain.value = 0.38;
-  master.connect(ctx.destination);
+  const limiter = ctx.createDynamicsCompressor();
+  master.gain.value = AUDIO_MASTER_VOLUME;
+  limiter.threshold.value = -7;
+  limiter.knee.value = 4;
+  limiter.ratio.value = 18;
+  limiter.attack.value = 0.002;
+  limiter.release.value = 0.12;
+  master.connect(limiter);
+  limiter.connect(ctx.destination);
 
   const engineOsc = ctx.createOscillator();
   const engineGain = ctx.createGain();
@@ -477,7 +486,7 @@ function initAudio() {
   sirenGain.connect(master);
   sirenOsc.start();
 
-  Object.assign(audioState, { ctx, master, engineOsc, engineGain, engineFilter, driftSource, driftGain, driftFilter, sirenOsc, sirenGain });
+  Object.assign(audioState, { ctx, master, limiter, engineOsc, engineGain, engineFilter, driftSource, driftGain, driftFilter, sirenOsc, sirenGain });
   return ctx;
 }
 
@@ -490,12 +499,13 @@ function playTone(freq, duration = 0.12, type = "sine", gain = 0.08, delay = 0) 
   const ctx = initAudio();
   if (!ctx || !audioState.master) return;
   const now = ctx.currentTime + delay;
+  const boostedGain = Math.min(1.15, Math.max(0.002, gain * AUDIO_SFX_BOOST));
   const osc = ctx.createOscillator();
   const amp = ctx.createGain();
   osc.type = type;
   osc.frequency.setValueAtTime(freq, now);
   amp.gain.setValueAtTime(0.001, now);
-  amp.gain.exponentialRampToValueAtTime(Math.max(0.002, gain), now + 0.012);
+  amp.gain.exponentialRampToValueAtTime(boostedGain, now + 0.012);
   amp.gain.exponentialRampToValueAtTime(0.001, now + duration);
   osc.connect(amp);
   amp.connect(audioState.master);
@@ -506,6 +516,7 @@ function playTone(freq, duration = 0.12, type = "sine", gain = 0.08, delay = 0) 
 function playNoiseHit(duration = 0.14, gain = 0.12, filterFreq = 520) {
   const ctx = initAudio();
   if (!ctx || !audioState.master) return;
+  const boostedGain = Math.min(1.2, Math.max(0.002, gain * AUDIO_SFX_BOOST));
   const buffer = ctx.createBuffer(1, Math.max(1, Math.floor(ctx.sampleRate * duration)), ctx.sampleRate);
   const data = buffer.getChannelData(0);
   for (let i = 0; i < data.length; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / data.length);
@@ -515,7 +526,7 @@ function playNoiseHit(duration = 0.14, gain = 0.12, filterFreq = 520) {
   source.buffer = buffer;
   filter.type = "lowpass";
   filter.frequency.value = filterFreq;
-  amp.gain.value = gain;
+  amp.gain.value = boostedGain;
   source.connect(filter);
   filter.connect(amp);
   amp.connect(audioState.master);
@@ -601,15 +612,15 @@ function updateAudio(dt) {
   const siren01 = driving && cops.length > 0 ? clamp(1 - (copDistance - 150) / 760, 0.08, 0.75) : 0;
 
   audioState.engineOsc.frequency.setTargetAtTime(42 + speed01 * 132, now, 0.08);
-  audioState.engineGain.gain.setTargetAtTime(driving ? 0.025 + speed01 * 0.13 : 0, now, 0.14);
+  audioState.engineGain.gain.setTargetAtTime(driving ? 0.1 + speed01 * 0.36 : 0, now, 0.14);
   audioState.engineFilter.frequency.setTargetAtTime(360 + speed01 * 1250, now, 0.1);
-  audioState.driftGain.gain.setTargetAtTime(drift01 * 0.18, now, 0.055);
+  audioState.driftGain.gain.setTargetAtTime(drift01 * 0.58, now, 0.055);
   audioState.driftFilter.frequency.setTargetAtTime(720 + speed01 * 1550, now, 0.08);
 
   audioState.sirenPhase += dt * (1.15 + siren01 * 0.9);
   const sirenSweep = Math.sin(audioState.sirenPhase * Math.PI * 2) * 0.5 + 0.5;
   audioState.sirenOsc.frequency.setTargetAtTime(430 + sirenSweep * 360, now, 0.035);
-  audioState.sirenGain.gain.setTargetAtTime(siren01 * 0.12, now, 0.12);
+  audioState.sirenGain.gain.setTargetAtTime(siren01 * 0.42, now, 0.12);
 
   if (running && !gameOver && gameMode === "store" && !storeState.dead && audioState.storeMoving && performance.now() > audioState.nextFootstep) {
     audioState.nextFootstep = performance.now() + 285 + Math.random() * 45;
