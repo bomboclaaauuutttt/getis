@@ -1340,16 +1340,16 @@ function makePerson() {
   const headPivot = new THREE.Group();
   headPivot.position.set(0, 49.5, 0);
   const head = detailSphere(headPivot, 0, 6, 0, 7.4, { x: 0.95, y: 1.08, z: 0.9 }, mats.personHead, 16);
-  const hairCap = detailSphere(headPivot, 0, 9.6, -0.7, 7.1, { x: 0.95, y: 0.35, z: 0.86 }, mats.personHair, 14);
-  const hairFront = detailBox(headPivot, 0, 10.1, -5.35, 12.2, 3.2, 2.1, mats.personHair);
-  const leftSideburn = detailBox(headPivot, -6.2, 6.5, -2.8, 1.8, 5.8, 2, mats.personHair);
-  const rightSideburn = detailBox(headPivot, 6.2, 6.5, -2.8, 1.8, 5.8, 2, mats.personHair);
-  const leftEye = detailBox(headPivot, -2.6, 6.5, -6.1, 2.1, 1.25, 0.8, mats.eyeWhite);
-  const rightEye = detailBox(headPivot, 2.6, 6.5, -6.1, 2.1, 1.25, 0.8, mats.eyeWhite);
-  detailBox(headPivot, -2.6, 6.35, -6.62, 0.75, 0.95, 0.55, mats.glass);
-  detailBox(headPivot, 2.6, 6.35, -6.62, 0.75, 0.95, 0.55, mats.glass);
-  detailBox(headPivot, 0, 4.6, -6.45, 1.35, 2.1, 0.75, mats.personSkinShadow);
-  const face = detailBox(headPivot, 0, 2.4, -6.35, 5.6, 0.9, 0.65, mats.glass);
+  const hairCap = detailSphere(headPivot, 0, 9.6, 0.7, 7.1, { x: 0.95, y: 0.35, z: 0.86 }, mats.personHair, 14);
+  const hairFront = detailBox(headPivot, 0, 10.1, 5.35, 12.2, 3.2, 2.1, mats.personHair);
+  const leftSideburn = detailBox(headPivot, -6.2, 6.5, 2.8, 1.8, 5.8, 2, mats.personHair);
+  const rightSideburn = detailBox(headPivot, 6.2, 6.5, 2.8, 1.8, 5.8, 2, mats.personHair);
+  const leftEye = detailBox(headPivot, -2.6, 6.5, 6.1, 2.1, 1.25, 0.8, mats.eyeWhite);
+  const rightEye = detailBox(headPivot, 2.6, 6.5, 6.1, 2.1, 1.25, 0.8, mats.eyeWhite);
+  detailBox(headPivot, -2.6, 6.35, 6.62, 0.75, 0.95, 0.55, mats.glass);
+  detailBox(headPivot, 2.6, 6.35, 6.62, 0.75, 0.95, 0.55, mats.glass);
+  detailBox(headPivot, 0, 4.6, 6.45, 1.35, 2.1, 0.75, mats.personSkinShadow);
+  const face = detailBox(headPivot, 0, 2.4, 6.35, 5.6, 0.9, 0.65, mats.glass);
 
   function arm(side) {
     const pivot = new THREE.Group();
@@ -1379,8 +1379,8 @@ function makePerson() {
 
   detailBox(group, -13.2, 43.5, 0, 4.5, 7, 7, mats.personBody);
   detailBox(group, 13.2, 43.5, 0, 4.5, 7, 7, mats.personBody);
-  detailBox(group, 0, 34.2, -6.55, 7.2, 16, 0.9, mats.personShirtLight);
-  detailBox(group, 0, 23.9, -6.65, 15, 1.7, 0.8, mats.personShoe);
+  detailBox(group, 0, 34.2, 6.55, 7.2, 16, 0.9, mats.personShirtLight);
+  detailBox(group, 0, 23.9, 6.65, 15, 1.7, 0.8, mats.personShoe);
 
   group.add(hips, belt, torso, chest, collar, neck, headPivot, leftArm, rightArm, leftLeg, rightLeg);
   group.userData.leftArm = leftArm;
@@ -1580,13 +1580,13 @@ function animateStoreCharacter(dt, moving) {
   const thirdPersonPunch = storeState.cameraMode === "third";
   const windup = thirdPersonPunch && storeState.punchCharging ? storeState.punchCharge : 0;
   const strike = thirdPersonPunch && storeState.punchTimer > 0 ? Math.sin(storeState.punchTimer * Math.PI) : 0;
-  const headPitch = clamp(storeState.pitch, -0.58, 0.52) * 0.62;
+  const headPitch = clamp(storeState.pitch, -1.1, 1.1) * 0.62;
   const ease = 1 - Math.exp(-dt * 12);
   character.position.y = lerp(character.position.y, bounce, ease);
   character.userData.leftArm.rotation.x = lerp(character.userData.leftArm.rotation.x, swing, ease);
-  character.userData.rightArm.rotation.x = lerp(character.userData.rightArm.rotation.x, -swing - windup * 1.15 + strike * 1.75, ease);
-  character.userData.rightArm.rotation.y = lerp(character.userData.rightArm.rotation.y, -windup * 0.45 + strike * 0.18, ease);
-  character.userData.rightArm.rotation.z = lerp(character.userData.rightArm.rotation.z, windup * 0.32 - strike * 0.18, ease);
+  character.userData.rightArm.rotation.x = lerp(character.userData.rightArm.rotation.x, -swing + windup * 1.15 - strike * 1.75, ease);
+  character.userData.rightArm.rotation.y = lerp(character.userData.rightArm.rotation.y, windup * 0.45 - strike * 0.18, ease);
+  character.userData.rightArm.rotation.z = lerp(character.userData.rightArm.rotation.z, -windup * 0.32 + strike * 0.18, ease);
   character.userData.leftLeg.rotation.x = lerp(character.userData.leftLeg.rotation.x, -swing * 0.82, ease);
   character.userData.rightLeg.rotation.x = lerp(character.userData.rightLeg.rotation.x, swing * 0.82, ease);
   character.userData.head.rotation.z = lerp(character.userData.head.rotation.z, side, ease);
@@ -1791,13 +1791,13 @@ function animateRemoteStoreCharacter(remote, dt, moving) {
   const side = moving ? Math.sin(t * 2) * 0.05 : 0;
   const windup = target.punchCharging ? target.punchCharge || 0 : 0;
   const strike = (target.punchTimer || 0) > 0 ? Math.sin((target.punchTimer || 0) * Math.PI) : 0;
-  const headPitch = clamp(target.pitch || 0, -0.58, 0.52) * 0.62;
+  const headPitch = clamp(target.pitch || 0, -1.1, 1.1) * 0.62;
   const ease = 1 - Math.exp(-dt * 12);
 
   character.userData.leftArm.rotation.x = lerp(character.userData.leftArm.rotation.x, swing, ease);
-  character.userData.rightArm.rotation.x = lerp(character.userData.rightArm.rotation.x, -swing - windup * 1.15 + strike * 1.75, ease);
-  character.userData.rightArm.rotation.y = lerp(character.userData.rightArm.rotation.y, -windup * 0.45 + strike * 0.18, ease);
-  character.userData.rightArm.rotation.z = lerp(character.userData.rightArm.rotation.z, windup * 0.32 - strike * 0.18, ease);
+  character.userData.rightArm.rotation.x = lerp(character.userData.rightArm.rotation.x, -swing + windup * 1.15 - strike * 1.75, ease);
+  character.userData.rightArm.rotation.y = lerp(character.userData.rightArm.rotation.y, windup * 0.45 - strike * 0.18, ease);
+  character.userData.rightArm.rotation.z = lerp(character.userData.rightArm.rotation.z, -windup * 0.32 + strike * 0.18, ease);
   character.userData.leftLeg.rotation.x = lerp(character.userData.leftLeg.rotation.x, -swing * 0.82, ease);
   character.userData.rightLeg.rotation.x = lerp(character.userData.rightLeg.rotation.x, swing * 0.82, ease);
   character.userData.head.rotation.z = lerp(character.userData.head.rotation.z, side, ease);
@@ -1826,7 +1826,8 @@ function updateStoreCamera(dt) {
   }
 
   const bob = Math.abs(Math.sin(storeState.walkCycle)) * 1.6;
-  const pitch = clamp(storeState.pitch, -0.58, 0.52);
+  const firstPersonPitch = clamp(storeState.pitch, -1.52, 1.52);
+  const thirdPersonPitch = clamp(storeState.pitch, -0.58, 0.52);
   const forwardX = Math.sin(storeState.angle);
   const forwardZ = Math.cos(storeState.angle);
   let desired;
@@ -1836,16 +1837,16 @@ function updateStoreCamera(dt) {
   let wantedFov = 66;
 
   if (storeState.cameraMode === "first") {
-    const flatAim = Math.cos(pitch) * 95;
+    const flatAim = Math.cos(firstPersonPitch) * 95;
     desired = new THREE.Vector3(storeState.x, 43 + bob, storeState.z);
     target = new THREE.Vector3(
       storeState.x + forwardX * flatAim,
-      43 + bob + Math.sin(pitch) * 95,
+      43 + bob + Math.sin(firstPersonPitch) * 95,
       storeState.z + forwardZ * flatAim
     );
   } else {
-    const cameraDistance = 148 - Math.abs(pitch) * 26;
-    const cameraHeight = 84 + pitch * 74 + bob * 0.35;
+    const cameraDistance = 148 - Math.abs(thirdPersonPitch) * 26;
+    const cameraHeight = 84 + thirdPersonPitch * 74 + bob * 0.35;
     desired = new THREE.Vector3(
       storeState.x - forwardX * cameraDistance,
       cameraHeight,
@@ -1853,7 +1854,7 @@ function updateStoreCamera(dt) {
     );
     target = new THREE.Vector3(
       storeState.x + forwardX * 36,
-      32 + pitch * 16,
+      32 + thirdPersonPitch * 16,
       storeState.z + forwardZ * 36
     );
     followSpeed = 9;
@@ -1987,7 +1988,8 @@ function updatePointerLockHint() {
 function handleStoreMouseLook(event) {
   if (gameMode !== "store" || document.pointerLockElement !== canvas) return;
   storeState.angle -= event.movementX * 0.0027;
-  storeState.pitch = clamp(storeState.pitch - event.movementY * 0.0021, -0.58, 0.52);
+  const pitchLimit = storeState.cameraMode === "first" ? 1.52 : 0.58;
+  storeState.pitch = clamp(storeState.pitch - event.movementY * 0.0021, -pitchLimit, pitchLimit);
 }
 
 function toggleStoreCameraMode() {
