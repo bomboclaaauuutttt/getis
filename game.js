@@ -46,6 +46,7 @@ const minimapEl = document.getElementById("minimap");
 const transitionFadeEl = document.getElementById("transitionFade");
 const damageFxEl = document.getElementById("damageFx");
 const storeHealthEl = document.getElementById("storeHealth");
+const storeHealthLabelEl = storeHealthEl.querySelector("span");
 const storeHealthFillEl = storeHealthEl.querySelector("b");
 const purchasePromptEl = document.getElementById("purchasePrompt");
 const purchasePromptKeyEl = purchasePromptEl.querySelector("span");
@@ -162,6 +163,11 @@ const WANTED_TIERS = Object.freeze([
 const POLICE_SPAWN_MIN = 720;
 const POLICE_SPAWN_MAX = 1460;
 const ROADBLOCK_LIFETIME = 38;
+const PLAYER_MAX_HP = 300;
+const VENDOR_MAX_HP = 300;
+const VENDOR_NAME = "OuTii";
+const VENDOR_KNIFE_DAMAGE = 100;
+const VENDOR_KNIFE_COOLDOWN = 2;
 
 const mats = {
   grass: new THREE.MeshLambertMaterial({ color: 0x668f59 }),
@@ -360,7 +366,7 @@ const storeState = {
   lastPunchDamage: 0,
   damageTimer: 0,
   damageShake: 0,
-  hp: 100,
+  hp: PLAYER_MAX_HP,
   dead: false,
   deathY: 0,
   deathVy: 0,
@@ -371,7 +377,7 @@ const storeState = {
   deathSpin: 0,
   colliders: [],
   vendor: null,
-  vendorHp: 100,
+  vendorHp: VENDOR_MAX_HP,
   vendorDead: false,
   vendorRespawnTimer: 0,
   vendorDeathY: 0,
@@ -381,6 +387,12 @@ const storeState = {
   vendorDeathRoll: 0,
   vendorDeathPitch: 0,
   vendorDeathSpin: 0,
+  vendorAggroPeerId: "",
+  vendorAggroTimer: 0,
+  vendorAttackCooldown: 0,
+  vendorAttackTimer: 0,
+  vendorWalkCycle: 0,
+  vendorKnife: null,
   scanner: null,
   megaforceDisplay: null,
   purchaseFx: null,
@@ -1267,13 +1279,14 @@ function setVehicleNameTag(v, name, color) {
   v.nameTagColor = tagColor;
 }
 
-function makeStoreNameTagTexture(name, color, hp) {
+function makeStoreNameTagTexture(name, color, hp, maxHp = PLAYER_MAX_HP) {
   const canvas = document.createElement("canvas");
   canvas.width = 384;
   canvas.height = 128;
   const ctx = canvas.getContext("2d");
   const cleanName = cleanPlayerName(name).toUpperCase();
-  const clampedHp = clamp(hp, 0, 100);
+  const clampedHp = clamp(hp, 0, maxHp);
+  const hpRatio = clampedHp / maxHp;
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   ctx.fillStyle = "rgba(7, 9, 9, 0.78)";
   ctx.strokeStyle = `#${color.toString(16).padStart(6, "0")}`;
@@ -1292,8 +1305,8 @@ function makeStoreNameTagTexture(name, color, hp) {
   ctx.fillText(cleanName, 192, 42);
   ctx.fillStyle = "rgba(255, 255, 255, 0.2)";
   ctx.fillRect(54, 66, 276, 14);
-  ctx.fillStyle = clampedHp < 28 ? "#e20718" : clampedHp < 58 ? "#ffbe2f" : "#32f06a";
-  ctx.fillRect(54, 66, 276 * (clampedHp / 100), 14);
+  ctx.fillStyle = hpRatio < 0.28 ? "#e20718" : hpRatio < 0.58 ? "#ffbe2f" : "#32f06a";
+  ctx.fillRect(54, 66, 276 * hpRatio, 14);
   ctx.strokeStyle = "rgba(0, 0, 0, 0.7)";
   ctx.lineWidth = 2;
   ctx.strokeRect(54, 66, 276, 14);
@@ -1304,7 +1317,7 @@ function makeStoreNameTagTexture(name, color, hp) {
 
 function setStoreNameTag(remote) {
   if (!remote.storeCharacter) return;
-  const hp = remote.storeTarget?.hp ?? 100;
+  const hp = remote.storeTarget?.hp ?? PLAYER_MAX_HP;
   const tagColor = remote.paintColor || colorForName(remote.playerName || "Driver");
   if (!remote.storeNameTag) {
     const material = new THREE.SpriteMaterial({
@@ -2421,7 +2434,7 @@ function makeVendor() {
   apron.position.set(0, 34, 7.25);
   vendor.add(apron);
   const nameTag = new THREE.Sprite(new THREE.SpriteMaterial({
-    map: makeStoreNameTagTexture("OuTii", 0x159a55, 100),
+    map: makeStoreNameTagTexture(VENDOR_NAME, 0x159a55, VENDOR_MAX_HP, VENDOR_MAX_HP),
     transparent: true,
     depthTest: false,
   }));
@@ -2430,6 +2443,23 @@ function makeVendor() {
   nameTag.renderOrder = 40;
   vendor.add(nameTag);
   vendor.userData.nameTag = nameTag;
+  const knife = new THREE.Group();
+  const knifeHandle = makeBox(3.4, 3.4, 10, mats.pumpDark);
+  knifeHandle.position.set(0, 0, 4);
+  const knifeGuard = makeBox(8, 1.5, 2.5, mats.metal);
+  knifeGuard.position.set(0, 0, 10);
+  const knifeBlade = new THREE.Mesh(new THREE.ConeGeometry(3.2, 19, 4), mats.metal);
+  knifeBlade.rotation.x = Math.PI * 0.5;
+  knifeBlade.rotation.y = Math.PI * 0.25;
+  knifeBlade.position.set(0, 0, 20);
+  knifeBlade.castShadow = true;
+  knife.add(knifeHandle, knifeGuard, knifeBlade);
+  knife.position.set(0, -27, 2);
+  knife.rotation.x = -0.18;
+  knife.visible = false;
+  vendor.userData.rightArm.add(knife);
+  vendor.userData.knife = knife;
+  storeState.vendorKnife = knife;
   return vendor;
 }
 
@@ -2541,66 +2571,6 @@ function createSMarketInterior() {
     marker.position.set(x, 0.1, -84);
     marker.rotation.z = Math.PI * 0.5;
     group.add(marker);
-  }
-
-  function addProductBlock(x, z, material, w = 13, d = 10) {
-    const box = makeBox(w, 8, d, material);
-    box.position.set(x, 29 + Math.random() * 4, z);
-    group.add(box);
-  }
-
-  function addShelfRow(x, z, w, d, label, productOffset = 0) {
-    const shelf = addStoreBox(group, x, z, w, 26, d, mats.shelf);
-    shelf.position.y = 13;
-    const cap = makeBox(w + 8, 3, d + 5, mats.counterTop);
-    cap.position.set(x, 28.5, z);
-    group.add(cap);
-    const tag = makeBox(Math.min(w - 18, 104), 15, 3, makeStoreTextMaterial(label, "SALE", "#1b8fe8"));
-    tag.position.set(x, 42, z - d * 0.5 - 2);
-    group.add(tag);
-    for (let i = 0; i < Math.floor(w / 34); i++) {
-      const px = x - w * 0.5 + 22 + i * 34;
-      addProductBlock(px, z - d * 0.22, (i + productOffset) % 2 ? mats.productRed : mats.productYellow);
-      addProductBlock(px, z + d * 0.22, (i + productOffset) % 3 ? mats.productYellow : mats.productRed);
-    }
-  }
-
-  addShelfRow(5726, -118, 150, 58, "SNACKS", 0);
-  addShelfRow(5726, 42, 150, 58, "CANDY", 1);
-  addShelfRow(5908, -118, 150, 58, "FOOD", 2);
-  addShelfRow(5908, 42, 150, 58, "DRINKS", 3);
-  addShelfRow(6092, -118, 150, 58, "MEALS", 4);
-  addShelfRow(6092, 42, 150, 58, "CHIPS", 5);
-  addShelfRow(6274, -118, 150, 58, "GEAR", 6);
-  addShelfRow(6274, 42, 150, 58, "SODA", 7);
-
-  const freezer = addStoreBox(group, 6372, -178, 72, 46, 190, mats.cashier);
-  freezer.position.y = 23;
-  for (const z of [-236, -184, -132]) {
-    const glass = makeBox(62, 28, 3, mats.glass);
-    glass.position.set(6334, 34, z);
-    glass.rotation.y = Math.PI / 2;
-    group.add(glass);
-  }
-
-  const bakery = addStoreBox(group, 5612, -176, 72, 34, 170, mats.counterTop);
-  bakery.position.y = 17;
-  for (const z of [-226, -176, -126]) {
-    const tray = makeBox(52, 4, 28, mats.productYellow);
-    tray.position.set(5612, 38, z);
-    group.add(tray);
-  }
-
-  const infoDesk = addStoreBox(group, 6354, 194, 128, 30, 58, mats.marketBlue);
-  infoDesk.position.y = 15;
-  const deskSign = makeBox(110, 22, 4, makeStoreTextMaterial("INFO", "HELP", "#1b8fe8"));
-  deskSign.position.set(6354, 48, 163);
-  group.add(deskSign);
-
-  const promoIsland = addStoreBox(group, 6000, 180, 150, 22, 72, mats.counterTop);
-  promoIsland.position.y = 11;
-  for (let i = 0; i < 10; i++) {
-    addProductBlock(5940 + i * 13, 168 + (i % 2) * 24, i % 2 ? mats.productRed : mats.productYellow, 11, 11);
   }
 
   const character = makePerson();
@@ -2886,7 +2856,7 @@ function tryBuyMegaforce() {
   if (gameMode !== "store" || transitionLock || storeState.dead || storeState.drinking || storeState.purchaseTimer > 0) return;
   if (storeState.vendorDead) {
     playUiError();
-    showNotification("OuTii is not at the checkout");
+    showNotification(`${VENDOR_NAME} is not at the checkout`);
     return;
   }
   if (storeState.hasMegaforce) {
@@ -2948,7 +2918,7 @@ function updateStoreShop(dt) {
   } else if (storeState.hasMegaforce) {
     hintEl.textContent = inputState.mobile ? "Hold DRINK to use Megaforce" : "Hold right mouse to drink Megaforce";
   } else if (storeState.vendorDead) {
-    hintEl.textContent = `OuTii returns in ${Math.ceil(storeState.vendorRespawnTimer)}s`;
+    hintEl.textContent = `${VENDOR_NAME} returns in ${Math.ceil(storeState.vendorRespawnTimer)}s`;
   } else if (nearCheckout) {
     hintEl.textContent = inputState.mobile ? "Tap BUY - Megis 2e" : "E to purchase Megis";
   } else {
@@ -2965,7 +2935,12 @@ function releaseStorePunch(event) {
   cameraState.shake = Math.max(cameraState.shake, 0.08 + storeState.punchCharge * 0.24);
   const hit = findStorePunchTarget(storeState.lastPunchDamage);
   if (hit?.vendor) {
-    applyVendorDamage(storeState.lastPunchDamage, playerName, { x: storeState.x, z: storeState.z, angle: storeState.angle });
+    applyVendorDamage(storeState.lastPunchDamage, playerName, {
+      attackerPeerId: multiplayer.peerId || "local",
+      x: storeState.x,
+      z: storeState.z,
+      angle: storeState.angle,
+    });
   } else {
     playPunchSound(!!hit);
     showNotification(hit ? `Hit ${hit.name} for ${storeState.lastPunchDamage}` : `Punch damage ${storeState.lastPunchDamage}`);
@@ -2991,7 +2966,7 @@ function findStorePunchTarget(damage) {
     if (distance <= 78 && distance > 0.001) {
       const dot = (dx / distance) * forwardX + (dz / distance) * forwardZ;
       if (dot > 0.44) {
-        best = { peerId: "vendor:outii", name: "OuTii", damage, score: dot * 110 - distance, vendor: true };
+        best = { peerId: "vendor:outii", name: VENDOR_NAME, damage, score: dot * 110 - distance, vendor: true };
       }
     }
   }
@@ -3037,7 +3012,7 @@ function applyStorePunchEvent(message) {
   if (!message || message.attackerPeerId === multiplayer.peerId) return;
   const attacker = message.attackerName || "Someone";
   const damage = clamp(Math.round(message.damage || 20), 1, 120);
-  if (message.targetPeerId === "vendor:taija") {
+  if (message.targetPeerId === "vendor:outii" || message.targetPeerId === "vendor:taija") {
     applyVendorDamage(damage, attacker, message);
     return;
   }
@@ -3062,7 +3037,7 @@ function applyStorePunchEvent(message) {
 
 function applyStoreDamage(damage, attacker, message = {}) {
   if (storeState.dead) return;
-  storeState.hp = clamp(storeState.hp - damage, 0, 100);
+  storeState.hp = clamp(storeState.hp - damage, 0, PLAYER_MAX_HP);
   storeState.damageTimer = clamp(0.25 + damage / 115, 0.35, 0.95);
   storeState.damageShake = Math.max(storeState.damageShake, 0.8 + damage * 0.018);
   playPunchSound(true);
@@ -3125,11 +3100,13 @@ function updateStoreHealthHud() {
   const visible = gameMode === "store";
   storeHealthEl.classList.toggle("hidden", !visible);
   if (!visible) return;
-  const hp = clamp(storeState.hp, 0, 100);
-  storeHealthFillEl.style.width = `${hp}%`;
-  storeHealthFillEl.style.background = hp < 28
+  const hp = clamp(storeState.hp, 0, PLAYER_MAX_HP);
+  const hpRatio = hp / PLAYER_MAX_HP;
+  storeHealthLabelEl.textContent = `HP ${Math.ceil(hp)}/${PLAYER_MAX_HP}`;
+  storeHealthFillEl.style.width = `${hpRatio * 100}%`;
+  storeHealthFillEl.style.background = hpRatio < 0.28
     ? "linear-gradient(90deg, #d50019, #ff6a4d)"
-    : hp < 58
+    : hpRatio < 0.58
       ? "linear-gradient(90deg, #ffb000, #fff052)"
       : "linear-gradient(90deg, #2dff64, #e9ff52)";
 }
@@ -3139,10 +3116,10 @@ function updateVendorNameTag() {
   const tag = vendor?.userData?.nameTag;
   if (!tag) return;
   tag.visible = !storeState.vendorDead;
-  const hp = clamp(storeState.vendorHp, 0, 100);
+  const hp = clamp(storeState.vendorHp, 0, VENDOR_MAX_HP);
   if (tag.userData.hp === Math.round(hp) && tag.userData.dead === storeState.vendorDead) return;
   const oldMap = tag.material.map;
-  tag.material.map = makeStoreNameTagTexture("OuTii", 0x159a55, hp);
+  tag.material.map = makeStoreNameTagTexture(VENDOR_NAME, 0x159a55, hp, VENDOR_MAX_HP);
   if (oldMap) oldMap.dispose();
   tag.userData.hp = Math.round(hp);
   tag.userData.dead = storeState.vendorDead;
@@ -3150,7 +3127,7 @@ function updateVendorNameTag() {
 
 function resetVendorAtCheckout() {
   if (!storeState.vendor) return;
-  storeState.vendorHp = 100;
+  storeState.vendorHp = VENDOR_MAX_HP;
   storeState.vendorDead = false;
   storeState.vendorRespawnTimer = 0;
   storeState.vendorDeathY = 0;
@@ -3160,18 +3137,29 @@ function resetVendorAtCheckout() {
   storeState.vendorDeathRoll = 0;
   storeState.vendorDeathPitch = 0;
   storeState.vendorDeathSpin = 0;
+  storeState.vendorAggroPeerId = "";
+  storeState.vendorAggroTimer = 0;
+  storeState.vendorAttackCooldown = 0;
+  storeState.vendorAttackTimer = 0;
+  storeState.vendorWalkCycle = 0;
   storeState.vendor.visible = true;
   storeState.vendor.position.set(6004, 0, -274);
   storeState.vendor.rotation.set(0, 0, 0);
+  if (storeState.vendorKnife) storeState.vendorKnife.visible = false;
+  if (storeState.vendor.userData.rightArm) storeState.vendor.userData.rightArm.rotation.x = 0;
+  if (storeState.vendor.userData.leftArm) storeState.vendor.userData.leftArm.rotation.x = 0;
   updateVendorNameTag();
 }
 
 function applyVendorDamage(damage, attacker, message = {}) {
   if (!storeState.vendor || storeState.vendorDead) return;
-  storeState.vendorHp = clamp(storeState.vendorHp - damage, 0, 100);
+  storeState.vendorHp = clamp(storeState.vendorHp - damage, 0, VENDOR_MAX_HP);
+  storeState.vendorAggroPeerId = message.attackerPeerId || storeState.vendorAggroPeerId || "local";
+  storeState.vendorAggroTimer = 14;
+  if (storeState.vendorKnife) storeState.vendorKnife.visible = true;
   updateVendorNameTag();
   playPunchSound(true);
-  showNotification(`${attacker} hit OuTii for ${damage}`, true);
+  showNotification(`${attacker} hit ${VENDOR_NAME} for ${damage}`, true);
   if (storeState.vendorHp <= 0) killVendor(attacker, message);
 }
 
@@ -3189,16 +3177,108 @@ function killVendor(attacker, message = {}) {
   storeState.vendorDeathRoll = 0;
   storeState.vendorDeathPitch = 0;
   storeState.vendorDeathSpin = 3.1;
+  storeState.vendorAggroPeerId = "";
+  storeState.vendorAggroTimer = 0;
+  storeState.vendorAttackTimer = 0;
+  if (storeState.vendorKnife) storeState.vendorKnife.visible = false;
   updateVendorNameTag();
-  showNotification(`${attacker} knocked out OuTii - she returns in 10s`, true);
+  showNotification(`${attacker} knocked out ${VENDOR_NAME} - she returns in 10s`, true);
+}
+
+function vendorCombatTarget() {
+  const peerId = storeState.vendorAggroPeerId;
+  const localPeerId = multiplayer.peerId || "local";
+  if ((peerId === "local" || peerId === localPeerId) && gameMode === "store" && !storeState.dead) {
+    return { peerId: localPeerId, name: playerName, x: storeState.x, z: storeState.z, local: true };
+  }
+  const remote = remotePlayers.get(peerId);
+  const target = remote?.storeTarget;
+  if (!target || target.gameMode !== "store" || target.dead || target.hp <= 0) return null;
+  return { peerId, name: remote.playerName || "Driver", x: target.x, z: target.z, local: false };
+}
+
+function vendorKnifeAttack(target) {
+  const message = {
+    type: "event",
+    event: "vendor-knife",
+    targetPeerId: target.peerId,
+    attackerName: VENDOR_NAME,
+    damage: VENDOR_KNIFE_DAMAGE,
+    x: storeState.vendor.position.x,
+    z: storeState.vendor.position.z,
+    angle: storeState.vendor.rotation.y,
+  };
+  if (target.local) applyStoreDamage(VENDOR_KNIFE_DAMAGE, VENDOR_NAME, message);
+  if (multiplayer.mode === "host") broadcastNetworkMessage(message);
+  playTone(185, 0.08, "sawtooth", 0.065);
+  playPunchSound(true);
+}
+
+function animateVendorCombat(dt, moving) {
+  const vendor = storeState.vendor;
+  const leftArm = vendor.userData.leftArm;
+  const rightArm = vendor.userData.rightArm;
+  const leftLeg = vendor.userData.leftLeg;
+  const rightLeg = vendor.userData.rightLeg;
+  storeState.vendorWalkCycle += moving ? dt * 8.4 : dt * 2.2;
+  const swing = moving ? Math.sin(storeState.vendorWalkCycle) * 0.62 : 0;
+  const ease = 1 - Math.exp(-dt * 14);
+  if (leftArm) leftArm.rotation.x = lerp(leftArm.rotation.x, swing, ease);
+  if (leftLeg) leftLeg.rotation.x = lerp(leftLeg.rotation.x, -swing * 0.82, ease);
+  if (rightLeg) rightLeg.rotation.x = lerp(rightLeg.rotation.x, swing * 0.82, ease);
+  if (!rightArm) return;
+  let knifeArm = -0.18 + (moving ? -swing * 0.35 : 0);
+  if (storeState.vendorAttackTimer > 0) {
+    const progress = 1 - storeState.vendorAttackTimer / 0.52;
+    knifeArm = progress < 0.34
+      ? lerp(-0.18, 0.58, progress / 0.34)
+      : lerp(0.58, -1.5, (progress - 0.34) / 0.66);
+  }
+  rightArm.rotation.x = lerp(rightArm.rotation.x, knifeArm, ease);
 }
 
 function updateVendor(dt) {
   if (!storeState.vendor) return;
   if (!storeState.vendorDead) {
-    storeState.vendor.position.lerp(new THREE.Vector3(6004, 0, -274), 1 - Math.exp(-dt * 5));
+    storeState.vendorAttackCooldown = Math.max(0, storeState.vendorAttackCooldown - dt);
+    storeState.vendorAttackTimer = Math.max(0, storeState.vendorAttackTimer - dt);
+    storeState.vendorAggroTimer = Math.max(0, storeState.vendorAggroTimer - dt);
+    const target = storeState.vendorAggroTimer > 0 ? vendorCombatTarget() : null;
+    let moving = false;
+    if (target) {
+      if (storeState.vendorKnife) storeState.vendorKnife.visible = true;
+      const vendor = storeState.vendor;
+      let goalX = target.x;
+      let goalZ = target.z;
+      if (vendor.position.z < -190 && target.z > -188) {
+        goalX = target.x < 6000 ? 5798 : 6202;
+        goalZ = -176;
+      }
+      const dx = goalX - vendor.position.x;
+      const dz = goalZ - vendor.position.z;
+      const distance = Math.hypot(dx, dz);
+      const targetDistance = Math.hypot(target.x - vendor.position.x, target.z - vendor.position.z);
+      if (distance > 3) {
+        const step = Math.min(distance, 76 * dt);
+        vendor.position.x += (dx / distance) * step;
+        vendor.position.z += (dz / distance) * step;
+        moving = true;
+      }
+      const desiredAngle = Math.atan2(target.x - vendor.position.x, target.z - vendor.position.z);
+      vendor.rotation.y += angleDelta(vendor.rotation.y, desiredAngle) * (1 - Math.exp(-dt * 11));
+      if (targetDistance < 52 && storeState.vendorAttackCooldown <= 0) {
+        storeState.vendorAttackCooldown = VENDOR_KNIFE_COOLDOWN;
+        storeState.vendorAttackTimer = 0.52;
+        vendorKnifeAttack(target);
+      }
+    } else {
+      storeState.vendorAggroPeerId = "";
+      if (storeState.vendorKnife) storeState.vendorKnife.visible = false;
+      storeState.vendor.position.lerp(new THREE.Vector3(6004, 0, -274), 1 - Math.exp(-dt * 3.4));
+      storeState.vendor.rotation.y += angleDelta(storeState.vendor.rotation.y, 0) * (1 - Math.exp(-dt * 7));
+    }
+    animateVendorCombat(dt, moving);
     storeState.vendor.rotation.x = lerp(storeState.vendor.rotation.x, 0, 1 - Math.exp(-dt * 7));
-    storeState.vendor.rotation.y += angleDelta(storeState.vendor.rotation.y, 0) * (1 - Math.exp(-dt * 7));
     storeState.vendor.rotation.z = lerp(storeState.vendor.rotation.z, 0, 1 - Math.exp(-dt * 7));
     updateVendorNameTag();
     return;
@@ -3223,7 +3303,7 @@ function updateVendor(dt) {
 
   if (storeState.vendorRespawnTimer <= 0) {
     resetVendorAtCheckout();
-    showNotification("OuTii returned to the checkout", true);
+    showNotification(`${VENDOR_NAME} returned to the checkout`, true);
   }
 }
 
@@ -3399,7 +3479,7 @@ function enterStoreMode() {
     if (storeState.scanner) storeState.scanner.scale.set(1, 1, 1);
     purchasePromptEl.classList.add("hidden");
     storeState.boostReady = false;
-    storeState.hp = 100;
+    storeState.hp = PLAYER_MAX_HP;
     storeState.dead = false;
     storeState.deathY = 0;
     storeState.deathVy = 0;
@@ -6229,6 +6309,15 @@ function worldNetworkState() {
       rotationX: storeState.vendor.rotation.x,
       rotationY: storeState.vendor.rotation.y,
       rotationZ: storeState.vendor.rotation.z,
+      rightArmRotationX: storeState.vendor.userData.rightArm?.rotation.x || 0,
+      leftArmRotationX: storeState.vendor.userData.leftArm?.rotation.x || 0,
+      leftLegRotationX: storeState.vendor.userData.leftLeg?.rotation.x || 0,
+      rightLegRotationX: storeState.vendor.userData.rightLeg?.rotation.x || 0,
+      knifeVisible: !!storeState.vendorKnife?.visible,
+      aggroPeerId: storeState.vendorAggroPeerId,
+      aggroTimer: storeState.vendorAggroTimer,
+      attackCooldown: storeState.vendorAttackCooldown,
+      attackTimer: storeState.vendorAttackTimer,
     } : null,
   };
 }
@@ -6280,7 +6369,7 @@ function applyRemoteState(peerId, state) {
     drinkProgress: Number.isFinite(state.storeDrinkProgress) ? state.storeDrinkProgress : 0,
     drinkTimer: Number.isFinite(state.storeDrinkTimer) ? state.storeDrinkTimer : 0,
     drinkDuration: Number.isFinite(state.storeDrinkDuration) ? state.storeDrinkDuration : 0,
-    hp: Number.isFinite(state.storeHp) ? state.storeHp : 100,
+    hp: Number.isFinite(state.storeHp) ? state.storeHp : PLAYER_MAX_HP,
     dead: !!state.storeDead,
     deathY: Number.isFinite(state.storeDeathY) ? state.storeDeathY : 0,
     deathRoll: Number.isFinite(state.storeDeathRoll) ? state.storeDeathRoll : 0,
@@ -6439,7 +6528,7 @@ function applyWorldState(state) {
   syncNetworkRoadblocks(Array.isArray(state.roadblocks) ? state.roadblocks : []);
   const vendor = state.storeVendor;
   if (vendor && storeState.vendor) {
-    storeState.vendorHp = Number.isFinite(vendor.hp) ? vendor.hp : 100;
+    storeState.vendorHp = Number.isFinite(vendor.hp) ? vendor.hp : VENDOR_MAX_HP;
     storeState.vendorDead = !!vendor.dead;
     storeState.vendorRespawnTimer = Number.isFinite(vendor.respawnTimer) ? vendor.respawnTimer : 0;
     storeState.vendor.position.set(
@@ -6448,6 +6537,15 @@ function applyWorldState(state) {
       Number.isFinite(vendor.z) ? vendor.z : -274
     );
     storeState.vendor.rotation.set(vendor.rotationX || 0, vendor.rotationY || 0, vendor.rotationZ || 0);
+    if (storeState.vendor.userData.rightArm) storeState.vendor.userData.rightArm.rotation.x = vendor.rightArmRotationX || 0;
+    if (storeState.vendor.userData.leftArm) storeState.vendor.userData.leftArm.rotation.x = vendor.leftArmRotationX || 0;
+    if (storeState.vendor.userData.leftLeg) storeState.vendor.userData.leftLeg.rotation.x = vendor.leftLegRotationX || 0;
+    if (storeState.vendor.userData.rightLeg) storeState.vendor.userData.rightLeg.rotation.x = vendor.rightLegRotationX || 0;
+    if (storeState.vendorKnife) storeState.vendorKnife.visible = !!vendor.knifeVisible && !storeState.vendorDead;
+    storeState.vendorAggroPeerId = typeof vendor.aggroPeerId === "string" ? vendor.aggroPeerId : "";
+    storeState.vendorAggroTimer = Number.isFinite(vendor.aggroTimer) ? vendor.aggroTimer : 0;
+    storeState.vendorAttackCooldown = Number.isFinite(vendor.attackCooldown) ? vendor.attackCooldown : 0;
+    storeState.vendorAttackTimer = Number.isFinite(vendor.attackTimer) ? vendor.attackTimer : 0;
     storeState.vendor.visible = true;
     updateVendorNameTag();
   }
@@ -6590,6 +6688,9 @@ function handleNetworkMessage(fromPeer, message) {
   if (message.type === "event") {
     if (message.event === "arrested") showNotification(`${message.name || "Driver"} got arrested`, true);
     if (message.event === "store-punch") applyStorePunchEvent(message);
+    if (message.event === "vendor-knife" && message.targetPeerId === multiplayer.peerId && gameMode === "store") {
+      applyStoreDamage(VENDOR_KNIFE_DAMAGE, VENDOR_NAME, message);
+    }
     if (multiplayer.mode === "host") broadcastNetworkMessage(message, fromPeer);
     return;
   }
@@ -6902,7 +7003,7 @@ function resetGame() {
   mobileJumpButton.classList.add("hidden");
   if (storeState.group) storeState.group.visible = false;
   resetVendorAtCheckout();
-  storeState.hp = 100;
+  storeState.hp = PLAYER_MAX_HP;
   storeState.dead = false;
   storeState.deathY = 0;
   storeState.y = 0;
@@ -7040,7 +7141,7 @@ function loseGame() {
 
 function update(dt) {
   if (gameMode === "driving" || gameMode === "walking") updateChunks();
-  if (running && gameMode !== "store" && worldHostControlsSimulation() && storeState.vendorDead) updateVendor(dt);
+  if (running && gameMode !== "store" && worldHostControlsSimulation()) updateVendor(dt);
   if (running && !gameOver && gameMode === "driving") {
     updatePlayer(dt);
     checkSMarketEntrance();
