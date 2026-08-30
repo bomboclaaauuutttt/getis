@@ -3251,8 +3251,42 @@ function enterDrivingMode() {
   }, 420);
 }
 
+function outsideExitSpotIsClear(x, z) {
+  const radius = 14;
+  for (const collider of colliders) {
+    if (collider.disabled) continue;
+    if (collider.type === "tree") {
+      if (Math.hypot(x - collider.x, z - collider.z) < radius + (collider.r || 12) + 2) return false;
+    } else if (Number.isFinite(collider.w) && Number.isFinite(collider.d)) {
+      if (storeRectCollision(x, z, radius, collider)) return false;
+    }
+  }
+
+  for (const vehicle of [...cops, ...traffic]) {
+    if (Math.hypot(x - vehicle.x, z - vehicle.z) < radius + (vehicle.radius || 21) + 5) return false;
+  }
+  return true;
+}
+
+function safeOutsideExitSpot() {
+  const right = vehicleRight(player);
+  const forward = vehicleForward(player);
+  const candidates = [
+    { x: player.x + right.x * 43, z: player.z + right.z * 43 },
+    { x: player.x - right.x * 43, z: player.z - right.z * 43 },
+    { x: player.x - forward.x * 49 + right.x * 18, z: player.z - forward.z * 49 + right.z * 18 },
+    { x: player.x - forward.x * 49 - right.x * 18, z: player.z - forward.z * 49 - right.z * 18 },
+  ];
+  return candidates.find((spot) => outsideExitSpotIsClear(spot.x, spot.z)) || candidates[0];
+}
+
 function exitVehicleToFoot() {
   if (gameMode !== "driving" || transitionLock || gameOver || !running) return;
+  if (player.airborne || (player.y || 0) > 2.5 || Math.abs(player.roll || 0) > 0.55 || Math.abs(player.pitch || 0) > 0.55) {
+    showNotification("Wait until the car is on the ground");
+    playUiError();
+    return;
+  }
   gameMode = "walking";
   player.vx = 0;
   player.vz = 0;
@@ -3260,9 +3294,9 @@ function exitVehicleToFoot() {
   player.steerCharge = 0;
   syncVehicle(player);
 
-  const right = vehicleRight(player);
-  outsideState.x = player.x + right.x * 34;
-  outsideState.z = player.z + right.z * 34;
+  const exitSpot = safeOutsideExitSpot();
+  outsideState.x = exitSpot.x;
+  outsideState.z = exitSpot.z;
   outsideState.angle = player.angle;
   outsideState.walkCycle = 0;
   outsideState.carjackTarget = null;
@@ -3272,6 +3306,14 @@ function exitVehicleToFoot() {
   outsideState.character.visible = true;
   outsideState.character.position.set(outsideState.x, 0, outsideState.z);
   outsideState.character.rotation.set(0, outsideState.angle, 0);
+  const cameraForwardX = Math.sin(outsideState.angle);
+  const cameraForwardZ = Math.cos(outsideState.angle);
+  cameraState.position.set(outsideState.x - cameraForwardX * 150, 126, outsideState.z - cameraForwardZ * 150);
+  cameraState.target.set(outsideState.x + cameraForwardX * 22, 34, outsideState.z + cameraForwardZ * 22);
+  cameraState.shake = 0;
+  cameraState.tilt = 0;
+  camera.position.copy(cameraState.position);
+  camera.lookAt(cameraState.target);
   hintEl.textContent = "On foot | WASD walk | F enter/carjack";
   showNotification(`${playerName} left the car`);
 }
