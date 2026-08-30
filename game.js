@@ -294,6 +294,16 @@ const storeState = {
   deathSpin: 0,
   colliders: [],
   vendor: null,
+  vendorHp: 100,
+  vendorDead: false,
+  vendorRespawnTimer: 0,
+  vendorDeathY: 0,
+  vendorDeathVy: 0,
+  vendorDeathVx: 0,
+  vendorDeathVz: 0,
+  vendorDeathRoll: 0,
+  vendorDeathPitch: 0,
+  vendorDeathSpin: 0,
   scanner: null,
   megaforceDisplay: null,
   purchaseFx: null,
@@ -2029,6 +2039,7 @@ function makeVendor() {
   nameTag.scale.set(86, 29, 1);
   nameTag.renderOrder = 40;
   vendor.add(nameTag);
+  vendor.userData.nameTag = nameTag;
   return vendor;
 }
 
@@ -2124,6 +2135,7 @@ function createSMarketInterior() {
   vendor.position.set(6004, 0, -274);
   group.add(vendor);
   storeState.vendor = vendor;
+  resetVendorAtCheckout();
 
   addMegaforceDisplay(group, 6008, 64, -198);
 
@@ -2475,6 +2487,11 @@ function updateMegaforcePurchaseAnimation(dt) {
 
 function tryBuyMegaforce() {
   if (gameMode !== "store" || transitionLock || storeState.dead || storeState.drinking || storeState.purchaseTimer > 0) return;
+  if (storeState.vendorDead) {
+    playUiError();
+    showNotification("Taija is not at the checkout");
+    return;
+  }
   if (storeState.hasMegaforce) {
     playUiError();
     showNotification("You already have Megaforce");
@@ -2506,6 +2523,7 @@ function tryBuyMegaforce() {
 }
 
 function updateStoreShop(dt) {
+  updateVendor(dt);
   updateMegaforcePurchaseAnimation(dt);
   if (storeState.drinking && storeState.hasMegaforce) {
     storeState.drinkDuration = storeState.drinkDuration || 2.35;
@@ -2524,7 +2542,7 @@ function updateStoreShop(dt) {
   }
 
   const nearCheckout = storeMegaforceDistance() < 96;
-  purchasePromptEl.classList.toggle("hidden", gameMode !== "store" || !nearCheckout || storeState.hasMegaforce || storeState.drinking || storeState.purchaseTimer > 0 || storeState.dead);
+  purchasePromptEl.classList.toggle("hidden", gameMode !== "store" || !nearCheckout || storeState.hasMegaforce || storeState.drinking || storeState.purchaseTimer > 0 || storeState.dead || storeState.vendorDead);
 
   if (storeState.purchaseTimer > 0) {
     hintEl.textContent = "Purchasing Megis...";
@@ -2532,6 +2550,8 @@ function updateStoreShop(dt) {
     hintEl.textContent = "Drinking Megaforce...";
   } else if (storeState.hasMegaforce) {
     hintEl.textContent = inputState.mobile ? "Hold punch to drink Megaforce" : "Hold right mouse to drink Megaforce";
+  } else if (storeState.vendorDead) {
+    hintEl.textContent = `Taija returns in ${Math.ceil(storeState.vendorRespawnTimer)}s`;
   } else if (nearCheckout) {
     hintEl.textContent = inputState.mobile ? "Buy Megis 2e" : "E to purchase Megis";
   } else {
@@ -2547,8 +2567,12 @@ function releaseStorePunch(event) {
   storeState.punchCooldown = storeState.punchCooldownDuration;
   cameraState.shake = Math.max(cameraState.shake, 0.08 + storeState.punchCharge * 0.24);
   const hit = findStorePunchTarget(storeState.lastPunchDamage);
-  playPunchSound(!!hit);
-  showNotification(hit ? `Hit ${hit.name} for ${storeState.lastPunchDamage}` : `Punch damage ${storeState.lastPunchDamage}`);
+  if (hit?.vendor) {
+    applyVendorDamage(storeState.lastPunchDamage, playerName, { x: storeState.x, z: storeState.z, angle: storeState.angle });
+  } else {
+    playPunchSound(!!hit);
+    showNotification(hit ? `Hit ${hit.name} for ${storeState.lastPunchDamage}` : `Punch damage ${storeState.lastPunchDamage}`);
+  }
   sendStorePunch(hit ? hit.peerId : "");
   storeState.punchCharge = 0;
 }
@@ -2563,6 +2587,17 @@ function findStorePunchTarget(damage) {
   const forwardX = Math.sin(storeState.angle);
   const forwardZ = Math.cos(storeState.angle);
   let best = null;
+  if (storeState.vendor && !storeState.vendorDead && storeState.vendorHp > 0) {
+    const dx = storeState.vendor.position.x - storeState.x;
+    const dz = storeState.vendor.position.z - storeState.z;
+    const distance = Math.hypot(dx, dz);
+    if (distance <= 78 && distance > 0.001) {
+      const dot = (dx / distance) * forwardX + (dz / distance) * forwardZ;
+      if (dot > 0.44) {
+        best = { peerId: "vendor:taija", name: "Taija", damage, score: dot * 110 - distance, vendor: true };
+      }
+    }
+  }
   for (const [peerId, remote] of remotePlayers) {
     const target = remote.storeTarget;
     if (!target || target.gameMode !== "store") continue;
@@ -2606,6 +2641,10 @@ function applyStorePunchEvent(message) {
   if (gameMode !== "store") return;
   const attacker = message.attackerName || "Someone";
   const damage = clamp(Math.round(message.damage || 20), 1, 120);
+  if (message.targetPeerId === "vendor:taija") {
+    applyVendorDamage(damage, attacker, message);
+    return;
+  }
   const targetedAtMe = message.targetPeerId && message.targetPeerId === multiplayer.peerId;
   let areaHit = false;
   if (!message.targetPeerId) {
@@ -2696,6 +2735,99 @@ function updateStoreHealthHud() {
     : hp < 58
       ? "linear-gradient(90deg, #ffb000, #fff052)"
       : "linear-gradient(90deg, #2dff64, #e9ff52)";
+}
+
+function updateVendorNameTag() {
+  const vendor = storeState.vendor;
+  const tag = vendor?.userData?.nameTag;
+  if (!tag) return;
+  tag.visible = !storeState.vendorDead;
+  const hp = clamp(storeState.vendorHp, 0, 100);
+  if (tag.userData.hp === Math.round(hp) && tag.userData.dead === storeState.vendorDead) return;
+  const oldMap = tag.material.map;
+  tag.material.map = makeStoreNameTagTexture("Taija", 0x159a55, hp);
+  if (oldMap) oldMap.dispose();
+  tag.userData.hp = Math.round(hp);
+  tag.userData.dead = storeState.vendorDead;
+}
+
+function resetVendorAtCheckout() {
+  if (!storeState.vendor) return;
+  storeState.vendorHp = 100;
+  storeState.vendorDead = false;
+  storeState.vendorRespawnTimer = 0;
+  storeState.vendorDeathY = 0;
+  storeState.vendorDeathVy = 0;
+  storeState.vendorDeathVx = 0;
+  storeState.vendorDeathVz = 0;
+  storeState.vendorDeathRoll = 0;
+  storeState.vendorDeathPitch = 0;
+  storeState.vendorDeathSpin = 0;
+  storeState.vendor.visible = true;
+  storeState.vendor.position.set(6004, 0, -274);
+  storeState.vendor.rotation.set(0, 0, 0);
+  updateVendorNameTag();
+}
+
+function applyVendorDamage(damage, attacker, message = {}) {
+  if (!storeState.vendor || storeState.vendorDead) return;
+  storeState.vendorHp = clamp(storeState.vendorHp - damage, 0, 100);
+  updateVendorNameTag();
+  playPunchSound(true);
+  showNotification(`${attacker} hit Taija for ${damage}`, true);
+  if (storeState.vendorHp <= 0) killVendor(attacker, message);
+}
+
+function killVendor(attacker, message = {}) {
+  if (!storeState.vendor || storeState.vendorDead) return;
+  storeState.vendorDead = true;
+  storeState.vendorRespawnTimer = 10;
+  const awayX = storeState.vendor.position.x - (message.x || storeState.x);
+  const awayZ = storeState.vendor.position.z - (message.z || storeState.z);
+  const awayLen = Math.max(Math.hypot(awayX, awayZ), 0.001);
+  storeState.vendorDeathVx = (awayX / awayLen) * 82;
+  storeState.vendorDeathVz = (awayZ / awayLen) * 82;
+  storeState.vendorDeathVy = 74;
+  storeState.vendorDeathY = 0;
+  storeState.vendorDeathRoll = 0;
+  storeState.vendorDeathPitch = 0;
+  storeState.vendorDeathSpin = 3.1;
+  updateVendorNameTag();
+  showNotification(`${attacker} knocked out Taija - she returns in 10s`, true);
+}
+
+function updateVendor(dt) {
+  if (!storeState.vendor) return;
+  if (!storeState.vendorDead) {
+    storeState.vendor.position.lerp(new THREE.Vector3(6004, 0, -274), 1 - Math.exp(-dt * 5));
+    storeState.vendor.rotation.x = lerp(storeState.vendor.rotation.x, 0, 1 - Math.exp(-dt * 7));
+    storeState.vendor.rotation.y += angleDelta(storeState.vendor.rotation.y, 0) * (1 - Math.exp(-dt * 7));
+    storeState.vendor.rotation.z = lerp(storeState.vendor.rotation.z, 0, 1 - Math.exp(-dt * 7));
+    updateVendorNameTag();
+    return;
+  }
+
+  storeState.vendorRespawnTimer = Math.max(0, storeState.vendorRespawnTimer - dt);
+  storeState.vendorDeathVy -= 330 * dt;
+  storeState.vendorDeathY += storeState.vendorDeathVy * dt;
+  storeState.vendor.position.x += storeState.vendorDeathVx * dt;
+  storeState.vendor.position.z += storeState.vendorDeathVz * dt;
+  storeState.vendorDeathVx *= Math.exp(-dt * 2.8);
+  storeState.vendorDeathVz *= Math.exp(-dt * 2.8);
+  storeState.vendorDeathRoll += storeState.vendorDeathSpin * dt;
+  storeState.vendorDeathPitch = lerp(storeState.vendorDeathPitch, Math.PI * 0.5, 1 - Math.exp(-dt * 6));
+  if (storeState.vendorDeathY <= 0) {
+    storeState.vendorDeathY = 0;
+    storeState.vendorDeathVy = 0;
+    storeState.vendorDeathSpin = lerp(storeState.vendorDeathSpin, 0, 1 - Math.exp(-dt * 7));
+  }
+  storeState.vendor.position.y = storeState.vendorDeathY;
+  storeState.vendor.rotation.set(storeState.vendorDeathPitch, storeState.vendor.rotation.y, storeState.vendorDeathRoll);
+
+  if (storeState.vendorRespawnTimer <= 0) {
+    resetVendorAtCheckout();
+    showNotification("Taija returned to the checkout", true);
+  }
 }
 
 function animateRemoteStoreCharacter(remote, dt, moving) {
@@ -2872,6 +3004,7 @@ function enterStoreMode() {
     storeState.deathRoll = 0;
     storeState.deathPitch = 0;
     storeState.deathSpin = 0;
+    resetVendorAtCheckout();
     damageFxEl.style.opacity = "0";
     storeState.character.position.set(storeState.x, 0, storeState.z);
     storeState.character.rotation.set(0, storeState.angle, 0);
@@ -5195,6 +5328,7 @@ function resetGame() {
   minimapEl.classList.remove("hidden");
   mobileJumpButton.classList.add("hidden");
   if (storeState.group) storeState.group.visible = false;
+  resetVendorAtCheckout();
   storeState.hp = 100;
   storeState.dead = false;
   storeState.deathY = 0;
