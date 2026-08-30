@@ -1810,14 +1810,14 @@ function makeFirstPersonFist() {
   fist.castShadow = true;
   fist.receiveShadow = true;
   const can = new THREE.Group();
-  can.position.set(-10.5, 12.5, -83);
-  can.rotation.set(0, 0.18, 0.02);
+  can.position.set(-2.8, 5.5, -80);
+  can.rotation.set(-0.18, 0.12, -0.08);
   can.visible = false;
   can.userData.firstPersonOverlay = true;
-  attachMegaforceModel(can, 118);
-  const liquid = makeMegisLiquidStream(1.55);
-  liquid.position.set(-4, 4, -92);
-  liquid.rotation.set(0.55, 0.18, -0.22);
+  attachMegaforceModel(can, 44);
+  const liquid = makeMegisLiquidStream(0.72);
+  liquid.position.set(-1.8, 5.2, -87);
+  liquid.rotation.set(0.7, 0.18, -0.18);
   liquid.visible = false;
 
   group.add(arm, fist, can, liquid);
@@ -2359,23 +2359,27 @@ function updateStorePunch(dt) {
   const carryingDrink = storeState.hasMegaforce || storeState.drinking;
   const settle = 1 - Math.exp(-dt * 14);
   const lookDownGuard = clamp(-storeState.pitch / 1.52, 0, 1);
-  const wantedX = carryingDrink ? 18 : 19 - strike * 5;
-  const wantedY = (carryingDrink ? -32 + drinkLift * 14 + drinkSip : -33 + strike * 3) + lookDownGuard * 42;
-  const wantedZ = (carryingDrink ? -66 + drinkLift * 24 : -70 + windup * 18 - strike * (32 + storeState.lastPunchDamage * 0.13)) + lookDownGuard * 18;
+  const wantedX = carryingDrink ? 25 : 19 - strike * 5;
+  const wantedY = (carryingDrink ? -43 + drinkLift * 18 + drinkSip : -33 + strike * 3) + lookDownGuard * 38;
+  const wantedZ = (carryingDrink ? -82 + drinkLift * 9 : -70 + windup * 18 - strike * (32 + storeState.lastPunchDamage * 0.13)) + lookDownGuard * 8;
   storeState.fist.position.x = lerp(storeState.fist.position.x, wantedX, settle);
   storeState.fist.position.y = lerp(storeState.fist.position.y, wantedY, settle);
   storeState.fist.position.z = lerp(storeState.fist.position.z, wantedZ, settle);
-  storeState.fist.rotation.x = lerp(storeState.fist.rotation.x, carryingDrink ? -0.28 - drinkLift * 0.72 : -0.12 - windup * 0.55 + strike * 0.36, settle);
-  storeState.fist.rotation.y = lerp(storeState.fist.rotation.y, carryingDrink ? -0.1 + drinkLift * 0.08 : -0.2 + strike * 0.18, settle);
-  storeState.fist.rotation.z = lerp(storeState.fist.rotation.z, carryingDrink ? 0.16 + drinkLift * 0.22 : 0.06 + windup * 0.14 - strike * 0.13, settle);
+  storeState.fist.rotation.x = lerp(storeState.fist.rotation.x, carryingDrink ? -0.1 - drinkLift * 0.34 : -0.12 - windup * 0.55 + strike * 0.36, settle);
+  storeState.fist.rotation.y = lerp(storeState.fist.rotation.y, carryingDrink ? -0.28 + drinkLift * 0.05 : -0.2 + strike * 0.18, settle);
+  storeState.fist.rotation.z = lerp(storeState.fist.rotation.z, carryingDrink ? 0.1 + drinkLift * 0.18 : 0.06 + windup * 0.14 - strike * 0.13, settle);
   if (storeState.fist.userData.can) {
     if (!storeState.fist.userData.canOverlayApplied) {
       makeFirstPersonOverlay(storeState.fist.userData.can);
       storeState.fist.userData.canOverlayApplied = true;
     }
     storeState.fist.userData.can.visible = carryingDrink;
-    storeState.fist.userData.can.rotation.x = lerp(storeState.fist.userData.can.rotation.x, drinkLift * 1.08, settle);
-    storeState.fist.userData.can.rotation.z = lerp(storeState.fist.userData.can.rotation.z, 0.02 + drinkLift * 0.32, settle);
+    storeState.fist.userData.can.position.x = lerp(storeState.fist.userData.can.position.x, -2.8 - drinkLift * 1.6, settle);
+    storeState.fist.userData.can.position.y = lerp(storeState.fist.userData.can.position.y, 5.5 + drinkLift * 7.5, settle);
+    storeState.fist.userData.can.position.z = lerp(storeState.fist.userData.can.position.z, -80 + drinkLift * 8, settle);
+    storeState.fist.userData.can.rotation.x = lerp(storeState.fist.userData.can.rotation.x, -0.18 + drinkLift * 0.82, settle);
+    storeState.fist.userData.can.rotation.y = lerp(storeState.fist.userData.can.rotation.y, 0.12 + drinkLift * 0.12, settle);
+    storeState.fist.userData.can.rotation.z = lerp(storeState.fist.userData.can.rotation.z, -0.08 + drinkLift * 0.3, settle);
   }
   updateMegisLiquidStream(storeState.fist.userData.liquid, storeState.drinking && drinkLift > 0.42, drinkLift, 1.2);
 
