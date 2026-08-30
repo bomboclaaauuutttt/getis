@@ -3449,7 +3449,8 @@ function exitVehicleToFoot() {
     playUiError();
     return;
   }
-  gameMode = "walking";
+  transitionLock = true;
+  setTransition(true);
   player.y = 0;
   player.vy = 0;
   player.airborne = false;
@@ -3466,28 +3467,37 @@ function exitVehicleToFoot() {
   syncVehicle(player);
 
   const exitSpot = safeOutsideExitSpot();
-  outsideState.x = exitSpot.x;
-  outsideState.z = exitSpot.z;
-  outsideState.angle = player.angle;
-  outsideState.walkCycle = 0;
-  outsideState.carjackTarget = null;
-  outsideState.carjackTimer = 0;
-  if (!outsideState.character) createOutsideCharacter();
-  applyCharacterStyleToPerson(outsideState.character, characterStyle);
-  outsideState.character.visible = true;
-  outsideState.character.position.set(outsideState.x, 0, outsideState.z);
-  outsideState.character.rotation.set(0, outsideState.angle, 0);
-  const cameraForwardX = Math.sin(outsideState.angle);
-  const cameraForwardZ = Math.cos(outsideState.angle);
-  cameraState.position.set(outsideState.x - cameraForwardX * 96, 72, outsideState.z - cameraForwardZ * 96);
-  cameraState.target.set(outsideState.x, 32, outsideState.z);
-  cameraState.shake = 0;
-  cameraState.tilt = 0;
-  camera.position.copy(cameraState.position);
-  camera.lookAt(cameraState.target);
-  camera.updateMatrixWorld(true);
-  hintEl.textContent = "On foot | WASD walk | F enter/carjack";
-  showNotification(`${playerName} left the car`);
+  window.setTimeout(() => {
+    gameMode = "walking";
+    outsideState.x = exitSpot.x;
+    outsideState.z = exitSpot.z;
+    outsideState.angle = player.angle;
+    outsideState.walkCycle = 0;
+    outsideState.carjackTarget = null;
+    outsideState.carjackTimer = 0;
+    outsideState.exitProtection = 0.6;
+    if (!outsideState.character) createOutsideCharacter();
+    applyCharacterStyleToPerson(outsideState.character, characterStyle);
+    outsideState.character.visible = true;
+    outsideState.character.position.set(outsideState.x, 0, outsideState.z);
+    outsideState.character.rotation.set(0, outsideState.angle, 0);
+    const cameraForwardX = -Math.sin(outsideState.angle);
+    const cameraForwardZ = -Math.cos(outsideState.angle);
+    cameraState.position.set(outsideState.x - cameraForwardX * 180, 118, outsideState.z - cameraForwardZ * 180);
+    cameraState.target.set(outsideState.x + cameraForwardX * 45, 28, outsideState.z + cameraForwardZ * 45);
+    cameraState.shake = 0;
+    cameraState.tilt = 0;
+    camera.position.copy(cameraState.position);
+    camera.lookAt(cameraState.target);
+    camera.updateMatrixWorld(true);
+    updateChunks();
+    hintEl.textContent = "On foot | WASD walk | F enter/carjack";
+    showNotification(`${playerName} left the car`);
+    window.setTimeout(() => {
+      setTransition(false);
+      transitionLock = false;
+    }, 180);
+  }, 220);
 }
 
 function enterVehicleFromFoot(vehicle = player) {
@@ -3580,6 +3590,7 @@ function updateOutsideCharacterAnimation(dt, moving) {
 
 function updateWalking(dt) {
   if (!outsideState.character) createOutsideCharacter();
+  outsideState.exitProtection = Math.max(0, (outsideState.exitProtection || 0) - dt);
   if (outsideState.carjackTarget) {
     const target = outsideState.carjackTarget;
     target.vx = 0;
@@ -3605,10 +3616,10 @@ function updateWalking(dt) {
     const scale = 1 / Math.max(1, moveLen);
     const moveYaw = outsideState.angle + Math.atan2(-strafeInput, moveInput || 0.0001);
     outsideState.angle += angleDelta(outsideState.angle, moveYaw) * (1 - Math.exp(-dt * 8));
-    const fx = Math.sin(outsideState.angle);
-    const fz = Math.cos(outsideState.angle);
-    const rx = -Math.cos(outsideState.angle);
-    const rz = Math.sin(outsideState.angle);
+    const fx = -Math.sin(outsideState.angle);
+    const fz = -Math.cos(outsideState.angle);
+    const rx = Math.cos(outsideState.angle);
+    const rz = -Math.sin(outsideState.angle);
     outsideState.x += (fx * moveInput + rx * strafeInput) * scale * 118 * dt;
     outsideState.z += (fz * moveInput + rz * strafeInput) * scale * 118 * dt;
     outsideState.walkCycle += moveLen * scale * dt * 8.3;
@@ -3616,12 +3627,14 @@ function updateWalking(dt) {
     outsideState.walkCycle = lerp(outsideState.walkCycle, Math.round(outsideState.walkCycle / Math.PI) * Math.PI, 1 - Math.exp(-dt * 5));
   }
 
-  const radius = 13;
-  for (const rect of colliders) {
-    const hit = storeRectCollision(outsideState.x, outsideState.z, radius, rect);
-    if (!hit) continue;
-    outsideState.x += hit.nx * (hit.overlap + 0.6);
-    outsideState.z += hit.nz * (hit.overlap + 0.6);
+  if (outsideState.exitProtection <= 0) {
+    const radius = 13;
+    for (const rect of colliders) {
+      const hit = storeRectCollision(outsideState.x, outsideState.z, radius, rect);
+      if (!hit) continue;
+      outsideState.x += hit.nx * (hit.overlap + 0.6);
+      outsideState.z += hit.nz * (hit.overlap + 0.6);
+    }
   }
 
   updateOutsideCharacterAnimation(dt, moving);
@@ -5255,17 +5268,17 @@ function updateCamera(dt) {
 }
 
 function updateOutsideCamera(dt) {
-  const forwardX = Math.sin(outsideState.angle);
-  const forwardZ = Math.cos(outsideState.angle);
+  const forwardX = -Math.sin(outsideState.angle);
+  const forwardZ = -Math.cos(outsideState.angle);
   const desired = new THREE.Vector3(
-    outsideState.x - forwardX * 96,
-    72,
-    outsideState.z - forwardZ * 96
+    outsideState.x - forwardX * 180,
+    118,
+    outsideState.z - forwardZ * 180
   );
   const target = new THREE.Vector3(
-    outsideState.x,
-    32,
-    outsideState.z
+    outsideState.x + forwardX * 45,
+    28,
+    outsideState.z + forwardZ * 45
   );
   cameraState.position.lerp(desired, 1 - Math.exp(-dt * 5.5));
   cameraState.target.lerp(target, 1 - Math.exp(-dt * 7));
