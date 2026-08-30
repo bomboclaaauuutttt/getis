@@ -240,14 +240,14 @@ const CHARACTER_STYLE_STORAGE = "policeGetawayCharacterStyle";
 const CHARACTER_PALETTES = {
   skin: ["#f1c08a", "#d99b64", "#9f6b45", "#6a4532", "#f5d7ad", "#c7866a"],
   hair: ["#171411", "#4a2a14", "#d7b05e", "#7b4930", "#0f0f10", "#c74b31"],
-  shirt: ["#2f6fd0", "#e2363d", "#1ca35a", "#f0d44e", "#20252b", "#8f52d7"],
-  pants: ["#123d87", "#27313a", "#395642", "#7d512e", "#6d6d72", "#111315"],
+  shirt: ["#12a8c8", "#2f6fd0", "#e2363d", "#1ca35a", "#f0d44e", "#20252b", "#8f52d7"],
+  pants: ["#6f8491", "#123d87", "#27313a", "#395642", "#7d512e", "#6d6d72", "#111315"],
 };
 const DEFAULT_CHARACTER_STYLE = {
   skin: "#f1c08a",
   hair: "#171411",
-  shirt: "#2f6fd0",
-  pants: "#123d87",
+  shirt: "#12a8c8",
+  pants: "#6f8491",
 };
 let characterStyle = loadCharacterStyle();
 let lastWantedNoticeLevel = 0;
@@ -741,6 +741,10 @@ function loadCharacterStyle() {
     saved = JSON.parse(localStorage.getItem(CHARACTER_STYLE_STORAGE) || "{}") || {};
   } catch {
     saved = {};
+  }
+  if (saved.shirt === "#2f6fd0" && saved.pants === "#123d87" && saved.hair === "#171411") {
+    saved = { ...saved, shirt: DEFAULT_CHARACTER_STYLE.shirt, pants: DEFAULT_CHARACTER_STYLE.pants };
+    localStorage.setItem(CHARACTER_STYLE_STORAGE, JSON.stringify(saved));
   }
   return sanitizeCharacterStyle(saved);
 }
@@ -1735,58 +1739,65 @@ function makePerson(style = characterStyle) {
     return mesh;
   }
 
-  const hips = setStyleSlot(makeBox(18, 8, 11, personMats.pants), "pants");
-  hips.position.set(0, 18, 0);
-  const belt = setStyleSlot(makeBox(19, 2.2, 11.6, personMats.shoe), "shoe");
-  belt.position.set(0, 22.8, -0.2);
-  const torso = setStyleSlot(makeBox(20, 24, 12, personMats.shirt), "shirt");
-  torso.position.set(0, 34, 0);
-  const chest = setStyleSlot(makeBox(13.5, 18, 12.7, personMats.shirtLight), "shirtLight");
-  chest.position.set(0, 34.5, -0.42);
-  const collar = setStyleSlot(makeBox(12, 2.6, 13, personMats.shoe), "shoe");
-  collar.position.set(0, 46, -0.5);
-  const neck = setStyleSlot(makeBox(6.5, 5, 6, personMats.skinShadow), "skinShadow");
-  neck.position.set(0, 48, 0);
+  const hips = setStyleSlot(makeBox(16, 7, 9.5, personMats.pants), "pants");
+  hips.position.set(0, 19.5, 0);
+  const belt = setStyleSlot(makeBox(17.4, 2.1, 10.4, personMats.shoe), "shoe");
+  belt.position.set(0, 23.5, -0.2);
+  const torso = setStyleSlot(makeBox(21, 28, 11, personMats.shirt), "shirt");
+  torso.position.set(0, 38, 0);
+  const chest = setStyleSlot(makeBox(12.5, 26, 11.8, personMats.shirtLight), "shirtLight");
+  chest.position.set(-3.4, 38.7, -0.42);
+  const shirtSide = setStyleSlot(makeBox(4.4, 25, 11.9, personMats.shirtLight), "shirtLight");
+  shirtSide.position.set(-11.2, 37.8, -0.35);
+  const shoulderLeft = setStyleSlot(makeBox(6, 11, 11.5, personMats.shirtLight), "shirtLight");
+  shoulderLeft.position.set(-14.2, 43.5, 0);
+  const shoulderRight = setStyleSlot(makeBox(6, 11, 11.5, personMats.shirt), "shirt");
+  shoulderRight.position.set(14.2, 43.5, 0);
+  const collar = setStyleSlot(makeBox(11.5, 2.4, 11.8, personMats.shoe), "shoe");
+  collar.position.set(0, 52.4, -0.5);
+  const neck = setStyleSlot(makeBox(6.2, 5.8, 5.8, personMats.skinShadow), "skinShadow");
+  neck.position.set(0, 54, 0);
 
   const headPivot = new THREE.Group();
-  headPivot.position.set(0, 49.5, 0);
-  const head = detailSphere(headPivot, 0, 6, 0, 7.4, { x: 0.95, y: 1.08, z: 0.9 }, personMats.skin, 16, "skin");
-  const hairCap = detailSphere(headPivot, 0, 9.6, 0.7, 7.1, { x: 0.95, y: 0.35, z: 0.86 }, personMats.hair, 14, "hair");
-  const hairFront = detailBox(headPivot, 0, 10.1, 5.35, 12.2, 3.2, 2.1, personMats.hair, "hair");
-  const leftSideburn = detailBox(headPivot, -6.2, 6.5, 2.8, 1.8, 5.8, 2, personMats.hair, "hair");
-  const rightSideburn = detailBox(headPivot, 6.2, 6.5, 2.8, 1.8, 5.8, 2, personMats.hair, "hair");
-  const leftEye = detailBox(headPivot, -2.6, 6.5, 6.1, 2.1, 1.25, 0.8, mats.eyeWhite);
-  const rightEye = detailBox(headPivot, 2.6, 6.5, 6.1, 2.1, 1.25, 0.8, mats.eyeWhite);
-  detailBox(headPivot, -2.6, 6.35, 6.62, 0.75, 0.95, 0.55, mats.glass);
-  detailBox(headPivot, 2.6, 6.35, 6.62, 0.75, 0.95, 0.55, mats.glass);
-  detailBox(headPivot, 0, 4.6, 6.45, 1.35, 2.1, 0.75, personMats.skinShadow, "skinShadow");
-  const face = detailBox(headPivot, 0, 2.4, 6.35, 5.6, 0.9, 0.65, mats.glass);
+  headPivot.position.set(0, 56.2, 0);
+  const head = detailSphere(headPivot, 0, 6, 0, 8.4, { x: 0.92, y: 1.02, z: 0.88 }, personMats.skin, 20, "skin");
+  const hairCap = detailSphere(headPivot, 0, 10.2, 0.45, 8.3, { x: 0.95, y: 0.42, z: 0.88 }, personMats.hair, 18, "hair");
+  const hairFront = detailBox(headPivot, 0, 10.7, 5.1, 13.2, 3.4, 2.3, personMats.hair, "hair");
+  const hairBack = detailBox(headPivot, 0, 9.5, -4.7, 12.8, 3.8, 2.8, personMats.hair, "hair");
+  const leftSideburn = detailBox(headPivot, -6.55, 6.4, 2.1, 1.9, 6.2, 2.4, personMats.hair, "hair");
+  const rightSideburn = detailBox(headPivot, 6.55, 6.4, 2.1, 1.9, 6.2, 2.4, personMats.hair, "hair");
+  const leftEye = detailBox(headPivot, -2.7, 6.25, 6.75, 2.2, 1.25, 0.72, mats.eyeWhite);
+  const rightEye = detailBox(headPivot, 2.7, 6.25, 6.75, 2.2, 1.25, 0.72, mats.eyeWhite);
+  detailBox(headPivot, -2.7, 6.16, 7.18, 0.75, 0.95, 0.5, mats.glass);
+  detailBox(headPivot, 2.7, 6.16, 7.18, 0.75, 0.95, 0.5, mats.glass);
+  detailBox(headPivot, 0, 4.55, 7.02, 1.25, 1.9, 0.65, personMats.skinShadow, "skinShadow");
+  const face = detailBox(headPivot, 0, 2.25, 6.98, 5.7, 0.85, 0.55, mats.glass);
 
   function arm(side) {
     const pivot = new THREE.Group();
-    detailBox(pivot, 0, -5, 0, 6.2, 10, 6, personMats.shirt, "shirt");
-    detailBox(pivot, side * 0.3, -15, 0, 5.2, 11, 5.4, personMats.skin, "skin");
-    detailSphere(pivot, side * 0.45, -22.2, -0.2, 3.35, { x: 0.9, y: 0.9, z: 1.02 }, personMats.skin, 10, "skin");
+    detailBox(pivot, 0, -5.4, 0, 5.4, 11, 5.4, side < 0 ? personMats.shirtLight : personMats.shirt, side < 0 ? "shirtLight" : "shirt");
+    detailBox(pivot, side * 0.25, -17.3, 0, 4.4, 13.5, 4.5, personMats.skin, "skin");
+    detailSphere(pivot, side * 0.35, -25.2, -0.2, 2.75, { x: 0.86, y: 1, z: 0.95 }, personMats.skin, 12, "skin");
     return pivot;
   }
 
   function leg(side) {
     const pivot = new THREE.Group();
-    detailBox(pivot, 0, -7.5, 0, 6.4, 15, 6.2, personMats.pants, "pants");
-    detailBox(pivot, 0, -18.5, 0, 5.4, 10, 5.4, personMats.pants, "pants");
-    detailBox(pivot, 0, -25.2, -2.4, 7.4, 3.7, 10.2, personMats.shoe, "shoe");
-    detailBox(pivot, side * 1.9, -24.1, -2.3, 1.2, 2, 7.4, mats.pumpDark);
+    detailBox(pivot, 0, -9, 0, 4.6, 18, 4.8, personMats.pants, "pants");
+    detailBox(pivot, side * 0.1, -24.1, 0, 3.9, 12.5, 4.1, personMats.pants, "pants");
+    detailBox(pivot, 0, -32, -2.7, 6.9, 3.2, 9.5, personMats.shoe, "shoe");
+    detailBox(pivot, side * 1.45, -30.8, -2.4, 0.9, 1.8, 7, mats.pumpDark);
     return pivot;
   }
 
   const leftArm = arm(-1);
-  leftArm.position.set(-13.4, 44, 0);
+  leftArm.position.set(-15.8, 48.5, 0);
   const rightArm = arm(1);
-  rightArm.position.set(13.4, 44, 0);
+  rightArm.position.set(15.8, 48.5, 0);
   const leftLeg = leg(-1);
-  leftLeg.position.set(-5.2, 18, 0);
+  leftLeg.position.set(-4.8, 20, 0);
   const rightLeg = leg(1);
-  rightLeg.position.set(5.2, 18, 0);
+  rightLeg.position.set(4.8, 20, 0);
   const drinkCan = new THREE.Group();
   drinkCan.position.set(1.5, -24, 7.2);
   drinkCan.rotation.set(1.1, 0.1, 0.05);
@@ -1799,12 +1810,10 @@ function makePerson(style = characterStyle) {
   drinkCan.add(drinkLiquid);
   rightArm.add(drinkCan);
 
-  detailBox(group, -13.2, 43.5, 0, 4.5, 7, 7, personMats.shirt, "shirt");
-  detailBox(group, 13.2, 43.5, 0, 4.5, 7, 7, personMats.shirt, "shirt");
-  detailBox(group, 0, 34.2, 6.55, 7.2, 16, 0.9, personMats.shirtLight, "shirtLight");
-  detailBox(group, 0, 23.9, 6.65, 15, 1.7, 0.8, personMats.shoe, "shoe");
+  detailBox(group, 0, 39.2, 6.12, 8.4, 21, 0.8, personMats.shirtLight, "shirtLight");
+  detailBox(group, 0, 24.8, 5.65, 14.5, 1.6, 0.72, personMats.shoe, "shoe");
 
-  group.add(hips, belt, torso, chest, collar, neck, headPivot, leftArm, rightArm, leftLeg, rightLeg);
+  group.add(hips, belt, torso, chest, shirtSide, shoulderLeft, shoulderRight, collar, neck, headPivot, leftArm, rightArm, leftLeg, rightLeg);
   group.userData.characterStyle = sanitizeCharacterStyle(style);
   group.userData.leftArm = leftArm;
   group.userData.rightArm = rightArm;
@@ -2348,9 +2357,11 @@ function animateStoreCharacter(dt, moving) {
   const character = storeState.character;
   if (!character) return;
   const t = storeState.walkCycle;
-  const swing = moving ? Math.sin(t) * 0.72 : 0;
-  const side = moving ? Math.sin(t * 2) * 0.05 : 0;
-  const bounce = moving ? Math.abs(Math.sin(t)) * 1.8 : 0;
+  const swing = moving ? Math.sin(t) * 0.86 : 0;
+  const side = moving ? Math.sin(t * 2) * 0.065 : 0;
+  const bounce = moving ? Math.abs(Math.sin(t)) * 2.25 : 0;
+  const strideTwist = moving ? Math.sin(t) * 0.08 : 0;
+  const shoulderRoll = moving ? Math.sin(t * 2) * 0.035 : 0;
   const thirdPersonPunch = storeState.cameraMode === "third";
   const windup = thirdPersonPunch && storeState.punchCharging ? storeState.punchCharge : 0;
   const strike = thirdPersonPunch && storeState.punchTimer > 0 ? Math.sin(storeState.punchTimer * Math.PI) : 0;
@@ -2361,17 +2372,22 @@ function animateStoreCharacter(dt, moving) {
   const headPitch = clamp(storeState.pitch, -1.1, 1.1) * 0.62;
   const ease = 1 - Math.exp(-dt * 12);
   character.position.y = lerp(character.position.y, storeState.y + bounce, ease);
-  character.userData.leftArm.rotation.x = lerp(character.userData.leftArm.rotation.x, swing, ease);
+  character.rotation.z = lerp(character.rotation.z, -side * 0.9, ease);
+  character.rotation.x = lerp(character.rotation.x, moving ? Math.abs(Math.sin(t)) * 0.025 : 0, ease);
+  character.userData.leftArm.rotation.x = lerp(character.userData.leftArm.rotation.x, swing * 0.98, ease);
+  character.userData.leftArm.rotation.z = lerp(character.userData.leftArm.rotation.z, 0.08 + shoulderRoll, ease);
   const rightArmX = carryingDrink ? -0.82 - drinkLift * 1.22 + drinkSip : -swing + windup * 1.15 - strike * 1.75;
   const rightArmY = carryingDrink ? -0.1 - drinkLift * 0.18 : windup * 0.45 - strike * 0.18;
-  const rightArmZ = carryingDrink ? -0.2 - drinkLift * 0.18 : -windup * 0.32 + strike * 0.18;
+  const rightArmZ = carryingDrink ? -0.2 - drinkLift * 0.18 : -0.08 - shoulderRoll - windup * 0.32 + strike * 0.18;
   character.userData.rightArm.rotation.x = lerp(character.userData.rightArm.rotation.x, rightArmX, ease);
   character.userData.rightArm.rotation.y = lerp(character.userData.rightArm.rotation.y, rightArmY, ease);
   character.userData.rightArm.rotation.z = lerp(character.userData.rightArm.rotation.z, rightArmZ, ease);
-  character.userData.leftLeg.rotation.x = lerp(character.userData.leftLeg.rotation.x, -swing * 0.82, ease);
-  character.userData.rightLeg.rotation.x = lerp(character.userData.rightLeg.rotation.x, swing * 0.82, ease);
+  character.userData.leftLeg.rotation.x = lerp(character.userData.leftLeg.rotation.x, -swing * 0.9, ease);
+  character.userData.rightLeg.rotation.x = lerp(character.userData.rightLeg.rotation.x, swing * 0.9, ease);
+  character.userData.leftLeg.rotation.z = lerp(character.userData.leftLeg.rotation.z, -0.035 - strideTwist * 0.18, ease);
+  character.userData.rightLeg.rotation.z = lerp(character.userData.rightLeg.rotation.z, 0.035 - strideTwist * 0.18, ease);
   character.userData.head.rotation.z = lerp(character.userData.head.rotation.z, side, ease);
-  character.userData.head.rotation.x = lerp(character.userData.head.rotation.x, headPitch, ease);
+  character.userData.head.rotation.x = lerp(character.userData.head.rotation.x, headPitch + (moving ? Math.abs(Math.sin(t)) * 0.035 : 0), ease);
   character.userData.hair.rotation.x = lerp(character.userData.hair.rotation.x, headPitch, ease);
   character.userData.face.rotation.x = lerp(character.userData.face.rotation.x, headPitch, ease);
   if (character.userData.drinkCan) {
@@ -2867,8 +2883,10 @@ function animateRemoteStoreCharacter(remote, dt, moving) {
     ? (remote.storeWalkCycle || 0) + dt * 8.2
     : lerp(remote.storeWalkCycle || 0, Math.round((remote.storeWalkCycle || 0) / Math.PI) * Math.PI, 1 - Math.exp(-dt * 5));
   const t = remote.storeWalkCycle || 0;
-  const swing = moving ? Math.sin(t) * 0.72 : 0;
-  const side = moving ? Math.sin(t * 2) * 0.05 : 0;
+  const swing = moving ? Math.sin(t) * 0.86 : 0;
+  const side = moving ? Math.sin(t * 2) * 0.065 : 0;
+  const strideTwist = moving ? Math.sin(t) * 0.08 : 0;
+  const shoulderRoll = moving ? Math.sin(t * 2) * 0.035 : 0;
   const windup = target.punchCharging ? target.punchCharge || 0 : 0;
   const strike = (target.punchTimer || 0) > 0 ? Math.sin((target.punchTimer || 0) * Math.PI) : 0;
   const carryingDrink = !!target.hasMegaforce || !!target.drinking;
@@ -2878,17 +2896,22 @@ function animateRemoteStoreCharacter(remote, dt, moving) {
   const headPitch = clamp(target.pitch || 0, -1.1, 1.1) * 0.62;
   const ease = 1 - Math.exp(-dt * 12);
 
-  character.userData.leftArm.rotation.x = lerp(character.userData.leftArm.rotation.x, swing, ease);
+  character.rotation.z = lerp(character.rotation.z, -side * 0.9, ease);
+  character.rotation.x = lerp(character.rotation.x, moving ? Math.abs(Math.sin(t)) * 0.025 : 0, ease);
+  character.userData.leftArm.rotation.x = lerp(character.userData.leftArm.rotation.x, swing * 0.98, ease);
+  character.userData.leftArm.rotation.z = lerp(character.userData.leftArm.rotation.z, 0.08 + shoulderRoll, ease);
   const rightArmX = carryingDrink ? -0.82 - drinkLift * 1.22 + drinkSip : -swing + windup * 1.15 - strike * 1.75;
   const rightArmY = carryingDrink ? -0.1 - drinkLift * 0.18 : windup * 0.45 - strike * 0.18;
-  const rightArmZ = carryingDrink ? -0.2 - drinkLift * 0.18 : -windup * 0.32 + strike * 0.18;
+  const rightArmZ = carryingDrink ? -0.2 - drinkLift * 0.18 : -0.08 - shoulderRoll - windup * 0.32 + strike * 0.18;
   character.userData.rightArm.rotation.x = lerp(character.userData.rightArm.rotation.x, rightArmX, ease);
   character.userData.rightArm.rotation.y = lerp(character.userData.rightArm.rotation.y, rightArmY, ease);
   character.userData.rightArm.rotation.z = lerp(character.userData.rightArm.rotation.z, rightArmZ, ease);
-  character.userData.leftLeg.rotation.x = lerp(character.userData.leftLeg.rotation.x, -swing * 0.82, ease);
-  character.userData.rightLeg.rotation.x = lerp(character.userData.rightLeg.rotation.x, swing * 0.82, ease);
+  character.userData.leftLeg.rotation.x = lerp(character.userData.leftLeg.rotation.x, -swing * 0.9, ease);
+  character.userData.rightLeg.rotation.x = lerp(character.userData.rightLeg.rotation.x, swing * 0.9, ease);
+  character.userData.leftLeg.rotation.z = lerp(character.userData.leftLeg.rotation.z, -0.035 - strideTwist * 0.18, ease);
+  character.userData.rightLeg.rotation.z = lerp(character.userData.rightLeg.rotation.z, 0.035 - strideTwist * 0.18, ease);
   character.userData.head.rotation.z = lerp(character.userData.head.rotation.z, side, ease);
-  character.userData.head.rotation.x = lerp(character.userData.head.rotation.x, headPitch, ease);
+  character.userData.head.rotation.x = lerp(character.userData.head.rotation.x, headPitch + (moving ? Math.abs(Math.sin(t)) * 0.035 : 0), ease);
   character.userData.hair.rotation.x = lerp(character.userData.hair.rotation.x, headPitch, ease);
   character.userData.face.rotation.x = lerp(character.userData.face.rotation.x, headPitch, ease);
   if (character.userData.drinkCan) {
@@ -3196,17 +3219,27 @@ function updateOutsideCharacterAnimation(dt, moving) {
   const character = outsideState.character;
   if (!character || !character.userData.head) return;
   const t = outsideState.walkCycle;
-  const swing = moving ? Math.sin(t) * 0.7 : 0;
-  const side = moving ? Math.sin(t * 2) * 0.04 : 0;
+  const swing = moving ? Math.sin(t) * 0.86 : 0;
+  const side = moving ? Math.sin(t * 2) * 0.065 : 0;
+  const strideTwist = moving ? Math.sin(t) * 0.08 : 0;
+  const shoulderRoll = moving ? Math.sin(t * 2) * 0.035 : 0;
   const jackPulse = outsideState.carjackTarget ? Math.sin(performance.now() * 0.022) : 0;
   const ease = 1 - Math.exp(-dt * 12);
-  character.position.set(outsideState.x, moving ? Math.abs(Math.sin(t)) * 1.2 : 0, outsideState.z);
+  character.position.set(outsideState.x, moving ? Math.abs(Math.sin(t)) * 1.9 : 0, outsideState.z);
   character.rotation.y = outsideState.angle;
-  character.userData.leftArm.rotation.x = lerp(character.userData.leftArm.rotation.x, outsideState.carjackTarget ? -0.7 + jackPulse * 0.45 : swing, ease);
-  character.userData.rightArm.rotation.x = lerp(character.userData.rightArm.rotation.x, outsideState.carjackTarget ? -1.1 - jackPulse * 0.55 : -swing, ease);
-  character.userData.leftLeg.rotation.x = lerp(character.userData.leftLeg.rotation.x, -swing * 0.82, ease);
-  character.userData.rightLeg.rotation.x = lerp(character.userData.rightLeg.rotation.x, swing * 0.82, ease);
+  character.rotation.z = lerp(character.rotation.z, outsideState.carjackTarget ? jackPulse * 0.055 : -side * 0.9, ease);
+  character.rotation.x = lerp(character.rotation.x, moving ? Math.abs(Math.sin(t)) * 0.025 : 0, ease);
+  character.userData.leftArm.rotation.x = lerp(character.userData.leftArm.rotation.x, outsideState.carjackTarget ? -0.92 + jackPulse * 0.58 : swing * 0.98, ease);
+  character.userData.leftArm.rotation.z = lerp(character.userData.leftArm.rotation.z, outsideState.carjackTarget ? 0.42 : 0.08 + shoulderRoll, ease);
+  character.userData.rightArm.rotation.x = lerp(character.userData.rightArm.rotation.x, outsideState.carjackTarget ? -1.3 - jackPulse * 0.68 : -swing, ease);
+  character.userData.rightArm.rotation.y = lerp(character.userData.rightArm.rotation.y, outsideState.carjackTarget ? -0.24 + jackPulse * 0.1 : 0, ease);
+  character.userData.rightArm.rotation.z = lerp(character.userData.rightArm.rotation.z, outsideState.carjackTarget ? -0.36 : -0.08 - shoulderRoll, ease);
+  character.userData.leftLeg.rotation.x = lerp(character.userData.leftLeg.rotation.x, -swing * 0.9, ease);
+  character.userData.rightLeg.rotation.x = lerp(character.userData.rightLeg.rotation.x, swing * 0.9, ease);
+  character.userData.leftLeg.rotation.z = lerp(character.userData.leftLeg.rotation.z, -0.035 - strideTwist * 0.18, ease);
+  character.userData.rightLeg.rotation.z = lerp(character.userData.rightLeg.rotation.z, 0.035 - strideTwist * 0.18, ease);
   character.userData.head.rotation.z = lerp(character.userData.head.rotation.z, side, ease);
+  character.userData.head.rotation.x = lerp(character.userData.head.rotation.x, moving ? Math.abs(Math.sin(t)) * 0.035 : 0, ease);
 }
 
 function updateWalking(dt) {
