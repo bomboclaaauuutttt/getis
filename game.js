@@ -258,6 +258,17 @@ let megaforceTemplate = null;
 let megaforceLoading = false;
 const megaforceModelCallbacks = [];
 
+const outsideState = {
+  character: null,
+  x: 0,
+  z: 0,
+  angle: 0,
+  walkCycle: 0,
+  carjackTarget: null,
+  carjackTimer: 0,
+  carjackDuration: 3,
+};
+
 const SMARKET_ENTRANCE = { x: -646, z: 20, radius: 42 };
 const SMARKET_EXIT = { x: 6000, z: 306, radius: 64 };
 const storeState = {
@@ -701,6 +712,14 @@ function colorForName(name) {
   return palette[(h >>> 0) % palette.length];
 }
 
+function focusX() {
+  return gameMode === "walking" ? outsideState.x : player.x;
+}
+
+function focusZ() {
+  return gameMode === "walking" ? outsideState.z : player.z;
+}
+
 function cleanHexColor(value, fallback) {
   const text = String(value || "").trim().toLowerCase();
   return /^#[0-9a-f]{6}$/.test(text) ? text : fallback;
@@ -741,6 +760,7 @@ function saveCharacterStyle() {
   localStorage.setItem(CHARACTER_STYLE_STORAGE, JSON.stringify(characterStyle));
   applyCharacterStyleToPerson(storeState.character, characterStyle);
   if (storeState.fist) applyCharacterStyleToPerson(storeState.fist, characterStyle);
+  applyCharacterStyleToPerson(outsideState.character, characterStyle);
 }
 
 function characterStyleMaterials(style = characterStyle) {
@@ -1841,6 +1861,15 @@ function makeFirstPersonFist() {
   group.scale.setScalar(0.48);
   camera.add(group);
   return group;
+}
+
+function createOutsideCharacter() {
+  const character = makePerson(characterStyle);
+  character.scale.setScalar(1.08);
+  character.visible = false;
+  world.add(character);
+  outsideState.character = character;
+  return character;
 }
 
 function makeMegisLiquidStream(scale = 1) {
@@ -3033,6 +3062,7 @@ function enterDrivingMode() {
     gameMode = "driving";
     world.visible = true;
     player.group.visible = true;
+    if (outsideState.character) outsideState.character.visible = false;
     minimapEl.classList.remove("hidden");
     mobileJumpButton.classList.add("hidden");
     player.x = SMARKET_ENTRANCE.x;
@@ -3074,6 +3104,166 @@ function enterDrivingMode() {
       transitionLock = false;
     }, 260);
   }, 420);
+}
+
+function exitVehicleToFoot() {
+  if (gameMode !== "driving" || transitionLock || gameOver || !running) return;
+  gameMode = "walking";
+  player.vx = 0;
+  player.vz = 0;
+  player.steer = 0;
+  player.steerCharge = 0;
+  syncVehicle(player);
+
+  const right = vehicleRight(player);
+  outsideState.x = player.x + right.x * 34;
+  outsideState.z = player.z + right.z * 34;
+  outsideState.angle = player.angle;
+  outsideState.walkCycle = 0;
+  outsideState.carjackTarget = null;
+  outsideState.carjackTimer = 0;
+  if (!outsideState.character) createOutsideCharacter();
+  applyCharacterStyleToPerson(outsideState.character, characterStyle);
+  outsideState.character.visible = true;
+  outsideState.character.position.set(outsideState.x, 0, outsideState.z);
+  outsideState.character.rotation.set(0, outsideState.angle, 0);
+  hintEl.textContent = "On foot | WASD walk | F enter/carjack";
+  showNotification(`${playerName} left the car`);
+}
+
+function enterVehicleFromFoot(vehicle = player) {
+  if (gameMode !== "walking" || transitionLock || !running) return;
+  if (vehicle !== player) {
+    vehicle.beingCarjacked = false;
+    const index = traffic.indexOf(vehicle);
+    if (index >= 0) traffic.splice(index, 1);
+    scene.remove(vehicle.group);
+  }
+  player.x = vehicle.x;
+  player.z = vehicle.z;
+  player.angle = vehicle.angle;
+  player.vx = vehicle.vx || 0;
+  player.vz = vehicle.vz || 0;
+  player.y = 0;
+  player.roll = 0;
+  player.pitch = 0;
+  player.group.visible = true;
+  syncVehicle(player);
+  if (outsideState.character) outsideState.character.visible = false;
+  outsideState.carjackTarget = null;
+  outsideState.carjackTimer = 0;
+  gameMode = "driving";
+  hintEl.textContent = inputState.mobile ? "Joystick drive" : "W/S drive, A/D turn";
+  showNotification(vehicle === player ? `${playerName} entered the car` : `${playerName} stole a car`, true);
+}
+
+function findCarjackTarget() {
+  let best = null;
+  for (const car of traffic) {
+    if (car.airborne || car.wrecked) continue;
+    const d = Math.hypot(car.x - outsideState.x, car.z - outsideState.z);
+    if (d > 58) continue;
+    if (!best || d < best.distance) best = { car, distance: d };
+  }
+  return best?.car || null;
+}
+
+function handleOutsideAction() {
+  if (gameMode !== "walking" || transitionLock || outsideState.carjackTarget) return;
+  if (Math.hypot(player.x - outsideState.x, player.z - outsideState.z) < 62) {
+    enterVehicleFromFoot(player);
+    return;
+  }
+  const target = findCarjackTarget();
+  if (!target) {
+    showNotification("No car close enough");
+    playUiError();
+    return;
+  }
+  outsideState.carjackTarget = target;
+  outsideState.carjackTimer = outsideState.carjackDuration;
+  target.beingCarjacked = true;
+  target.vx = 0;
+  target.vz = 0;
+  target.escapeTimer = 0;
+  target.jamTime = 0;
+  syncVehicle(target);
+  showNotification("Carjacking... 3s", true);
+  playNoiseHit(0.12, 0.08, 520);
+}
+
+function updateOutsideCharacterAnimation(dt, moving) {
+  const character = outsideState.character;
+  if (!character || !character.userData.head) return;
+  const t = outsideState.walkCycle;
+  const swing = moving ? Math.sin(t) * 0.7 : 0;
+  const side = moving ? Math.sin(t * 2) * 0.04 : 0;
+  const jackPulse = outsideState.carjackTarget ? Math.sin(performance.now() * 0.022) : 0;
+  const ease = 1 - Math.exp(-dt * 12);
+  character.position.set(outsideState.x, moving ? Math.abs(Math.sin(t)) * 1.2 : 0, outsideState.z);
+  character.rotation.y = outsideState.angle;
+  character.userData.leftArm.rotation.x = lerp(character.userData.leftArm.rotation.x, outsideState.carjackTarget ? -0.7 + jackPulse * 0.45 : swing, ease);
+  character.userData.rightArm.rotation.x = lerp(character.userData.rightArm.rotation.x, outsideState.carjackTarget ? -1.1 - jackPulse * 0.55 : -swing, ease);
+  character.userData.leftLeg.rotation.x = lerp(character.userData.leftLeg.rotation.x, -swing * 0.82, ease);
+  character.userData.rightLeg.rotation.x = lerp(character.userData.rightLeg.rotation.x, swing * 0.82, ease);
+  character.userData.head.rotation.z = lerp(character.userData.head.rotation.z, side, ease);
+}
+
+function updateWalking(dt) {
+  if (!outsideState.character) createOutsideCharacter();
+  if (outsideState.carjackTarget) {
+    const target = outsideState.carjackTarget;
+    target.vx = 0;
+    target.vz = 0;
+    syncVehicle(target);
+    const side = vehicleRight(target);
+    outsideState.x = lerp(outsideState.x, target.x + side.x * 28, 1 - Math.exp(-dt * 6));
+    outsideState.z = lerp(outsideState.z, target.z + side.z * 28, 1 - Math.exp(-dt * 6));
+    outsideState.angle += angleDelta(outsideState.angle, target.angle - Math.PI * 0.5) * (1 - Math.exp(-dt * 8));
+    outsideState.walkCycle += dt * 10;
+    outsideState.carjackTimer -= dt;
+    hintEl.textContent = `Carjacking ${Math.ceil(outsideState.carjackTimer)}s`;
+    if (outsideState.carjackTimer <= 0) enterVehicleFromFoot(target);
+    updateOutsideCharacterAnimation(dt, true);
+    return;
+  }
+
+  const moveInput = (keys.has("w") || keys.has("arrowup") ? 1 : 0) + (keys.has("s") || keys.has("arrowdown") ? -1 : 0);
+  const strafeInput = (keys.has("d") || keys.has("arrowright") ? 1 : 0) + (keys.has("a") || keys.has("arrowleft") ? -1 : 0);
+  const moveLen = Math.hypot(moveInput, strafeInput);
+  const moving = moveLen > 0.05;
+  if (moving) {
+    const scale = 1 / Math.max(1, moveLen);
+    const moveYaw = outsideState.angle + Math.atan2(-strafeInput, moveInput || 0.0001);
+    outsideState.angle += angleDelta(outsideState.angle, moveYaw) * (1 - Math.exp(-dt * 8));
+    const fx = Math.sin(outsideState.angle);
+    const fz = Math.cos(outsideState.angle);
+    const rx = -Math.cos(outsideState.angle);
+    const rz = Math.sin(outsideState.angle);
+    outsideState.x += (fx * moveInput + rx * strafeInput) * scale * 118 * dt;
+    outsideState.z += (fz * moveInput + rz * strafeInput) * scale * 118 * dt;
+    outsideState.walkCycle += moveLen * scale * dt * 8.3;
+  } else {
+    outsideState.walkCycle = lerp(outsideState.walkCycle, Math.round(outsideState.walkCycle / Math.PI) * Math.PI, 1 - Math.exp(-dt * 5));
+  }
+
+  const radius = 13;
+  for (const rect of colliders) {
+    const hit = storeRectCollision(outsideState.x, outsideState.z, radius, rect);
+    if (!hit) continue;
+    outsideState.x += hit.nx * (hit.overlap + 0.6);
+    outsideState.z += hit.nz * (hit.overlap + 0.6);
+  }
+
+  updateOutsideCharacterAnimation(dt, moving);
+  const target = findCarjackTarget();
+  if (Math.hypot(player.x - outsideState.x, player.z - outsideState.z) < 62) {
+    hintEl.textContent = "On foot | F enter your car | WASD walk";
+  } else if (target) {
+    hintEl.textContent = "On foot | F carjack vehicle | WASD walk";
+  } else {
+    hintEl.textContent = "On foot | WASD walk | F near a car";
+  }
 }
 
 function requestStorePointerLock() {
@@ -3358,8 +3548,8 @@ function disposeChunk(group) {
 }
 
 function updateChunks() {
-  const pcx = Math.round(player.x / CHUNK);
-  const pcz = Math.round(player.z / CHUNK);
+  const pcx = Math.round(focusX() / CHUNK);
+  const pcz = Math.round(focusZ() / CHUNK);
   for (let x = pcx - MAP_PRELOAD_RADIUS; x <= pcx + MAP_PRELOAD_RADIUS; x++) {
     for (let z = pcz - MAP_PRELOAD_RADIUS; z <= pcz + MAP_PRELOAD_RADIUS; z++) generateChunk(x, z);
   }
@@ -3606,13 +3796,19 @@ function steerTowardPoint(v, target, turnAggression = 2) {
 }
 
 function isHiddenSpawnPoint(x, z, minDistance) {
-  const dx = x - player.x;
-  const dz = z - player.z;
+  const fx0 = focusX();
+  const fz0 = focusZ();
+  const dx = x - fx0;
+  const dz = z - fz0;
   const distance = Math.hypot(dx, dz);
   if (distance < minDistance) return false;
 
-  const forward = vehicleForward(player);
-  const right = vehicleRight(player);
+  const forward = gameMode === "walking"
+    ? { x: Math.sin(outsideState.angle), z: Math.cos(outsideState.angle) }
+    : vehicleForward(player);
+  const right = gameMode === "walking"
+    ? { x: -Math.cos(outsideState.angle), z: Math.sin(outsideState.angle) }
+    : vehicleRight(player);
   const ahead = dx * forward.x + dz * forward.z;
   const side = dx * right.x + dz * right.z;
 
@@ -3625,21 +3821,23 @@ function chooseRoadSpawn(distanceMin, distanceMax) {
   const axis = Math.random() < 0.7 ? "z" : "x";
   const dir = Math.random() < 0.5 ? -1 : 1;
   const ahead = (distanceMin + Math.random() * (distanceMax - distanceMin)) * (Math.random() < 0.5 ? -1 : 1);
+  const fx0 = focusX();
+  const fz0 = focusZ();
 
   if (axis === "x") {
-    let id = nearestRoadIdForAxis("x", player.x, player.z);
+    let id = nearestRoadIdForAxis("x", fx0, fz0);
     if (Math.random() < 0.55) id += Math.floor(Math.random() * 3) - 1;
-    while (!sideRoadExists(id)) id += id < nearestRoadIdForAxis("x", player.x, player.z) ? 1 : -1;
-    const x = player.x + ahead;
+    while (!sideRoadExists(id)) id += id < nearestRoadIdForAxis("x", fx0, fz0) ? 1 : -1;
+    const x = fx0 + ahead;
     const z = roadCenterZ(id, x);
     const lane = laneCenterFor("x", dir, x, z, id);
     return { axis, id, dir, x: lane.x, z: lane.z, angle: trafficAngle("x", dir, lane.x, lane.z, id) };
   }
 
-  let id = nearestRoadIdForAxis("z", player.x, player.z);
+  let id = nearestRoadIdForAxis("z", fx0, fz0);
   if (Math.random() < 0.55) id += Math.floor(Math.random() * 3) - 1;
-  while (!mainRoadExists(id)) id += id < nearestRoadIdForAxis("z", player.x, player.z) ? 1 : -1;
-  const z = player.z + ahead;
+  while (!mainRoadExists(id)) id += id < nearestRoadIdForAxis("z", fx0, fz0) ? 1 : -1;
+  const z = fz0 + ahead;
   const x = roadCenterX(id, z);
   const lane = laneCenterFor("z", dir, x, z, id);
   return { axis, id, dir, x: lane.x, z: lane.z, angle: trafficAngle("z", dir, lane.x, lane.z, id) };
@@ -4041,7 +4239,13 @@ function updateTraffic(dt) {
   }
   for (let i = traffic.length - 1; i >= 0; i--) {
     const car = traffic[i];
-    if (dist(car, player) > TRAFFIC_DESPAWN_DISTANCE) {
+    if (car.beingCarjacked) {
+      car.vx = 0;
+      car.vz = 0;
+      syncVehicle(car);
+      continue;
+    }
+    if (Math.hypot(car.x - focusX(), car.z - focusZ()) > TRAFFIC_DESPAWN_DISTANCE) {
       scene.remove(car.group);
       traffic.splice(i, 1);
       continue;
@@ -4143,12 +4347,32 @@ function updateVehicleRagdoll(v, dt) {
 }
 
 function playerChaseTargets() {
-  return [player, ...remotePlayers.values()].filter((target) => !target.airborne && !target.wrecked);
+  const localTarget = gameMode === "walking"
+    ? {
+        x: outsideState.x,
+        z: outsideState.z,
+        vx: 0,
+        vz: 0,
+        airborne: false,
+        wrecked: false,
+      }
+    : player;
+  return [localTarget, ...remotePlayers.values()].filter((target) => !target.airborne && !target.wrecked);
 }
 
 function nearestChaseTarget(from) {
-  let best = player;
-  let bestDistance = dist(from, player);
+  const localTarget = gameMode === "walking"
+    ? {
+        x: outsideState.x,
+        z: outsideState.z,
+        vx: 0,
+        vz: 0,
+        airborne: false,
+        wrecked: false,
+      }
+    : player;
+  let best = localTarget;
+  let bestDistance = dist(from, localTarget);
   for (const target of remotePlayers.values()) {
     const distance = dist(from, target);
     if (distance < bestDistance) {
@@ -4187,11 +4411,13 @@ function updateCops(dt) {
   backupTime += dt;
   if (chaseTime > 3 && cops.length === 0) spawnCop();
 
-  if (Math.hypot(player.x - lastPlayerX, player.z - lastPlayerZ) < 42) idleHeat += dt;
+  const heatX = focusX();
+  const heatZ = focusZ();
+  if (Math.hypot(heatX - lastPlayerX, heatZ - lastPlayerZ) < 42) idleHeat += dt;
   else {
     idleHeat = Math.max(0, idleHeat - dt * 1.6);
-    lastPlayerX = player.x;
-    lastPlayerZ = player.z;
+    lastPlayerX = heatX;
+    lastPlayerZ = heatZ;
   }
 
   const wanted = clamp(1 + Math.floor(idleHeat / 7), 1, MAX_COPS);
@@ -4453,15 +4679,17 @@ function updateCollisions(dt, fullWorldCollisions = true) {
     for (const cop of cops) collideVehicles(player, cop);
     for (const car of traffic) collideVehicles(player, car);
   }
-  collideRemotePlayers();
+  if (gameMode !== "walking") collideRemotePlayers();
 
   let arrestPressure = 0;
   for (const cop of cops) {
     if (cop.airborne || cop.wrecked) continue;
-    const d = dist(player, cop);
-    const contact = d < player.radius + cop.radius + 10;
+    const d = gameMode === "walking"
+      ? Math.hypot(outsideState.x - cop.x, outsideState.z - cop.z)
+      : dist(player, cop);
+    const contact = gameMode !== "walking" && d < player.radius + cop.radius + 10;
     const inArrestZone = d < COP_ARREST_RADIUS;
-    const boxedIn = d < 55 && vehicleSpeed(player) < 78;
+    const boxedIn = gameMode !== "walking" && d < 55 && vehicleSpeed(player) < 78;
     const copStillPushing = d < 48 && vehicleSpeed(cop) > 8;
     if (contact || inArrestZone || boxedIn || copStillPushing) {
       const zonePressure = 0.68 + clamp((COP_ARREST_RADIUS - d) / COP_ARREST_RADIUS, 0, 1) * 0.48;
@@ -4514,6 +4742,29 @@ function updateCamera(dt) {
   sun.target.position.set(player.x, 0, player.z);
 }
 
+function updateOutsideCamera(dt) {
+  const forwardX = Math.sin(outsideState.angle);
+  const forwardZ = Math.cos(outsideState.angle);
+  const desired = new THREE.Vector3(
+    outsideState.x - forwardX * 150,
+    126,
+    outsideState.z - forwardZ * 150
+  );
+  const target = new THREE.Vector3(
+    outsideState.x + forwardX * 22,
+    34,
+    outsideState.z + forwardZ * 22
+  );
+  cameraState.position.lerp(desired, 1 - Math.exp(-dt * 5.5));
+  cameraState.target.lerp(target, 1 - Math.exp(-dt * 7));
+  camera.position.copy(cameraState.position);
+  camera.lookAt(cameraState.target);
+  camera.fov = lerp(camera.fov, 58, 1 - Math.exp(-dt * 4));
+  camera.updateProjectionMatrix();
+  sun.position.set(outsideState.x - 260, 520, outsideState.z + 180);
+  sun.target.position.set(outsideState.x, 0, outsideState.z);
+}
+
 function drawMinimap() {
   const c = miniCtx;
   const w = minimap.width;
@@ -4527,18 +4778,20 @@ function drawMinimap() {
   c.fillStyle = "#5f9a57";
   c.fillRect(0, 0, w, h);
 
-  const mx = (x) => w / 2 + (x - player.x) * scale;
-  const mz = (z) => h / 2 + (z - player.z) * scale;
+  const centerX = focusX();
+  const centerZ = focusZ();
+  const mx = (x) => w / 2 + (x - centerX) * scale;
+  const mz = (z) => h / 2 + (z - centerZ) * scale;
 
   c.strokeStyle = "#383832";
   c.lineWidth = ROAD * scale;
   c.lineCap = "round";
   c.lineJoin = "round";
 
-  const minX = player.x - 520;
-  const maxX = player.x + 520;
-  const minZ = player.z - 520;
-  const maxZ = player.z + 520;
+  const minX = centerX - 520;
+  const maxX = centerX + 520;
+  const minZ = centerZ - 520;
+  const maxZ = centerZ + 520;
   const mainMin = Math.floor((minX - 120) / ROAD_SPACING) - 1;
   const mainMax = Math.ceil((maxX + 120) / ROAD_SPACING) + 1;
   for (let id = mainMin; id <= mainMax; id++) {
@@ -5325,6 +5578,9 @@ function resetGame() {
   setTransition(false);
   world.visible = true;
   player.group.visible = true;
+  if (outsideState.character) outsideState.character.visible = false;
+  outsideState.carjackTarget = null;
+  outsideState.carjackTimer = 0;
   minimapEl.classList.remove("hidden");
   mobileJumpButton.classList.add("hidden");
   if (storeState.group) storeState.group.visible = false;
@@ -5442,7 +5698,7 @@ function loseGame() {
 }
 
 function update(dt) {
-  if (gameMode === "driving") updateChunks();
+  if (gameMode === "driving" || gameMode === "walking") updateChunks();
   if (running && !gameOver && gameMode === "driving") {
     updatePlayer(dt);
     checkSMarketEntrance();
@@ -5455,6 +5711,12 @@ function update(dt) {
     updateCollisions(dt, worldHostControlsSimulation());
     sendNetworkState(dt);
     if (chaseTime > 3.2 && cops.length > 0) hintEl.textContent += ` | ${cops.length} cops`;
+  } else if (running && !gameOver && gameMode === "walking") {
+    updateWalking(dt);
+    updateTraffic(dt);
+    updateCops(dt);
+    updateCollisions(dt, true);
+    sendNetworkState(dt);
   } else if (running && !gameOver && gameMode === "store") {
     moveStoreCharacter(dt);
     updateStorePunch(dt);
@@ -5469,6 +5731,9 @@ function update(dt) {
   updateGlows(dt);
   if (gameMode === "store") {
     updateStoreCamera(dt);
+  } else if (gameMode === "walking") {
+    updateOutsideCamera(dt);
+    drawMinimap();
   } else {
     updateCamera(dt);
     drawMinimap();
@@ -5503,7 +5768,9 @@ document.addEventListener("pointerover", (event) => {
 window.addEventListener("keydown", (event) => {
   unlockAudio();
   if (event.key.toLowerCase() === "f" && !event.repeat) {
-    toggleStoreCameraMode();
+    if (gameMode === "store") toggleStoreCameraMode();
+    else if (gameMode === "driving") exitVehicleToFoot();
+    else if (gameMode === "walking") handleOutsideAction();
     event.preventDefault();
   }
   if (event.key.toLowerCase() === "e" && !event.repeat) {
@@ -5563,6 +5830,7 @@ restartButton.addEventListener("click", resetGame);
 resize();
 buildCharacterCustomisation();
 createSMarketInterior();
+createOutsideCharacter();
 updateChunks();
 updateCamera(0.016);
 if (new URLSearchParams(window.location.search).has("play")) {
