@@ -140,8 +140,8 @@ const COP_DESPAWN_DISTANCE = 2100;
 const COP_ARREST_RADIUS = 76;
 
 const mats = {
-  grass: new THREE.MeshLambertMaterial({ color: 0x5f9a57 }),
-  field: new THREE.MeshLambertMaterial({ color: 0x9aa65a }),
+  grass: new THREE.MeshLambertMaterial({ color: 0x668f59 }),
+  field: new THREE.MeshLambertMaterial({ color: 0x9b9d58 }),
   cropLine: new THREE.MeshBasicMaterial({ color: 0x6e7e3e, transparent: true, opacity: 0.48, depthWrite: false }),
   playground: new THREE.MeshLambertMaterial({ color: 0x526f4c }),
   chalk: new THREE.MeshBasicMaterial({ color: 0xe8ead0, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }),
@@ -201,14 +201,24 @@ const mats = {
   leaves: new THREE.MeshLambertMaterial({ color: 0x23843c }),
   leaves2: new THREE.MeshLambertMaterial({ color: 0x34a853 }),
   roof: new THREE.MeshLambertMaterial({ color: 0x8b2d2d }),
+  roofDark: new THREE.MeshLambertMaterial({ color: 0x4f5558 }),
+  window: new THREE.MeshLambertMaterial({ color: 0x91bed0, emissive: 0x182a30 }),
+  windowWarm: new THREE.MeshLambertMaterial({ color: 0xe8c77c, emissive: 0x3a2b12 }),
+  door: new THREE.MeshLambertMaterial({ color: 0x684735 }),
+  foundation: new THREE.MeshLambertMaterial({ color: 0x8b8d86 }),
+  lawn: new THREE.MeshLambertMaterial({ color: 0x699e59 }),
+  hedge: new THREE.MeshLambertMaterial({ color: 0x376f3f }),
+  fence: new THREE.MeshLambertMaterial({ color: 0xb7aa86 }),
+  hay: new THREE.MeshLambertMaterial({ color: 0xc7a84c }),
+  metal: new THREE.MeshLambertMaterial({ color: 0x687176 }),
 };
 
 const buildingMats = [
-  new THREE.MeshLambertMaterial({ color: 0xc56d50 }),
-  new THREE.MeshLambertMaterial({ color: 0xddc97e }),
-  new THREE.MeshLambertMaterial({ color: 0xbad1d1 }),
-  new THREE.MeshLambertMaterial({ color: 0xd7ad48 }),
-  new THREE.MeshLambertMaterial({ color: 0x6f8191 }),
+  new THREE.MeshLambertMaterial({ color: 0xa95845 }),
+  new THREE.MeshLambertMaterial({ color: 0xd5c48f }),
+  new THREE.MeshLambertMaterial({ color: 0xb8c5c1 }),
+  new THREE.MeshLambertMaterial({ color: 0xb89458 }),
+  new THREE.MeshLambertMaterial({ color: 0x78868d }),
 ];
 
 const chunks = new Map();
@@ -1019,14 +1029,16 @@ function playerSurfaceTuning() {
 }
 
 function areaTouchesRoad(x, z, w, d, margin = 12) {
-  const samples = [
-    [x, z],
-    [x - w * 0.5, z - d * 0.5],
-    [x + w * 0.5, z - d * 0.5],
-    [x - w * 0.5, z + d * 0.5],
-    [x + w * 0.5, z + d * 0.5],
-  ];
-  return samples.some(([sx, sz]) => nearestRoad(sx, sz).distance < ROAD * 0.5 + margin);
+  const stepsX = Math.max(2, Math.ceil(w / 28));
+  const stepsZ = Math.max(2, Math.ceil(d / 28));
+  for (let ix = 0; ix <= stepsX; ix++) {
+    const sx = x - w * 0.5 + (w * ix) / stepsX;
+    for (let iz = 0; iz <= stepsZ; iz++) {
+      const sz = z - d * 0.5 + (d * iz) / stepsZ;
+      if (nearestRoad(sx, sz).distance < ROAD * 0.5 + margin) return true;
+    }
+  }
+  return false;
 }
 
 function randomOffRoadSpot(baseX, baseZ, halfW, halfD, rng) {
@@ -1464,11 +1476,18 @@ function makeTree(x, z, scale, parent) {
   const trunk = new THREE.Mesh(new THREE.CylinderGeometry(2.8 * scale, 4 * scale, 22 * scale, 7), mats.trunk);
   trunk.position.y = 11 * scale;
   trunk.castShadow = true;
-  const lower = new THREE.Mesh(new THREE.ConeGeometry(18 * scale, 42 * scale, 9), mats.leaves);
-  lower.position.y = 39 * scale;
+  const deciduous = hash(Math.round(x), Math.round(z), 712) % 100 < 34;
+  const lower = deciduous
+    ? new THREE.Mesh(new THREE.DodecahedronGeometry(18 * scale, 1), mats.leaves)
+    : new THREE.Mesh(new THREE.ConeGeometry(18 * scale, 42 * scale, 9), mats.leaves);
+  lower.position.y = (deciduous ? 36 : 39) * scale;
+  lower.scale.set(deciduous ? 1.18 : 1, deciduous ? 0.92 : 1, deciduous ? 1.05 : 1);
   lower.castShadow = true;
-  const upper = new THREE.Mesh(new THREE.ConeGeometry(13 * scale, 32 * scale, 9), mats.leaves2);
-  upper.position.y = 62 * scale;
+  const upper = deciduous
+    ? new THREE.Mesh(new THREE.DodecahedronGeometry(14 * scale, 1), mats.leaves2)
+    : new THREE.Mesh(new THREE.ConeGeometry(13 * scale, 32 * scale, 9), mats.leaves2);
+  upper.position.set(deciduous ? 7 * scale : 0, (deciduous ? 51 : 62) * scale, deciduous ? -2 * scale : 0);
+  upper.scale.set(deciduous ? 1.08 : 1, deciduous ? 0.82 : 1, 1);
   upper.castShadow = true;
   group.position.set(x, 0, z);
   group.add(trunk, lower, upper);
@@ -1476,18 +1495,80 @@ function makeTree(x, z, scale, parent) {
   colliders.push({ type: "tree", x, z, r: 12 * scale, scale, group, knocked: false, chunkKey: parent.userData.chunkKey });
 }
 
+function addBuildingWindow(group, x, y, z, w, h, side = "front", warm = false) {
+  const frame = makeBox(w + 3, h + 3, 1.4, mats.curb);
+  const glass = makeBox(w, h, 1.8, warm ? mats.windowWarm : mats.window);
+  if (side === "side") {
+    frame.rotation.y = Math.PI * 0.5;
+    glass.rotation.y = Math.PI * 0.5;
+  }
+  frame.position.set(x, y, z);
+  glass.position.set(x, y, z);
+  group.add(frame, glass);
+}
+
+function addBush(parent, x, z, scale = 1) {
+  const bush = new THREE.Mesh(new THREE.DodecahedronGeometry(7 * scale, 0), mats.hedge);
+  bush.scale.set(1.35, 0.72, 0.9);
+  bush.position.set(x, 5 * scale, z);
+  bush.castShadow = true;
+  parent.add(bush);
+}
+
 function makeBuilding(x, z, w, d, h, type, rng, parent) {
   const group = new THREE.Group();
   const mat = type === "shop" ? buildingMats[3] : type === "special" ? buildingMats[4] : buildingMats[Math.floor(rng() * 3)];
-  const base = makeBox(w, h, d, mat);
-  const roof = makeBox(w + 8, 8, d + 8, type === "shop" ? mats.glass : mats.roof);
-  roof.position.y = h + 4;
-  group.add(base, roof);
+  const yard = makePlane(w + 24, d + 24, type === "shop" ? mats.concrete : mats.lawn, 0.035);
+  yard.position.y = 0.035;
+  const foundation = makeBox(w + 3, 5, d + 3, mats.foundation);
+  foundation.position.y = 2.5;
+  const base = makeBox(w, h - 4, d, mat);
+  base.position.y = h * 0.5 + 2;
+  group.add(yard, foundation, base);
 
   if (type === "shop") {
-    const sign = makeBox(w * 0.66, 13, 3, mats.glass);
-    sign.position.set(0, h * 0.68, -d * 0.5 - 2);
-    group.add(sign);
+    const roof = makeBox(w + 10, 7, d + 10, mats.roofDark);
+    roof.position.y = h + 3.5;
+    const fascia = makeBox(w + 4, 12, 4, mats.marketBlue);
+    fascia.position.set(0, h - 9, -d * 0.5 - 2);
+    const awning = makeBox(w * 0.72, 4, 15, mats.roofDark);
+    awning.position.set(0, h * 0.56, -d * 0.5 - 7);
+    const sign = makeBox(w * 0.52, 10, 2, mats.light);
+    sign.position.set(0, h - 9, -d * 0.5 - 4.2);
+    const door = makeBox(16, 27, 2.2, mats.door);
+    door.position.set(w * 0.26, 16, -d * 0.5 - 1.3);
+    group.add(roof, fascia, awning, sign, door);
+    addBuildingWindow(group, -w * 0.23, 17, -d * 0.5 - 1.2, Math.min(30, w * 0.34), 24, "front", true);
+  } else {
+    const roofMat = rng() < 0.42 ? mats.roofDark : mats.roof;
+    const roofRise = clamp(d * 0.22, 10, 20);
+    const slope = Math.atan2(roofRise, d * 0.5);
+    const slopeLength = Math.hypot(d * 0.5 + 5, roofRise);
+    for (const side of [-1, 1]) {
+      const roof = makeBox(w + 10, 4.5, slopeLength, roofMat);
+      roof.position.set(0, h + roofRise * 0.5, side * d * 0.25);
+      roof.rotation.x = side * slope;
+      group.add(roof);
+    }
+
+    const door = makeBox(14, 27, 2.2, mats.door);
+    door.position.set(w * 0.22, 16, -d * 0.5 - 1.3);
+    const step = makeBox(22, 2.5, 8, mats.concrete);
+    step.position.set(w * 0.22, 1.25, -d * 0.5 - 5);
+    group.add(door, step);
+
+    const floors = h > 62 ? 2 : 1;
+    for (let floor = 0; floor < floors; floor++) {
+      const wy = floors === 1 ? h * 0.55 : 24 + floor * 28;
+      addBuildingWindow(group, -w * 0.25, wy, -d * 0.5 - 1.2, 15, 18, "front", rng() < 0.32);
+      if (w > 72) addBuildingWindow(group, 0, wy, -d * 0.5 - 1.2, 15, 18, "front", rng() < 0.28);
+      addBuildingWindow(group, w * 0.5 + 1.2, wy, -d * 0.18, 15, 18, "side", rng() < 0.3);
+    }
+
+    const chimney = makeBox(8, 18, 8, mats.marketBrick);
+    chimney.position.set(-w * 0.28, h + roofRise * 0.64, d * 0.08);
+    group.add(chimney);
+    addBush(group, -w * 0.32, -d * 0.5 - 9, 0.7 + rng() * 0.25);
   }
 
   if (type === "special") {
@@ -1497,6 +1578,7 @@ function makeBuilding(x, z, w, d, h, type, rng, parent) {
     group.add(tower);
   }
 
+  group.rotation.y = Math.floor(rng() * 2) * Math.PI;
   group.position.set(x, 0, z);
   parent.add(group);
   colliders.push({ type: "building", x, z, w, d, r: Math.hypot(w, d) * 0.5, chunkKey: parent.userData.chunkKey });
@@ -3423,6 +3505,28 @@ function addFieldPatch(parent, x, z, w, d, rng) {
     stripe.renderOrder = 2;
     parent.add(stripe);
   }
+
+  const baleCount = 2 + Math.floor(rng() * 3);
+  for (let i = 0; i < baleCount; i++) {
+    const bale = new THREE.Mesh(new THREE.CylinderGeometry(6.5, 6.5, 12, 12), mats.hay);
+    bale.rotation.z = Math.PI * 0.5;
+    bale.rotation.y = rng() * Math.PI;
+    bale.position.set(x + (rng() - 0.5) * w * 0.68, 6.7, z + (rng() - 0.5) * d * 0.64);
+    bale.castShadow = true;
+    parent.add(bale);
+  }
+
+  const fenceZ = z + d * 0.5 + 5;
+  for (let fx = x - w * 0.42; fx <= x + w * 0.42; fx += 22) {
+    const post = makeBox(2.2, 10, 2.2, mats.fence);
+    post.position.set(fx, 5, fenceZ);
+    parent.add(post);
+  }
+  for (const fy of [4.2, 8]) {
+    const rail = makeBox(w * 0.86, 1.6, 1.8, mats.fence);
+    rail.position.set(x, fy, fenceZ);
+    parent.add(rail);
+  }
 }
 
 function addPlayground(parent, x, z, rng) {
@@ -3452,6 +3556,69 @@ function addPlayground(parent, x, z, rng) {
   center.position.set(x, 0.1, z);
   center.renderOrder = 3;
   parent.add(center);
+
+  for (const side of [-1, 1]) {
+    const goalTop = makeBox(30, 2, 2, mats.curb);
+    goalTop.position.set(x + side * (w * 0.5 - 3), 12, z);
+    goalTop.rotation.y = Math.PI * 0.5;
+    parent.add(goalTop);
+    for (const gz of [-14, 14]) {
+      const goalPost = makeBox(2, 24, 2, mats.curb);
+      goalPost.position.set(x + side * (w * 0.5 - 3), 12, z + gz);
+      parent.add(goalPost);
+    }
+  }
+
+  const benchSeat = makeBox(30, 3, 8, mats.fence);
+  benchSeat.position.set(x, 7, z + d * 0.5 + 13);
+  const benchBack = makeBox(30, 11, 2.4, mats.fence);
+  benchBack.position.set(x, 13, z + d * 0.5 + 17);
+  parent.add(benchSeat, benchBack);
+  for (const bx of [-11, 11]) {
+    const leg = makeBox(2.5, 7, 4, mats.metal);
+    leg.position.set(x + bx, 3.5, z + d * 0.5 + 13);
+    parent.add(leg);
+  }
+}
+
+function addAmbientLandscape(parent, baseX, baseZ, biome, rng, reserved, placed) {
+  const freeSpot = (radius, margin = 16) => {
+    const spot = randomOffRoadSpot(baseX, baseZ, radius, radius, rng);
+    if (!spot || areaTouchesRoad(spot.x, spot.z, radius * 2, radius * 2, margin)) return null;
+    if (reserved.some((p) => Math.abs(p.x - spot.x) < p.w * 0.55 + radius && Math.abs(p.z - spot.z) < p.d * 0.55 + radius)) return null;
+    if (placed.some((p) => Math.abs(p.x - spot.x) < p.w * 0.55 + radius && Math.abs(p.z - spot.z) < p.d * 0.55 + radius)) return null;
+    return spot;
+  };
+
+  const bushCount = biome === "open" ? 3 : biome === "sparseForest" ? 2 : 1;
+  for (let i = 0; i < bushCount; i++) {
+    const spot = freeSpot(10, 20);
+    if (spot) addBush(parent, spot.x, spot.z, 0.7 + rng() * 0.55);
+  }
+
+  if ((biome === "open" || biome === "playground") && rng() < 0.6) {
+    const spot = freeSpot(12, 24);
+    if (spot) {
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(1.2, 1.6, 34, 8), mats.metal);
+      pole.position.set(spot.x, 17, spot.z);
+      pole.castShadow = true;
+      const arm = makeBox(12, 1.8, 1.8, mats.metal);
+      arm.position.set(spot.x + 5, 33, spot.z);
+      const lamp = makeBox(8, 2.4, 5, mats.light);
+      lamp.position.set(spot.x + 10, 31.8, spot.z);
+      parent.add(pole, arm, lamp);
+    }
+  }
+
+  if (biome === "open" && rng() < 0.45) {
+    const spot = freeSpot(20, 20);
+    if (spot) {
+      const path = makePlane(42, 18, mats.concrete, 0.05);
+      path.position.set(spot.x, 0.05, spot.z);
+      parent.add(path);
+      for (const offset of [-13, 13]) addBush(parent, spot.x + offset, spot.z, 0.75);
+    }
+  }
 }
 
 function makeSpawnArea(parent) {
@@ -3611,6 +3778,7 @@ function generateChunk(cx, cz) {
     if (placed.some((p) => Math.abs(p.x - x) < p.w * 0.7 && Math.abs(p.z - z) < p.d * 0.7)) continue;
     makeTree(x, z, scale, group);
   }
+  addAmbientLandscape(group, baseX, baseZ, biome, rng, reserved, placed);
 }
 
 function disposeChunk(group) {
