@@ -2065,8 +2065,8 @@ function makePerson(style = characterStyle) {
 
   function leg(side) {
     const pivot = new THREE.Group();
-    detailBox(pivot, 0, -13, 0, 5.4, 26, 5.8, personMats.pants, "pants");
-    detailBox(pivot, 0, -27.8, -2.4, 7, 4.2, 10.2, personMats.shoe, "shoe");
+    detailBox(pivot, 0, -9.2, 0, 5.4, 18.4, 5.8, personMats.pants, "pants");
+    detailBox(pivot, 0, -19.6, -2.4, 7, 4.2, 10.2, personMats.shoe, "shoe");
     return pivot;
   }
 
@@ -2153,7 +2153,7 @@ function createOutsideCharacter() {
   const character = makePerson(characterStyle);
   character.scale.setScalar(1.08);
   character.visible = false;
-  world.add(character);
+  scene.add(character);
   outsideState.character = character;
   return character;
 }
@@ -2845,7 +2845,7 @@ function tryBuyMegaforce() {
 }
 
 function updateStoreShop(dt) {
-  updateVendor(dt);
+  if (worldHostControlsSimulation()) updateVendor(dt);
   updateMegaforcePurchaseAnimation(dt);
   if (storeState.drinking && storeState.hasMegaforce) {
     storeState.drinkDuration = storeState.drinkDuration || 2.35;
@@ -2960,13 +2960,13 @@ function sendStorePunch(targetPeerId) {
 
 function applyStorePunchEvent(message) {
   if (!message || message.attackerPeerId === multiplayer.peerId) return;
-  if (gameMode !== "store") return;
   const attacker = message.attackerName || "Someone";
   const damage = clamp(Math.round(message.damage || 20), 1, 120);
   if (message.targetPeerId === "vendor:taija") {
     applyVendorDamage(damage, attacker, message);
     return;
   }
+  if (gameMode !== "store") return;
   const targetedAtMe = message.targetPeerId && message.targetPeerId === multiplayer.peerId;
   let areaHit = false;
   if (!message.targetPeerId) {
@@ -3333,7 +3333,6 @@ function enterStoreMode() {
     storeState.deathRoll = 0;
     storeState.deathPitch = 0;
     storeState.deathSpin = 0;
-    resetVendorAtCheckout();
     damageFxEl.style.opacity = "0";
     storeState.character.position.set(storeState.x, 0, storeState.z);
     storeState.character.rotation.set(0, storeState.angle, 0);
@@ -3426,13 +3425,21 @@ function outsideExitSpotIsClear(x, z) {
 function safeOutsideExitSpot() {
   const right = vehicleRight(player);
   const forward = vehicleForward(player);
-  const candidates = [
-    { x: player.x + right.x * 43, z: player.z + right.z * 43 },
-    { x: player.x - right.x * 43, z: player.z - right.z * 43 },
-    { x: player.x - forward.x * 49 + right.x * 18, z: player.z - forward.z * 49 + right.z * 18 },
-    { x: player.x - forward.x * 49 - right.x * 18, z: player.z - forward.z * 49 - right.z * 18 },
+  const directions = [
+    right,
+    { x: -right.x, z: -right.z },
+    { x: -forward.x, z: -forward.z },
+    forward,
+    { x: (right.x - forward.x) * 0.707, z: (right.z - forward.z) * 0.707 },
+    { x: (-right.x - forward.x) * 0.707, z: (-right.z - forward.z) * 0.707 },
   ];
-  return candidates.find((spot) => outsideExitSpotIsClear(spot.x, spot.z)) || candidates[0];
+  for (const distance of [44, 58, 74]) {
+    for (const direction of directions) {
+      const spot = { x: player.x + direction.x * distance, z: player.z + direction.z * distance };
+      if (outsideExitSpotIsClear(spot.x, spot.z)) return spot;
+    }
+  }
+  return { x: player.x + right.x * 74, z: player.z + right.z * 74 };
 }
 
 function exitVehicleToFoot() {
@@ -3443,6 +3450,15 @@ function exitVehicleToFoot() {
     return;
   }
   gameMode = "walking";
+  player.y = 0;
+  player.vy = 0;
+  player.airborne = false;
+  player.wrecked = false;
+  player.roll = 0;
+  player.pitch = 0;
+  player.rollVel = 0;
+  player.pitchVel = 0;
+  player.spinVel = 0;
   player.vx = 0;
   player.vz = 0;
   player.steer = 0;
@@ -3463,12 +3479,13 @@ function exitVehicleToFoot() {
   outsideState.character.rotation.set(0, outsideState.angle, 0);
   const cameraForwardX = Math.sin(outsideState.angle);
   const cameraForwardZ = Math.cos(outsideState.angle);
-  cameraState.position.set(outsideState.x - cameraForwardX * 150, 126, outsideState.z - cameraForwardZ * 150);
-  cameraState.target.set(outsideState.x + cameraForwardX * 22, 34, outsideState.z + cameraForwardZ * 22);
+  cameraState.position.set(outsideState.x - cameraForwardX * 96, 72, outsideState.z - cameraForwardZ * 96);
+  cameraState.target.set(outsideState.x, 32, outsideState.z);
   cameraState.shake = 0;
   cameraState.tilt = 0;
   camera.position.copy(cameraState.position);
   camera.lookAt(cameraState.target);
+  camera.updateMatrixWorld(true);
   hintEl.textContent = "On foot | WASD walk | F enter/carjack";
   showNotification(`${playerName} left the car`);
 }
@@ -5241,14 +5258,14 @@ function updateOutsideCamera(dt) {
   const forwardX = Math.sin(outsideState.angle);
   const forwardZ = Math.cos(outsideState.angle);
   const desired = new THREE.Vector3(
-    outsideState.x - forwardX * 150,
-    126,
-    outsideState.z - forwardZ * 150
+    outsideState.x - forwardX * 96,
+    72,
+    outsideState.z - forwardZ * 96
   );
   const target = new THREE.Vector3(
-    outsideState.x + forwardX * 22,
-    34,
-    outsideState.z + forwardZ * 22
+    outsideState.x,
+    32,
+    outsideState.z
   );
   cameraState.position.lerp(desired, 1 - Math.exp(-dt * 5.5));
   cameraState.target.lerp(target, 1 - Math.exp(-dt * 7));
@@ -5491,6 +5508,7 @@ function removeRemotePlayer(peerId, announce = true) {
   if (!remote) return;
   scene.remove(remote.group);
   if (remote.storeCharacter && remote.storeCharacter.parent) remote.storeCharacter.parent.remove(remote.storeCharacter);
+  if (remote.outsideCharacter && remote.outsideCharacter.parent) remote.outsideCharacter.parent.remove(remote.outsideCharacter);
   remotePlayers.delete(peerId);
   if (announce && running && !gameOver) showNotification(`${remote.playerName || "Driver"} left the city`);
 }
@@ -5515,6 +5533,9 @@ function localNetworkState() {
     vz: player.vz,
     angle: player.angle,
     gameMode,
+    outsideX: outsideState.x,
+    outsideZ: outsideState.z,
+    outsideAngle: outsideState.angle,
     storeX: storeState.x,
     storeY: storeState.y,
     storeZ: storeState.z,
@@ -5572,6 +5593,17 @@ function worldNetworkState() {
     idleHeat,
     cops: cops.map(vehicleNetworkState),
     traffic: traffic.map(vehicleNetworkState),
+    storeVendor: storeState.vendor ? {
+      hp: storeState.vendorHp,
+      dead: storeState.vendorDead,
+      respawnTimer: storeState.vendorRespawnTimer,
+      x: storeState.vendor.position.x,
+      y: storeState.vendor.position.y,
+      z: storeState.vendor.position.z,
+      rotationX: storeState.vendor.rotation.x,
+      rotationY: storeState.vendor.rotation.y,
+      rotationZ: storeState.vendor.rotation.z,
+    } : null,
   };
 }
 
@@ -5628,6 +5660,12 @@ function applyRemoteState(peerId, state) {
     deathRoll: Number.isFinite(state.storeDeathRoll) ? state.storeDeathRoll : 0,
     deathPitch: Number.isFinite(state.storeDeathPitch) ? state.storeDeathPitch : 0,
   };
+  remote.outsideTarget = {
+    gameMode: state.gameMode || "driving",
+    x: Number.isFinite(state.outsideX) ? state.outsideX : state.x || 0,
+    z: Number.isFinite(state.outsideZ) ? state.outsideZ : state.z || 48,
+    angle: Number.isFinite(state.outsideAngle) ? state.outsideAngle : state.angle || 0,
+  };
   if (!remote.storeCharacter && storeState.group) {
     remote.storeCharacter = makePerson(remoteCharacterStyle);
     remote.storeCharacter.scale.setScalar(1.14);
@@ -5639,6 +5677,26 @@ function applyRemoteState(peerId, state) {
     applyCharacterStyleToPerson(remote.storeCharacter, remoteCharacterStyle);
   }
   setStoreNameTag(remote);
+  if (!remote.outsideCharacter) {
+    remote.outsideCharacter = makePerson(remoteCharacterStyle);
+    remote.outsideCharacter.scale.setScalar(1.08);
+    remote.outsideCharacter.position.set(remote.outsideTarget.x, 0, remote.outsideTarget.z);
+    remote.outsideCharacter.rotation.y = remote.outsideTarget.angle;
+    remote.outsideCharacter.visible = false;
+    const outsideTag = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: makeNameTagTexture(remote.playerName, remoteColor),
+      transparent: true,
+      depthTest: false,
+    }));
+    outsideTag.position.set(0, 82, 0);
+    outsideTag.scale.set(78, 20, 1);
+    outsideTag.renderOrder = 35;
+    remote.outsideCharacter.add(outsideTag);
+    remote.outsideNameTag = outsideTag;
+    scene.add(remote.outsideCharacter);
+  } else if (JSON.stringify(remote.outsideCharacter.userData.characterStyle || {}) !== JSON.stringify(remoteCharacterStyle)) {
+    applyCharacterStyleToPerson(remote.outsideCharacter, remoteCharacterStyle);
+  }
   remote.lastSeen = performance.now();
 }
 
@@ -5704,6 +5762,20 @@ function applyWorldState(state) {
   idleHeat = state.idleHeat || idleHeat;
   syncNetworkVehicleList(cops, Array.isArray(state.cops) ? state.cops : []);
   syncNetworkVehicleList(traffic, Array.isArray(state.traffic) ? state.traffic : []);
+  const vendor = state.storeVendor;
+  if (vendor && storeState.vendor) {
+    storeState.vendorHp = Number.isFinite(vendor.hp) ? vendor.hp : 100;
+    storeState.vendorDead = !!vendor.dead;
+    storeState.vendorRespawnTimer = Number.isFinite(vendor.respawnTimer) ? vendor.respawnTimer : 0;
+    storeState.vendor.position.set(
+      Number.isFinite(vendor.x) ? vendor.x : 6004,
+      Number.isFinite(vendor.y) ? vendor.y : 0,
+      Number.isFinite(vendor.z) ? vendor.z : -274
+    );
+    storeState.vendor.rotation.set(vendor.rotationX || 0, vendor.rotationY || 0, vendor.rotationZ || 0);
+    storeState.vendor.visible = true;
+    updateVendorNameTag();
+  }
 }
 
 function updateNetworkWorldVehicles(dt) {
@@ -5720,6 +5792,23 @@ function updateNetworkWorldVehicles(dt) {
     v.group.position.set(v.x, v.y || 0, v.z);
     v.group.rotation.set(v.pitch || 0, v.angle, v.roll || 0);
   }
+}
+
+function animateRemoteOutsideCharacter(remote, dt, moving) {
+  const character = remote.outsideCharacter;
+  if (!character?.userData?.head) return;
+  remote.outsideWalkCycle = moving
+    ? (remote.outsideWalkCycle || 0) + dt * 8.3
+    : lerp(remote.outsideWalkCycle || 0, Math.round((remote.outsideWalkCycle || 0) / Math.PI) * Math.PI, 1 - Math.exp(-dt * 5));
+  const swing = moving ? Math.sin(remote.outsideWalkCycle) * 0.86 : 0;
+  const bob = moving ? Math.abs(Math.sin(remote.outsideWalkCycle)) * 1.7 : 0;
+  const ease = 1 - Math.exp(-dt * 12);
+  character.position.y = lerp(character.position.y, bob, ease);
+  character.userData.leftArm.rotation.x = lerp(character.userData.leftArm.rotation.x, swing, ease);
+  character.userData.rightArm.rotation.x = lerp(character.userData.rightArm.rotation.x, -swing, ease);
+  character.userData.leftLeg.rotation.x = lerp(character.userData.leftLeg.rotation.x, -swing * 0.9, ease);
+  character.userData.rightLeg.rotation.x = lerp(character.userData.rightLeg.rotation.x, swing * 0.9, ease);
+  character.userData.head.rotation.z = lerp(character.userData.head.rotation.z, moving ? Math.sin(remote.outsideWalkCycle * 2) * 0.04 : 0, ease);
 }
 
 function updateRemotePlayers(dt) {
@@ -5740,6 +5829,24 @@ function updateRemotePlayers(dt) {
     remote.angle += angleDelta(remote.angle, target.angle || 0) * follow;
     remote.group.position.set(remote.x, remote.y || 0, remote.z);
     remote.group.rotation.y = remote.angle;
+
+    if (remote.outsideCharacter) {
+      const outsideTarget = remote.outsideTarget || {};
+      const visibleOutside = gameMode !== "store" && outsideTarget.gameMode === "walking";
+      remote.outsideCharacter.visible = visibleOutside;
+      if (visibleOutside) {
+        const previousX = remote.outsideCharacter.position.x;
+        const previousZ = remote.outsideCharacter.position.z;
+        remote.outsideCharacter.position.x = lerp(previousX, outsideTarget.x || 0, follow);
+        remote.outsideCharacter.position.z = lerp(previousZ, outsideTarget.z || 0, follow);
+        remote.outsideCharacter.rotation.y += angleDelta(remote.outsideCharacter.rotation.y, outsideTarget.angle || 0) * follow;
+        animateRemoteOutsideCharacter(
+          remote,
+          dt,
+          Math.hypot(remote.outsideCharacter.position.x - previousX, remote.outsideCharacter.position.z - previousZ) > 0.12
+        );
+      }
+    }
 
     if (remote.storeCharacter) {
       const storeTarget = remote.storeTarget || {};
@@ -6194,6 +6301,7 @@ function loseGame() {
 
 function update(dt) {
   if (gameMode === "driving" || gameMode === "walking") updateChunks();
+  if (running && gameMode !== "store" && worldHostControlsSimulation() && storeState.vendorDead) updateVendor(dt);
   if (running && !gameOver && gameMode === "driving") {
     updatePlayer(dt);
     checkSMarketEntrance();
@@ -6208,9 +6316,13 @@ function update(dt) {
     if (chaseTime > 3.2 && cops.length > 0) hintEl.textContent += ` | ${cops.length} cops`;
   } else if (running && !gameOver && gameMode === "walking") {
     updateWalking(dt);
-    updateTraffic(dt);
-    updateCops(dt);
-    updateCollisions(dt, true);
+    if (worldHostControlsSimulation()) {
+      updateTraffic(dt);
+      updateCops(dt);
+    } else {
+      updateNetworkWorldVehicles(dt);
+    }
+    updateCollisions(dt, worldHostControlsSimulation());
     sendNetworkState(dt);
   } else if (running && !gameOver && gameMode === "store") {
     moveStoreCharacter(dt);
@@ -6218,6 +6330,7 @@ function update(dt) {
     updateStoreShop(dt);
     updateStoreDeath(dt);
     updateStoreHealthHud();
+    sendNetworkState(dt);
   }
   updateWantedMeter();
   updatePoliceLights(dt);
