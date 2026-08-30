@@ -399,15 +399,15 @@ body {
 
 .joystick {
   position: absolute;
-  left: max(28px, env(safe-area-inset-left));
-  bottom: max(28px, env(safe-area-inset-bottom));
-  width: 188px;
-  height: 188px;
+  left: max(18px, env(safe-area-inset-left));
+  bottom: max(18px, env(safe-area-inset-bottom));
+  width: clamp(158px, 32vw, 208px);
+  height: clamp(158px, 32vw, 208px);
   border-radius: 50%;
   background:
     radial-gradient(circle at 50% 50%, rgba(255, 255, 255, 0.11), rgba(255, 255, 255, 0.04) 48%, rgba(0, 0, 0, 0.2) 49%),
     rgba(10, 12, 12, 0.58);
-  border: 3px solid rgba(255, 255, 255, 0.62);
+  border: 3px solid rgba(255, 255, 255, 0.72);
   box-shadow:
     0 12px 28px rgba(0, 0, 0, 0.38),
     inset 0 0 22px rgba(255, 255, 255, 0.08);
@@ -419,8 +419,8 @@ body {
   position: absolute;
   left: 50%;
   top: 50%;
-  width: 78px;
-  height: 78px;
+  width: clamp(66px, 13vw, 88px);
+  height: clamp(66px, 13vw, 88px);
   border-radius: 50%;
   background: #e20718;
   border: 3px solid rgba(255, 255, 255, 0.76);
@@ -430,12 +430,52 @@ body {
   transform: translate(-50%, -50%);
 }
 
-.mobile-jump {
+.joystick-direction {
   position: absolute;
-  right: max(34px, env(safe-area-inset-right));
-  bottom: max(42px, env(safe-area-inset-bottom));
-  width: 116px;
-  height: 116px;
+  width: 0;
+  height: 0;
+  border: 8px solid transparent;
+  opacity: 0.58;
+  pointer-events: none;
+}
+
+.joystick-up {
+  left: calc(50% - 8px);
+  top: 9px;
+  border-bottom-color: white;
+}
+
+.joystick-right {
+  right: 9px;
+  top: calc(50% - 8px);
+  border-left-color: white;
+}
+
+.joystick-down {
+  left: calc(50% - 8px);
+  bottom: 9px;
+  border-top-color: white;
+}
+
+.joystick-left {
+  left: 9px;
+  top: calc(50% - 8px);
+  border-right-color: white;
+}
+
+.mobile-actions {
+  position: absolute;
+  right: max(18px, env(safe-area-inset-right));
+  bottom: max(18px, env(safe-area-inset-bottom));
+  width: 212px;
+  height: 214px;
+  pointer-events: none;
+}
+
+.mobile-action {
+  position: absolute;
+  width: 88px;
+  height: 88px;
   border: 3px solid rgba(255, 255, 255, 0.78);
   border-radius: 50%;
   color: #ffffff;
@@ -446,19 +486,65 @@ body {
     0 12px 0 #07501f,
     0 22px 32px rgba(0, 0, 0, 0.42),
     inset 0 0 22px rgba(255, 255, 255, 0.18);
-  font-size: 18px;
+  font-size: 14px;
   font-weight: 1000;
   pointer-events: auto;
   touch-action: none;
   text-shadow: 0 2px 0 rgba(0, 0, 0, 0.45);
+  user-select: none;
+  -webkit-user-select: none;
 }
 
-.mobile-jump:active {
-  transform: translateY(8px);
-  box-shadow:
-    0 4px 0 #07501f,
-    0 12px 22px rgba(0, 0, 0, 0.36),
-    inset 0 0 26px rgba(255, 255, 255, 0.24);
+.mobile-action:active,
+.mobile-action.pressed {
+  transform: translateY(6px) scale(0.96);
+  box-shadow: 0 4px 0 #07501f, 0 9px 16px rgba(0, 0, 0, 0.34);
+}
+
+.mobile-action-main {
+  right: 0;
+  bottom: 0;
+  width: 112px;
+  height: 112px;
+  background: linear-gradient(145deg, #f32638, #a90819);
+  box-shadow: 0 12px 0 #63000b, 0 22px 32px rgba(0, 0, 0, 0.42);
+  font-size: 17px;
+}
+
+.mobile-jump {
+  right: 118px;
+  bottom: 4px;
+}
+
+.mobile-punch {
+  right: 8px;
+  bottom: 122px;
+  background: linear-gradient(145deg, #ffb526, #c26100);
+  box-shadow: 0 10px 0 #713600, 0 18px 26px rgba(0, 0, 0, 0.4);
+}
+
+.mobile-use {
+  right: 108px;
+  bottom: 104px;
+  background: linear-gradient(145deg, #258be8, #125096);
+  box-shadow: 0 10px 0 #092e58, 0 18px 26px rgba(0, 0, 0, 0.4);
+}
+
+@media (max-height: 520px) {
+  .joystick {
+    width: 150px;
+    height: 150px;
+  }
+
+  .joystick-stick {
+    width: 64px;
+    height: 64px;
+  }
+
+  .mobile-actions {
+    transform: scale(0.82);
+    transform-origin: right bottom;
+  }
 }
 
 .menu-screen {
@@ -924,7 +1010,7 @@ body {
   line-height: 1.4;
 }
 
-button:not(.mobile-jump):not(.swatch-button) {
+button:not(.mobile-action):not(.swatch-button) {
   min-width: 160px;
   height: 46px;
   border: 0;
@@ -936,7 +1022,7 @@ button:not(.mobile-jump):not(.swatch-button) {
   cursor: pointer;
 }
 
-button:not(.mobile-jump):not(.swatch-button):hover {
+button:not(.mobile-action):not(.swatch-button):hover {
   background: #ff1d2d;
 }
 

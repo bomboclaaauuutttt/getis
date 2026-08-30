@@ -16,6 +16,9 @@ const mobileControlsEl = document.getElementById("mobileControls");
 const joystickEl = document.getElementById("joystick");
 const joystickStickEl = document.getElementById("joystickStick");
 const mobileJumpButton = document.getElementById("mobileJumpButton");
+const mobileActionButton = document.getElementById("mobileActionButton");
+const mobilePunchButton = document.getElementById("mobilePunchButton");
+const mobileUseButton = document.getElementById("mobileUseButton");
 const menuEl = document.getElementById("menu");
 const customizeButton = document.getElementById("customizeButton");
 const customizeScreenEl = document.getElementById("customizeScreen");
@@ -45,6 +48,7 @@ const damageFxEl = document.getElementById("damageFx");
 const storeHealthEl = document.getElementById("storeHealth");
 const storeHealthFillEl = storeHealthEl.querySelector("b");
 const purchasePromptEl = document.getElementById("purchasePrompt");
+const purchasePromptKeyEl = purchasePromptEl.querySelector("span");
 
 const minimap = document.createElement("canvas");
 const miniCtx = minimap.getContext("2d");
@@ -92,6 +96,9 @@ const inputState = {
   steer: 0,
   throttle: 0,
   joystickPointerId: null,
+  lookPointerId: null,
+  lookX: 0,
+  lookY: 0,
   jumpQueued: false,
 };
 
@@ -128,17 +135,33 @@ const ROAD = 92;
 const LANE_OFFSET = ROAD * 0.23;
 const ROAD_SPACING = 760;
 const SIDE_ROAD_SPACING = 1040;
-const MAX_COPS = 6;
 const MAP_PRELOAD_RADIUS = 5;
 const MAP_KEEP_RADIUS = 6;
 const MAX_TRAFFIC = 11;
 const TRAFFIC_SPAWN_MIN = 980;
 const TRAFFIC_SPAWN_MAX = 1550;
-const COP_SPAWN_MIN = 820;
-const COP_SPAWN_MAX = 1250;
 const TRAFFIC_DESPAWN_DISTANCE = 1900;
 const COP_DESPAWN_DISTANCE = 2100;
 const COP_ARREST_RADIUS = 76;
+const POLICE_KINDS = new Set(["cop", "swat", "interceptor"]);
+const POLICE_ROLES = Object.freeze({
+  PURSUIT: "pursuit",
+  INTERCEPTOR: "interceptor",
+  ROADBLOCK: "roadblock",
+  SEARCH: "search",
+  SUPPORT: "support",
+});
+const WANTED_TIERS = Object.freeze([
+  { maxUnits: 0, spawnInterval: 99, loseDelay: 0, escapeDistance: 0, prediction: 0, roadblocks: 0, helicopters: 0 },
+  { maxUnits: 2, spawnInterval: 8.5, loseDelay: 9, escapeDistance: 610, prediction: 0.2, roadblocks: 0, helicopters: 0, escalateAfter: 18 },
+  { maxUnits: 4, spawnInterval: 6.5, loseDelay: 14, escapeDistance: 700, prediction: 0.75, roadblocks: 1, helicopters: 0, escalateAfter: 24 },
+  { maxUnits: 6, spawnInterval: 5.2, loseDelay: 20, escapeDistance: 790, prediction: 1.15, roadblocks: 2, helicopters: 0, escalateAfter: 30 },
+  { maxUnits: 8, spawnInterval: 4.2, loseDelay: 27, escapeDistance: 890, prediction: 1.65, roadblocks: 3, helicopters: 0, escalateAfter: 38 },
+  { maxUnits: 11, spawnInterval: 3.4, loseDelay: 36, escapeDistance: 980, prediction: 2.15, roadblocks: 4, helicopters: 2, escalateAfter: Infinity },
+]);
+const POLICE_SPAWN_MIN = 720;
+const POLICE_SPAWN_MAX = 1460;
+const ROADBLOCK_LIFETIME = 38;
 
 const mats = {
   grass: new THREE.MeshLambertMaterial({ color: 0x668f59 }),
@@ -186,6 +209,12 @@ const mats = {
   copWhite: new THREE.MeshLambertMaterial({ color: 0xf2f2ee }),
   copBlue: new THREE.MeshLambertMaterial({ color: 0x174fe6 }),
   copRed: new THREE.MeshLambertMaterial({ color: 0xe61521 }),
+  swat: new THREE.MeshLambertMaterial({ color: 0x27343b }),
+  interceptor: new THREE.MeshLambertMaterial({ color: 0x142a53 }),
+  policeBarrier: new THREE.MeshLambertMaterial({ color: 0xf2eee3 }),
+  policeBarrierStripe: new THREE.MeshBasicMaterial({ color: 0xf05a28 }),
+  spikeStrip: new THREE.MeshLambertMaterial({ color: 0x17191a }),
+  helicopter: new THREE.MeshLambertMaterial({ color: 0x263943 }),
   traffic: new THREE.MeshLambertMaterial({ color: 0xe39a42 }),
   grandma: new THREE.MeshLambertMaterial({ color: 0x70a8d9 }),
   drunk: new THREE.MeshLambertMaterial({ color: 0xa15ad9 }),
@@ -225,6 +254,8 @@ const buildingMats = [
 const chunks = new Map();
 const colliders = [];
 const cops = [];
+const policeHelicopters = [];
+const policeRoadblocks = [];
 const traffic = [];
 const remotePlayers = new Map();
 const smoke = [];
@@ -249,6 +280,26 @@ let backupTime = 0;
 let idleHeat = 0;
 let lastPlayerX = 0;
 let lastPlayerZ = 48;
+const policeState = {
+  level: 0,
+  dispatchPending: true,
+  escalationTimer: 0,
+  unseenTimer: 0,
+  decayTimer: 0,
+  spawnTimer: 0,
+  roadblockTimer: 0,
+  helicopterTimer: 0,
+  sightCheckTimer: 0,
+  hasVisual: false,
+  visualSource: "dispatch",
+  lastKnownX: 0,
+  lastKnownZ: 48,
+  lastKnownVx: 0,
+  lastKnownVz: 0,
+  lastKnownAngle: 0,
+  lastSeenAgo: 0,
+  searchPhase: 0,
+};
 let playerName = localStorage.getItem("policeGetawayName") || "";
 let playerColor = colorForName(playerName || "Driver");
 const CHARACTER_STYLE_STORAGE = "policeGetawayCharacterStyle";
@@ -1324,11 +1375,14 @@ function makeMarketSign() {
 
 function makeVehicle(kind, x, z, angle, paintColor = null) {
   const group = new THREE.Group();
+  const policeVehicle = POLICE_KINDS.has(kind);
   const trafficPalette = [0xe39a42, 0x58a6d6, 0xe0d35b, 0x58b66d, 0xb86bd6, 0xe36b78];
   const trafficColor = paintColor ?? trafficPalette[Math.floor(Math.random() * trafficPalette.length)];
   const remoteColor = paintColor ?? 0x18d2ff;
   const mat =
     kind === "player" ? mats.redCar :
+    kind === "swat" ? mats.swat :
+    kind === "interceptor" ? mats.interceptor :
     kind === "cop" ? mats.copWhite :
     kind === "grandma" ? mats.grandma :
     kind === "drunk" ? mats.drunk :
@@ -1364,7 +1418,7 @@ function makeVehicle(kind, x, z, angle, paintColor = null) {
     addPart(carGeometry.mirror, mat, sx * 13.1, 19.2, -10.4, 0, 0, sx * 0.08);
   }
 
-  if (kind === "cop") {
+  if (policeVehicle) {
     const blueBeaconMat = new THREE.MeshBasicMaterial({ color: 0x1b58ff });
     const redBeaconMat = new THREE.MeshBasicMaterial({ color: 0xff1028 });
     const blueGlowMat = new THREE.MeshBasicMaterial({
@@ -1404,6 +1458,16 @@ function makeVehicle(kind, x, z, angle, paintColor = null) {
     addPart(carGeometry.policeTopStripe, mats.copBlue, 0, 18.05, 1.5);
     addPart(carGeometry.policeSideStripe, mats.copBlue, -14.45, 13.2, 1.5);
     addPart(carGeometry.policeSideStripe, mats.copBlue, 14.45, 13.2, 1.5);
+    if (kind === "swat") {
+      addPart(new THREE.BoxGeometry(27, 27, 31), mats.swat, 0, 20, 8);
+      addPart(new THREE.BoxGeometry(22, 9, 2), mats.copWhite, 0, 22, 24);
+      addPart(new THREE.BoxGeometry(29, 5, 34), mats.outline, 0, 34, 7);
+    } else if (kind === "interceptor") {
+      addPart(new THREE.BoxGeometry(27, 2.5, 7), mats.outline, 0, 17, 24);
+      addPart(new THREE.BoxGeometry(3, 5, 3), mats.outline, -9, 14, 24);
+      addPart(new THREE.BoxGeometry(3, 5, 3), mats.outline, 9, 14, 24);
+      group.scale.y = 0.9;
+    }
   }
 
   addPart(carGeometry.light, mats.light, -6.9, 10.6, -25.5);
@@ -1445,8 +1509,19 @@ function makeVehicle(kind, x, z, angle, paintColor = null) {
     escapeSide: Math.random() < 0.5 ? -1 : 1,
     reverseTimer: 0,
     escapeCooldown: 0,
+    policeRole: policeVehicle ? POLICE_ROLES.PURSUIT : "",
+    roleTargetX: x,
+    roleTargetZ: z,
+    roleTimer: 0,
+    searchOffset: Math.random() * Math.PI * 2,
+    deployed: false,
     paintColor: kind === "remote" ? remoteColor : kind === "normal" ? trafficColor : null,
   };
+  if (kind === "swat") {
+    car.radius = 23.5;
+    car.halfWidth = 15.2;
+    car.halfLength = 29.5;
+  }
   syncVehicle(car);
   return car;
 }
@@ -2346,7 +2421,7 @@ function makeVendor() {
   apron.position.set(0, 34, 7.25);
   vendor.add(apron);
   const nameTag = new THREE.Sprite(new THREE.SpriteMaterial({
-    map: makeStoreNameTagTexture("Taija", 0x159a55, 100),
+    map: makeStoreNameTagTexture("OuTii", 0x159a55, 100),
     transparent: true,
     depthTest: false,
   }));
@@ -2811,7 +2886,7 @@ function tryBuyMegaforce() {
   if (gameMode !== "store" || transitionLock || storeState.dead || storeState.drinking || storeState.purchaseTimer > 0) return;
   if (storeState.vendorDead) {
     playUiError();
-    showNotification("Taija is not at the checkout");
+    showNotification("OuTii is not at the checkout");
     return;
   }
   if (storeState.hasMegaforce) {
@@ -2871,11 +2946,11 @@ function updateStoreShop(dt) {
   } else if (storeState.drinking) {
     hintEl.textContent = "Drinking Megaforce...";
   } else if (storeState.hasMegaforce) {
-    hintEl.textContent = inputState.mobile ? "Hold punch to drink Megaforce" : "Hold right mouse to drink Megaforce";
+    hintEl.textContent = inputState.mobile ? "Hold DRINK to use Megaforce" : "Hold right mouse to drink Megaforce";
   } else if (storeState.vendorDead) {
-    hintEl.textContent = `Taija returns in ${Math.ceil(storeState.vendorRespawnTimer)}s`;
+    hintEl.textContent = `OuTii returns in ${Math.ceil(storeState.vendorRespawnTimer)}s`;
   } else if (nearCheckout) {
-    hintEl.textContent = inputState.mobile ? "Buy Megis 2e" : "E to purchase Megis";
+    hintEl.textContent = inputState.mobile ? "Tap BUY - Megis 2e" : "E to purchase Megis";
   } else {
     updatePointerLockHint();
   }
@@ -2916,7 +2991,7 @@ function findStorePunchTarget(damage) {
     if (distance <= 78 && distance > 0.001) {
       const dot = (dx / distance) * forwardX + (dz / distance) * forwardZ;
       if (dot > 0.44) {
-        best = { peerId: "vendor:taija", name: "Taija", damage, score: dot * 110 - distance, vendor: true };
+        best = { peerId: "vendor:outii", name: "OuTii", damage, score: dot * 110 - distance, vendor: true };
       }
     }
   }
@@ -3067,7 +3142,7 @@ function updateVendorNameTag() {
   const hp = clamp(storeState.vendorHp, 0, 100);
   if (tag.userData.hp === Math.round(hp) && tag.userData.dead === storeState.vendorDead) return;
   const oldMap = tag.material.map;
-  tag.material.map = makeStoreNameTagTexture("Taija", 0x159a55, hp);
+  tag.material.map = makeStoreNameTagTexture("OuTii", 0x159a55, hp);
   if (oldMap) oldMap.dispose();
   tag.userData.hp = Math.round(hp);
   tag.userData.dead = storeState.vendorDead;
@@ -3096,7 +3171,7 @@ function applyVendorDamage(damage, attacker, message = {}) {
   storeState.vendorHp = clamp(storeState.vendorHp - damage, 0, 100);
   updateVendorNameTag();
   playPunchSound(true);
-  showNotification(`${attacker} hit Taija for ${damage}`, true);
+  showNotification(`${attacker} hit OuTii for ${damage}`, true);
   if (storeState.vendorHp <= 0) killVendor(attacker, message);
 }
 
@@ -3115,7 +3190,7 @@ function killVendor(attacker, message = {}) {
   storeState.vendorDeathPitch = 0;
   storeState.vendorDeathSpin = 3.1;
   updateVendorNameTag();
-  showNotification(`${attacker} knocked out Taija - she returns in 10s`, true);
+  showNotification(`${attacker} knocked out OuTii - she returns in 10s`, true);
 }
 
 function updateVendor(dt) {
@@ -3148,7 +3223,7 @@ function updateVendor(dt) {
 
   if (storeState.vendorRespawnTimer <= 0) {
     resetVendorAtCheckout();
-    showNotification("Taija returned to the checkout", true);
+    showNotification("OuTii returned to the checkout", true);
   }
 }
 
@@ -3608,20 +3683,26 @@ function updateWalking(dt) {
     return;
   }
 
-  const moveInput = (keys.has("w") || keys.has("arrowup") ? 1 : 0) + (keys.has("s") || keys.has("arrowdown") ? -1 : 0);
-  const strafeInput = (keys.has("d") || keys.has("arrowright") ? 1 : 0) + (keys.has("a") || keys.has("arrowleft") ? -1 : 0);
+  const moveInput = inputState.mobile
+    ? inputState.throttle
+    : (keys.has("w") || keys.has("arrowup") ? 1 : 0) + (keys.has("s") || keys.has("arrowdown") ? -1 : 0);
+  const strafeInput = inputState.mobile
+    ? -inputState.steer
+    : (keys.has("d") || keys.has("arrowright") ? 1 : 0) + (keys.has("a") || keys.has("arrowleft") ? -1 : 0);
   const moveLen = Math.hypot(moveInput, strafeInput);
   const moving = moveLen > 0.05;
   if (moving) {
     const scale = 1 / Math.max(1, moveLen);
-    const moveYaw = outsideState.angle + Math.atan2(-strafeInput, moveInput || 0.0001);
-    outsideState.angle += angleDelta(outsideState.angle, moveYaw) * (1 - Math.exp(-dt * 8));
     const fx = -Math.sin(outsideState.angle);
     const fz = -Math.cos(outsideState.angle);
     const rx = Math.cos(outsideState.angle);
     const rz = -Math.sin(outsideState.angle);
-    outsideState.x += (fx * moveInput + rx * strafeInput) * scale * 118 * dt;
-    outsideState.z += (fz * moveInput + rz * strafeInput) * scale * 118 * dt;
+    const moveX = (fx * moveInput + rx * strafeInput) * scale;
+    const moveZ = (fz * moveInput + rz * strafeInput) * scale;
+    const moveYaw = Math.atan2(-moveX, -moveZ);
+    outsideState.angle += angleDelta(outsideState.angle, moveYaw) * (1 - Math.exp(-dt * 8));
+    outsideState.x += moveX * 118 * dt;
+    outsideState.z += moveZ * 118 * dt;
     outsideState.walkCycle += moveLen * scale * dt * 8.3;
   } else {
     outsideState.walkCycle = lerp(outsideState.walkCycle, Math.round(outsideState.walkCycle / Math.PI) * Math.PI, 1 - Math.exp(-dt * 5));
@@ -3658,7 +3739,7 @@ function requestStorePointerLock() {
 function updatePointerLockHint() {
   if (gameMode !== "store") return;
   if (inputState.mobile) {
-    hintEl.textContent = "Joystick walk + turn | green circle exits";
+    hintEl.textContent = "Joystick move | swipe to look | green circle exits";
     return;
   }
   const modeText = storeState.cameraMode === "first" ? "First person" : "Third person";
@@ -4230,6 +4311,10 @@ function vehicleForward(v) {
   return { x: -Math.sin(v.angle), z: -Math.cos(v.angle) };
 }
 
+function isPoliceVehicle(v) {
+  return !!v && POLICE_KINDS.has(v.kind);
+}
+
 function vehicleRight(v) {
   return { x: Math.cos(v.angle), z: -Math.sin(v.angle) };
 }
@@ -4375,15 +4460,202 @@ function chooseHiddenRoadSpawn(distanceMin, distanceMax, tries = 24) {
   return chooseRoadSpawn(distanceMax, distanceMax + 420);
 }
 
-function spawnCop() {
-  const spawn = chooseHiddenRoadSpawn(COP_SPAWN_MIN, COP_SPAWN_MAX);
-  const cop = makeVehicle("cop", spawn.x, spawn.z, spawn.angle);
+function policeTargetForward(target) {
+  const speed = Math.hypot(target.vx || 0, target.vz || 0);
+  if (speed > 12) return { x: target.vx / speed, z: target.vz / speed };
+  const angle = Number.isFinite(target.angle) ? target.angle : policeState.lastKnownAngle;
+  return { x: -Math.sin(angle), z: -Math.cos(angle) };
+}
+
+function segmentDistanceToPoint(ax, az, bx, bz, px, pz) {
+  const dx = bx - ax;
+  const dz = bz - az;
+  const length2 = dx * dx + dz * dz;
+  const t = length2 > 0 ? clamp(((px - ax) * dx + (pz - az) * dz) / length2, 0, 1) : 0;
+  return Math.hypot(px - (ax + dx * t), pz - (az + dz * t));
+}
+
+function policeLineBlocked(ax, az, bx, bz, aerial = false) {
+  const total = Math.hypot(bx - ax, bz - az);
+  for (const collider of colliders) {
+    if (collider.disabled || collider.type === "tree") continue;
+    const along = total > 0 ? Math.hypot(collider.x - ax, collider.z - az) / total : 0;
+    if (aerial && (along < 0.18 || along > 0.88)) continue;
+    const blockerRadius = Math.min(collider.r || 35, Math.max(collider.w || 0, collider.d || 0) * 0.58 || 35);
+    if (segmentDistanceToPoint(ax, az, bx, bz, collider.x, collider.z) < blockerRadius) return true;
+  }
+  return false;
+}
+
+function policeHasSight(observer, target, aerial = false) {
+  const dx = target.x - observer.x;
+  const dz = target.z - observer.z;
+  const distance = Math.hypot(dx, dz);
+  const maxDistance = aerial ? 1180 : 470 + policeState.level * 95;
+  if (distance > maxDistance) return false;
+  if (!aerial && distance > 125) {
+    const forward = vehicleForward(observer);
+    if ((dx * forward.x + dz * forward.z) / Math.max(distance, 1) < -0.18) return false;
+  }
+  return !policeLineBlocked(observer.x, observer.z, target.x, target.z, aerial);
+}
+
+function spawnVisibleToAnyPlayer(x, z) {
+  for (const target of playerChaseTargets()) {
+    const dx = x - target.x;
+    const dz = z - target.z;
+    const distance = Math.hypot(dx, dz);
+    if (distance < POLICE_SPAWN_MIN) return true;
+    const forward = policeTargetForward(target);
+    const inView = (dx * forward.x + dz * forward.z) / Math.max(distance, 1) > 0.28;
+    if (inView && distance < 1520 && !policeLineBlocked(target.x, target.z, x, z)) return true;
+  }
+  return false;
+}
+
+function roadPointNear(x, z, preferredX = 0, preferredZ = -1) {
+  const road = nearestRoad(x, z);
+  const plusAngle = trafficAngle(road.axis, 1, x, z, road.id);
+  const plusForward = { x: -Math.sin(plusAngle), z: -Math.cos(plusAngle) };
+  const dir = plusForward.x * preferredX + plusForward.z * preferredZ >= 0 ? 1 : -1;
+  const centerX = road.axis === "z" ? roadCenterX(road.id, z) : x;
+  const centerZ = road.axis === "x" ? roadCenterZ(road.id, x) : z;
+  const lane = laneCenterFor(road.axis, dir, centerX, centerZ, road.id);
+  return {
+    axis: road.axis,
+    id: road.id,
+    dir,
+    x: lane.x,
+    z: lane.z,
+    angle: trafficAngle(road.axis, dir, lane.x, lane.z, road.id),
+  };
+}
+
+function roadIntersectionNear(x, z, preferredX = 0, preferredZ = -1) {
+  const mainId = nearestRoadIdForAxis("z", x, z);
+  const sideId = nearestRoadIdForAxis("x", x, z);
+  let ix = roadCenterX(mainId, z);
+  let iz = roadCenterZ(sideId, ix);
+  for (let i = 0; i < 4; i++) {
+    ix = roadCenterX(mainId, iz);
+    iz = roadCenterZ(sideId, ix);
+  }
+  const useSideRoad = Math.abs(preferredX) > Math.abs(preferredZ);
+  const axis = useSideRoad ? "x" : "z";
+  const id = useSideRoad ? sideId : mainId;
+  const plusAngle = trafficAngle(axis, 1, ix, iz, id);
+  const plusForward = { x: -Math.sin(plusAngle), z: -Math.cos(plusAngle) };
+  const dir = plusForward.x * preferredX + plusForward.z * preferredZ >= 0 ? 1 : -1;
+  const lane = laneCenterFor(axis, dir, ix, iz, id);
+  return { axis, id, dir, x: lane.x, z: lane.z, angle: trafficAngle(axis, dir, lane.x, lane.z, id) };
+}
+
+function policeReferenceTarget() {
+  const targets = playerChaseTargets();
+  if (policeState.hasVisual && targets.length) {
+    return targets.reduce((best, target) => {
+      const targetDistance = Math.hypot(target.x - policeState.lastKnownX, target.z - policeState.lastKnownZ);
+      const bestDistance = Math.hypot(best.x - policeState.lastKnownX, best.z - policeState.lastKnownZ);
+      return targetDistance < bestDistance ? target : best;
+    }, targets[0]);
+  }
+  return {
+    x: policeState.lastKnownX,
+    z: policeState.lastKnownZ,
+    vx: policeState.lastKnownVx,
+    vz: policeState.lastKnownVz,
+    angle: policeState.lastKnownAngle,
+  };
+}
+
+function choosePoliceRoadSpawn(role, tier, target, tries = 38) {
+  const forward = policeTargetForward(target);
+  const right = { x: forward.z, z: -forward.x };
+  const speed = Math.hypot(target.vx || 0, target.vz || 0);
+  const predictionDistance = clamp(speed * tier.prediction, 120, 620);
+
+  for (let i = 0; i < tries; i++) {
+    let ahead;
+    let side;
+    if (role === POLICE_ROLES.INTERCEPTOR || role === POLICE_ROLES.ROADBLOCK) {
+      ahead = predictionDistance + 620 + Math.random() * 620;
+      side = (Math.random() - 0.5) * (role === POLICE_ROLES.ROADBLOCK ? 520 : 900);
+    } else if (role === POLICE_ROLES.SUPPORT) {
+      ahead = 180 + Math.random() * 980;
+      side = (Math.random() < 0.5 ? -1 : 1) * (420 + Math.random() * 620);
+    } else {
+      const frontChance = policeState.level >= 2 ? 0.36 + policeState.level * 0.055 : 0.08;
+      ahead = (Math.random() < frontChance ? 1 : -1) * (640 + Math.random() * 650);
+      side = (Math.random() - 0.5) * (policeState.level >= 2 ? 900 : 380);
+    }
+
+    const rawX = target.x + forward.x * ahead + right.x * side;
+    const rawZ = target.z + forward.z * ahead + right.z * side;
+    const preferredX = role === POLICE_ROLES.PURSUIT ? forward.x : -forward.x;
+    const preferredZ = role === POLICE_ROLES.PURSUIT ? forward.z : -forward.z;
+    const useIntersection = policeState.level >= 2 && (role === POLICE_ROLES.ROADBLOCK || role === POLICE_ROLES.SUPPORT || i % 4 === 0);
+    const spawn = useIntersection
+      ? roadIntersectionNear(rawX, rawZ, preferredX, preferredZ)
+      : roadPointNear(rawX, rawZ, preferredX, preferredZ);
+    const referenceDistance = Math.hypot(spawn.x - target.x, spawn.z - target.z);
+    if (referenceDistance < POLICE_SPAWN_MIN || referenceDistance > POLICE_SPAWN_MAX + 260) continue;
+    if (spawnVisibleToAnyPlayer(spawn.x, spawn.z)) continue;
+    if (cops.some((other) => Math.hypot(spawn.x - other.x, spawn.z - other.z) < 155)) continue;
+    return spawn;
+  }
+
+  for (let i = 0; i < 18; i++) {
+    const fallback = chooseHiddenRoadSpawn(POLICE_SPAWN_MIN, POLICE_SPAWN_MAX + 120);
+    if (!spawnVisibleToAnyPlayer(fallback.x, fallback.z) && !cops.some((other) => Math.hypot(fallback.x - other.x, fallback.z - other.z) < 155)) return fallback;
+  }
+  return null;
+}
+
+function choosePoliceRole(level) {
+  const counts = cops.reduce((result, cop) => {
+    result[cop.policeRole] = (result[cop.policeRole] || 0) + 1;
+    return result;
+  }, {});
+  if (!(counts[POLICE_ROLES.PURSUIT] > 0)) return POLICE_ROLES.PURSUIT;
+  const roll = Math.random();
+  if (level === 1) return POLICE_ROLES.PURSUIT;
+  if (level === 2) return roll < 0.56 ? POLICE_ROLES.PURSUIT : roll < 0.77 ? POLICE_ROLES.INTERCEPTOR : POLICE_ROLES.SUPPORT;
+  if (roll < (level >= 5 ? 0.3 : 0.38)) return POLICE_ROLES.PURSUIT;
+  if (roll < 0.64) return POLICE_ROLES.INTERCEPTOR;
+  if (roll < 0.82) return POLICE_ROLES.SUPPORT;
+  return POLICE_ROLES.ROADBLOCK;
+}
+
+function choosePoliceKind(level, role) {
+  if (level >= 4 && role === POLICE_ROLES.INTERCEPTOR && Math.random() < 0.72) return "interceptor";
+  const swatChance = level === 3 ? 0.16 : level === 4 ? 0.22 : level >= 5 ? 0.27 : 0;
+  return Math.random() < swatChance ? "swat" : "cop";
+}
+
+function spawnCop(role = choosePoliceRole(policeState.level || 1)) {
+  const tier = WANTED_TIERS[policeState.level || 1];
+  const target = policeReferenceTarget();
+  const spawn = choosePoliceRoadSpawn(role, tier, target);
+  if (!spawn) return null;
+  const kind = choosePoliceKind(policeState.level, role);
+  const cop = makeVehicle(kind, spawn.x, spawn.z, spawn.angle);
   cop.roadAxis = spawn.axis;
   cop.roadId = spawn.id;
   cop.dir = spawn.dir;
-  cop.personality = Math.random() < 0.42 ? "aggressive" : Math.random() < 0.55 ? "calm" : "blocker";
+  cop.policeRole = role;
+  cop.personality = kind === "interceptor" ? "aggressive" : kind === "swat" ? "blocker" : Math.random() < 0.42 ? "aggressive" : "calm";
+  cop.roleTargetX = policeState.lastKnownX;
+  cop.roleTargetZ = policeState.lastKnownZ;
+  if (role === POLICE_ROLES.ROADBLOCK) {
+    const forward = policeTargetForward(target);
+    const point = roadPointNear(target.x + forward.x * 430, target.z + forward.z * 430, -forward.x, -forward.z);
+    cop.roleTargetX = point.x;
+    cop.roleTargetZ = point.z;
+    cop.roleTargetSet = true;
+  }
   scene.add(cop.group);
   cops.push(cop);
+  return cop;
 }
 
 function spawnTraffic() {
@@ -4596,7 +4868,7 @@ function knockTree(tree, hitX, hitZ, power) {
 }
 
 function launchVehicle(v, dirX, dirZ, power) {
-  if (v.kind === "player" || v.kind === "cop" || v.kind === "remote") return;
+  if (v.kind === "player" || isPoliceVehicle(v) || v.kind === "remote") return;
   const now = performance.now();
   if (v.airborne || now < (v.nextLaunchTime || 0)) return;
   v.nextLaunchTime = now + 1100;
@@ -4931,33 +5203,327 @@ function updatePoliceLights(dt) {
   }
 }
 
+function makePoliceHelicopter(x, z) {
+  const group = new THREE.Group();
+  const add = (geometry, material, px, py, pz) => {
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.position.set(px, py, pz);
+    mesh.castShadow = true;
+    group.add(mesh);
+    return mesh;
+  };
+  add(new THREE.BoxGeometry(34, 16, 55), mats.helicopter, 0, 0, 0);
+  add(new THREE.BoxGeometry(12, 10, 52), mats.helicopter, 0, 2, 47);
+  add(new THREE.BoxGeometry(34, 4, 15), mats.copBlue, 0, 4, 72);
+  add(new THREE.BoxGeometry(30, 9, 25), mats.glass, 0, 3, -22);
+  const rotor = add(new THREE.BoxGeometry(112, 1.8, 5), mats.outline, 0, 13, 0);
+  const tailRotor = add(new THREE.BoxGeometry(2, 30, 5), mats.outline, 0, 7, 73);
+  const searchLight = new THREE.SpotLight(0xf3f0d0, 0, 720, Math.PI * 0.16, 0.5, 1.3);
+  searchLight.position.set(0, -4, -10);
+  searchLight.target.position.set(0, -260, -10);
+  group.add(searchLight, searchLight.target);
+  group.position.set(x, 250, z);
+  scene.add(group);
+  return {
+    group,
+    x,
+    z,
+    y: 250,
+    angle: 0,
+    phase: Math.random() * Math.PI * 2,
+    rotor,
+    tailRotor,
+    searchLight,
+    hasVisual: false,
+  };
+}
+
+function spawnPoliceHelicopter() {
+  const target = policeReferenceTarget();
+  const angle = Math.random() * Math.PI * 2;
+  policeHelicopters.push(makePoliceHelicopter(
+    target.x + Math.sin(angle) * (900 + Math.random() * 260),
+    target.z + Math.cos(angle) * (900 + Math.random() * 260)
+  ));
+}
+
+function removePoliceHelicopter(index) {
+  const helicopter = policeHelicopters[index];
+  if (!helicopter) return;
+  scene.remove(helicopter.group);
+  policeHelicopters.splice(index, 1);
+}
+
+function createPoliceRoadblock(spawn, strength = 1, hasSpikes = false) {
+  const group = new THREE.Group();
+  const barrierWidth = ROAD * (strength > 1 ? 0.78 : 0.6);
+  for (const z of [-12, 12]) {
+    const bar = makeBox(barrierWidth, 6, 4, mats.policeBarrier);
+    bar.position.set(0, 3, z);
+    const stripe = makeBox(barrierWidth * 0.82, 2.2, 4.4, mats.policeBarrierStripe);
+    stripe.position.set(0, 4, z);
+    group.add(bar, stripe);
+  }
+  if (hasSpikes) {
+    const strip = makeBox(ROAD * 0.82, 1.3, 11, mats.spikeStrip);
+    strip.position.set(0, 0.65, -25);
+    group.add(strip);
+    for (let x = -ROAD * 0.36; x <= ROAD * 0.36; x += 7) {
+      const spike = new THREE.Mesh(new THREE.ConeGeometry(1.1, 4.2, 5), mats.metal);
+      spike.position.set(x, 2.2, -25);
+      group.add(spike);
+    }
+  }
+  group.position.set(spawn.x, 0, spawn.z);
+  group.rotation.y = spawn.angle;
+  scene.add(group);
+  const roadblock = {
+    group,
+    x: spawn.x,
+    z: spawn.z,
+    angle: spawn.angle,
+    life: ROADBLOCK_LIFETIME + Math.random() * 12,
+    strength,
+    hasSpikes,
+    hitCooldown: 0,
+  };
+  policeRoadblocks.push(roadblock);
+  return roadblock;
+}
+
+function removePoliceRoadblock(index) {
+  const roadblock = policeRoadblocks[index];
+  if (!roadblock) return;
+  scene.remove(roadblock.group);
+  policeRoadblocks.splice(index, 1);
+}
+
+function updatePoliceRoadblocks(dt) {
+  for (let i = policeRoadblocks.length - 1; i >= 0; i--) {
+    const roadblock = policeRoadblocks[i];
+    roadblock.life -= dt;
+    if (roadblock.life <= 0 || policeState.level < 2 || Math.hypot(roadblock.x - focusX(), roadblock.z - focusZ()) > 2100) {
+      removePoliceRoadblock(i);
+      continue;
+    }
+  }
+}
+
+function collidePoliceRoadblocks(dt) {
+  if (gameMode !== "driving") return;
+  for (const roadblock of policeRoadblocks) {
+    roadblock.hitCooldown = Math.max(0, roadblock.hitCooldown - dt);
+    const dx = player.x - roadblock.x;
+    const dz = player.z - roadblock.z;
+    const right = { x: Math.cos(roadblock.angle), z: -Math.sin(roadblock.angle) };
+    const forward = { x: -Math.sin(roadblock.angle), z: -Math.cos(roadblock.angle) };
+    const across = dx * right.x + dz * right.z;
+    const along = dx * forward.x + dz * forward.z;
+    const barrierHit = vehicleObbCollision(player, {
+      x: roadblock.x,
+      z: roadblock.z,
+      angle: roadblock.angle,
+      halfWidth: ROAD * (roadblock.strength > 1 ? 0.39 : 0.3),
+      halfLength: 15,
+    });
+    if (barrierHit && Math.abs(across) < ROAD * 0.47) {
+      pushVehicleNormal(player, barrierHit.nx, barrierHit.nz, barrierHit.overlap + 0.4, 0.42);
+    }
+    if (roadblock.hasSpikes && roadblock.hitCooldown <= 0 && Math.abs(across) < ROAD * 0.48 && Math.abs(along - 25) < 15) {
+      roadblock.hitCooldown = 2;
+      player.vx *= 0.48;
+      player.vz *= 0.48;
+      player.steerCharge = clamp((player.steerCharge || 0) + (Math.random() < 0.5 ? -0.7 : 0.7), -1, 1);
+      cameraState.shake = Math.max(cameraState.shake, 1.1);
+      for (let p = 0; p < 9; p++) makeTireSpray(player, 0.9, true);
+      showNotification("Police spike strip hit", true);
+    }
+  }
+}
+
+function updatePoliceHelicopters(dt) {
+  const target = policeReferenceTarget();
+  for (let i = policeHelicopters.length - 1; i >= 0; i--) {
+    const helicopter = policeHelicopters[i];
+    if (policeState.level < 5) {
+      removePoliceHelicopter(i);
+      continue;
+    }
+    helicopter.phase += dt * 0.42;
+    const orbit = 190 + i * 72;
+    const desiredX = target.x + Math.sin(helicopter.phase) * orbit - (target.vx || 0) * 0.55;
+    const desiredZ = target.z + Math.cos(helicopter.phase) * orbit - (target.vz || 0) * 0.55;
+    helicopter.x = lerp(helicopter.x, desiredX, 1 - Math.exp(-dt * 1.15));
+    helicopter.z = lerp(helicopter.z, desiredZ, 1 - Math.exp(-dt * 1.15));
+    helicopter.y = 238 + Math.sin(helicopter.phase * 1.7) * 15;
+    helicopter.angle = Math.atan2(-(target.x - helicopter.x), -(target.z - helicopter.z));
+    helicopter.rotor.rotation.y += dt * 19;
+    helicopter.tailRotor.rotation.x += dt * 24;
+    helicopter.group.position.set(helicopter.x, helicopter.y, helicopter.z);
+    helicopter.group.rotation.y = helicopter.angle;
+    helicopter.searchLight.intensity = helicopter.hasVisual ? 4.2 : 1.25;
+    helicopter.searchLight.target.position.set(target.x - helicopter.x, -helicopter.y, target.z - helicopter.z);
+  }
+}
+
+function updatePoliceSight(dt) {
+  policeState.sightCheckTimer -= dt;
+  if (policeState.sightCheckTimer > 0) {
+    policeState.lastSeenAgo += policeState.hasVisual ? 0 : dt;
+    return;
+  }
+  policeState.sightCheckTimer = 0.16;
+  const targets = playerChaseTargets();
+  let seen = null;
+  let source = "";
+  for (const helicopter of policeHelicopters) helicopter.hasVisual = false;
+  for (const target of targets) {
+    for (const helicopter of policeHelicopters) {
+      if (!policeHasSight(helicopter, target, true)) continue;
+      helicopter.hasVisual = true;
+      seen = target;
+      source = "helicopter";
+      break;
+    }
+    if (seen) break;
+    for (const cop of cops) {
+      if (cop.airborne || cop.wrecked || !policeHasSight(cop, target)) continue;
+      seen = target;
+      source = cop.kind === "swat" ? "SWAT" : cop.kind === "interceptor" ? "interceptor" : "patrol";
+      break;
+    }
+    if (seen) break;
+  }
+
+  policeState.hasVisual = !!seen;
+  if (seen) {
+    policeState.visualSource = source;
+    policeState.lastKnownX = seen.x;
+    policeState.lastKnownZ = seen.z;
+    policeState.lastKnownVx = seen.vx || 0;
+    policeState.lastKnownVz = seen.vz || 0;
+    policeState.lastKnownAngle = Number.isFinite(seen.angle) ? seen.angle : angleFromForward(seen.vx || 0, seen.vz || -1);
+    policeState.lastSeenAgo = 0;
+    policeState.unseenTimer = 0;
+    policeState.decayTimer = 0;
+  } else {
+    policeState.lastSeenAgo += 0.16;
+    policeState.unseenTimer += 0.16;
+  }
+}
+
+function policeRoleTarget(cop, target, tier) {
+  const forward = policeTargetForward(target);
+  const right = { x: forward.z, z: -forward.x };
+  if (!policeState.hasVisual) {
+    const radius = cop.policeRole === POLICE_ROLES.SUPPORT ? 300 : 110 + Math.min(policeState.lastSeenAgo * 18, 320);
+    const phase = policeState.searchPhase + cop.searchOffset;
+    return {
+      x: policeState.lastKnownX + Math.sin(phase) * radius,
+      z: policeState.lastKnownZ + Math.cos(phase) * radius,
+      task: cop.policeRole === POLICE_ROLES.SUPPORT ? POLICE_ROLES.SUPPORT : POLICE_ROLES.SEARCH,
+    };
+  }
+  if (cop.policeRole === POLICE_ROLES.INTERCEPTOR) {
+    const lead = 1.1 + tier.prediction;
+    return { x: target.x + (target.vx || 0) * lead + right.x * cop.escapeSide * 95, z: target.z + (target.vz || 0) * lead + right.z * cop.escapeSide * 95, task: POLICE_ROLES.INTERCEPTOR };
+  }
+  if (cop.policeRole === POLICE_ROLES.SUPPORT) {
+    return { x: target.x + forward.x * 250 + right.x * cop.escapeSide * 280, z: target.z + forward.z * 250 + right.z * cop.escapeSide * 280, task: POLICE_ROLES.SUPPORT };
+  }
+  if (cop.policeRole === POLICE_ROLES.ROADBLOCK) {
+    if (!cop.roleTargetSet) {
+      const point = roadPointNear(target.x + forward.x * 430, target.z + forward.z * 430, -forward.x, -forward.z);
+      cop.roleTargetX = point.x;
+      cop.roleTargetZ = point.z;
+      cop.roleTargetSet = true;
+    }
+    return { x: cop.roleTargetX, z: cop.roleTargetZ, task: POLICE_ROLES.ROADBLOCK };
+  }
+  const lead = 0.18 + tier.prediction * 0.28;
+  return { x: target.x + (target.vx || 0) * lead, z: target.z + (target.vz || 0) * lead, task: POLICE_ROLES.PURSUIT };
+}
+
 function updateCops(dt) {
   chaseTime += dt;
   backupTime += dt;
-  if (chaseTime > 3 && cops.length === 0) spawnCop();
-
-  const heatX = focusX();
-  const heatZ = focusZ();
-  if (Math.hypot(heatX - lastPlayerX, heatZ - lastPlayerZ) < 42) idleHeat += dt;
-  else {
-    idleHeat = Math.max(0, idleHeat - dt * 1.6);
-    lastPlayerX = heatX;
-    lastPlayerZ = heatZ;
+  policeState.searchPhase += dt * 0.62;
+  if (chaseTime > 3 && policeState.level === 0 && policeState.dispatchPending) {
+    policeState.level = 1;
+    policeState.dispatchPending = false;
+    policeState.lastKnownX = focusX();
+    policeState.lastKnownZ = focusZ();
+    policeState.lastKnownVx = gameMode === "driving" ? player.vx : 0;
+    policeState.lastKnownVz = gameMode === "driving" ? player.vz : 0;
+    policeState.lastKnownAngle = gameMode === "driving" ? player.angle : outsideState.angle;
+    policeState.spawnTimer = WANTED_TIERS[1].spawnInterval;
+    spawnCop(POLICE_ROLES.PURSUIT);
+  }
+  if (policeState.level <= 0) {
+    while (policeHelicopters.length) removePoliceHelicopter(policeHelicopters.length - 1);
+    while (policeRoadblocks.length) removePoliceRoadblock(policeRoadblocks.length - 1);
+    for (let i = cops.length - 1; i >= 0; i--) {
+      scene.remove(cops[i].group);
+      cops.splice(i, 1);
+    }
+    return;
   }
 
-  const wanted = clamp(1 + Math.floor(idleHeat / 7), 1, MAX_COPS);
-  if (backupTime > 5.5 && cops.length < wanted) {
-    backupTime = 0;
+  updatePoliceSight(dt);
+  const tier = WANTED_TIERS[policeState.level];
+  if (policeState.hasVisual) {
+    policeState.escalationTimer += dt;
+    if (policeState.escalationTimer >= tier.escalateAfter && policeState.level < 5) {
+      policeState.level++;
+      policeState.escalationTimer = 0;
+      policeState.spawnTimer = WANTED_TIERS[policeState.level].spawnInterval * 0.35;
+      showNotification(`${policeState.level} STAR RESPONSE ESCALATED`, true);
+    }
+  } else {
+    const nearestUnit = cops.reduce((best, cop) => Math.min(best, Math.hypot(cop.x - focusX(), cop.z - focusZ())), Infinity);
+    if (nearestUnit > tier.escapeDistance && policeState.lastSeenAgo > 7) policeState.decayTimer += dt;
+    else policeState.decayTimer = Math.max(0, policeState.decayTimer - dt * 0.65);
+    if (policeState.decayTimer >= tier.loseDelay) {
+      policeState.level--;
+      policeState.decayTimer = 0;
+      policeState.escalationTimer = 0;
+      showNotification(policeState.level > 0 ? `Wanted level reduced to ${policeState.level}` : "You escaped the police");
+      if (policeState.level === 0) {
+        chaseTime = 0;
+        policeState.dispatchPending = false;
+      }
+    }
+  }
+
+  const activeTier = WANTED_TIERS[policeState.level];
+  policeState.spawnTimer += dt;
+  if (policeState.level > 0 && policeState.spawnTimer >= activeTier.spawnInterval && cops.length < activeTier.maxUnits) {
+    policeState.spawnTimer = 0;
     spawnCop();
   }
+  policeState.roadblockTimer += dt;
+  if (policeState.hasVisual && activeTier.roadblocks > 0 && policeRoadblocks.length < activeTier.roadblocks && policeState.roadblockTimer > Math.max(7, 15 - policeState.level * 1.5)) {
+    policeState.roadblockTimer = 0;
+    const roadblockSpawn = choosePoliceRoadSpawn(POLICE_ROLES.ROADBLOCK, activeTier, policeReferenceTarget());
+    if (roadblockSpawn) createPoliceRoadblock(roadblockSpawn, policeState.level >= 4 ? 2 : 1, policeState.level >= 3);
+  }
+  policeState.helicopterTimer += dt;
+  if (activeTier.helicopters > 0 && policeHelicopters.length < activeTier.helicopters && policeState.helicopterTimer > 7.5) {
+    policeState.helicopterTimer = 0;
+    spawnPoliceHelicopter();
+    showNotification("POLICE HELICOPTER JOINED THE SEARCH", true);
+  }
+  updatePoliceHelicopters(dt);
+  updatePoliceRoadblocks(dt);
 
   for (let i = cops.length - 1; i >= 0; i--) {
     const cop = cops[i];
-    const chase = nearestChaseTarget(cop);
-    const targetPlayer = chase.target;
-    const distanceToPlayer = chase.distance;
+    const targetPlayer = policeState.hasVisual ? nearestChaseTarget(cop).target : policeReferenceTarget();
+    const roleTarget = policeRoleTarget(cop, targetPlayer, activeTier);
+    cop.currentTask = roleTarget.task;
+    const distanceToPlayer = Math.hypot(cop.x - targetPlayer.x, cop.z - targetPlayer.z);
     const farFromAllPlayers = playerChaseTargets().every((target) => dist(cop, target) > COP_DESPAWN_DISTANCE);
-    if (farFromAllPlayers) {
+    if (farFromAllPlayers || (cops.length > activeTier.maxUnits && i >= activeTier.maxUnits)) {
       scene.remove(cop.group);
       cops.splice(i, 1);
       continue;
@@ -4971,14 +5537,21 @@ function updateCops(dt) {
       if (!blocker) cop.escapeSide = angleDelta(cop.angle, Math.atan2(-(targetPlayer.x - cop.x), -(targetPlayer.z - cop.z))) > 0 ? 1 : -1;
     }
 
-    const lead = distanceToPlayer > 180 ? 0.65 : cop.personality === "blocker" ? 0.48 : cop.personality === "aggressive" ? 0.32 : 0.22;
-    const targetX = targetPlayer.x + targetPlayer.vx * lead;
-    const targetZ = targetPlayer.z + targetPlayer.vz * lead;
+    const targetX = roleTarget.x;
+    const targetZ = roleTarget.z;
     const desired = Math.atan2(-(targetX - cop.x), -(targetZ - cop.z));
-    const close = distanceToPlayer < 58;
+    const roleDistance = Math.hypot(targetX - cop.x, targetZ - cop.z);
+    const close = roleDistance < 58;
     const angleError = Math.abs(angleDelta(cop.angle, desired));
     let steering = clamp(angleDelta(cop.angle, desired) * (cop.personality === "calm" ? 1.65 : 2.45), -1, 1);
     let throttle = close ? 0.68 : angleError > 1.35 ? 0.45 : 1;
+    if (cop.policeRole === POLICE_ROLES.ROADBLOCK && roleDistance < 72) {
+      cop.deployed = true;
+      throttle = 0;
+      steering = 0;
+      cop.vx *= Math.pow(0.72, dt * 60);
+      cop.vz *= Math.pow(0.72, dt * 60);
+    }
     const blocker = findBlockingVehicle(cop, 98, ROAD * 0.45);
     if (blocker && blocker.other !== player) {
       const avoidSide = blocker.side >= 0 ? -1 : 1;
@@ -4993,7 +5566,7 @@ function updateCops(dt) {
         steering = -cop.escapeSide * 0.55;
         throttle = -0.48;
       } else {
-        const towardPlayer = { x: targetPlayer.x + targetPlayer.vx * 0.22, z: targetPlayer.z + targetPlayer.vz * 0.22 };
+        const towardPlayer = { x: roleTarget.x, z: roleTarget.z };
         const bypass = escapeTargetFor(cop, 120, ROAD * 0.96);
         const blend = clamp(distanceToPlayer / 220, 0.25, 0.82);
         const target = {
@@ -5004,9 +5577,9 @@ function updateCops(dt) {
         throttle = 0.92;
       }
     }
-    const boost = cop.personality === "aggressive" ? 1.15 : cop.personality === "calm" ? 0.86 : 1;
+    const boost = cop.kind === "interceptor" ? 1.38 : cop.kind === "swat" ? 0.86 : cop.personality === "aggressive" ? 1.15 : cop.personality === "calm" ? 0.92 : 1;
     driveVehicle(cop, { steer: steering, throttle }, dt, {
-      accel: 138 * boost,
+      accel: 138 * boost * (1 + policeState.level * 0.025),
       brake: 300 * boost,
       reverseAccel: 55,
       maxSpeed: 242 * boost,
@@ -5073,8 +5646,8 @@ function collideVehicles(a, b) {
   const relVz = a.vz - b.vz;
   const impactSpeed = Math.abs(relVx * nx + relVz * nz);
   const push = hit.overlap + 0.35;
-  const aMass = a === player ? 1.12 : a.kind === "cop" ? 1.08 : 1;
-  const bMass = b === player ? 1.12 : b.kind === "cop" ? 1.08 : 1;
+  const aMass = a === player ? 1.12 : isPoliceVehicle(a) ? (a.kind === "swat" ? 1.38 : 1.08) : 1;
+  const bMass = b === player ? 1.12 : isPoliceVehicle(b) ? (b.kind === "swat" ? 1.38 : 1.08) : 1;
   const totalMass = aMass + bMass;
   a.x += nx * push * (bMass / totalMass);
   a.z += nz * push * (bMass / totalMass);
@@ -5097,11 +5670,11 @@ function collideVehicles(a, b) {
   if (a !== player && b !== player && impactSpeed < 38) {
     const aBlocker = { other: b, ahead: 34, side: -1 };
     const bBlocker = { other: a, ahead: 34, side: 1 };
-    beginEscapeManeuver(a, aBlocker, a.kind === "cop" ? 2.4 : 3.1);
-    if (Math.random() < 0.45) beginEscapeManeuver(b, bBlocker, b.kind === "cop" ? 2.2 : 2.9);
+    beginEscapeManeuver(a, aBlocker, isPoliceVehicle(a) ? 2.4 : 3.1);
+    if (Math.random() < 0.45) beginEscapeManeuver(b, bBlocker, isPoliceVehicle(b) ? 2.2 : 2.9);
   }
-  if (a === player && b.kind !== "cop" && impactSpeed < 55) beginEscapeManeuver(b, { other: a, ahead: 34, side: 1 }, 3.2);
-  if (b === player && a.kind !== "cop" && impactSpeed < 55) beginEscapeManeuver(a, { other: b, ahead: 34, side: -1 }, 3.2);
+  if (a === player && !isPoliceVehicle(b) && impactSpeed < 55) beginEscapeManeuver(b, { other: a, ahead: 34, side: 1 }, 3.2);
+  if (b === player && !isPoliceVehicle(a) && impactSpeed < 55) beginEscapeManeuver(a, { other: b, ahead: 34, side: -1 }, 3.2);
   if (a !== player) {
     a.vx += nx * 8;
     a.vz += nz * 8;
@@ -5119,7 +5692,7 @@ function collideVehicles(a, b) {
     const dirX = other === b ? -nx : nx;
     const dirZ = other === b ? -nz : nz;
     if (other.kind !== "player") {
-      if (other.kind === "cop") {
+      if (isPoliceVehicle(other)) {
         other.vx += dirX * impactSpeed * 0.18;
         other.vz += dirZ * impactSpeed * 0.18;
         hardCrashFx((a.x + b.x) * 0.5, (a.z + b.z) * 0.5, impactSpeed);
@@ -5170,9 +5743,7 @@ function collideRemotePlayers() {
 
 function wantedLevel() {
   if (!running || gameOver || chaseTime < 3) return 0;
-  const heatLevel = 1 + Math.floor(idleHeat / 7);
-  const arrestLevel = Math.floor(arrestTime / 1.2);
-  return clamp(Math.max(cops.length, heatLevel) + arrestLevel, 1, 5);
+  return clamp(policeState.level, 0, 5);
 }
 
 function updateWantedMeter() {
@@ -5192,6 +5763,14 @@ function updateWantedMeter() {
   lastWantedNoticeLevel = level;
 }
 
+function policeHudStatus() {
+  if (policeState.level <= 0) return "";
+  const status = policeState.hasVisual
+    ? policeState.visualSource === "helicopter" ? "HELICOPTER VISUAL" : "SPOTTED"
+    : `SEARCHING ${Math.max(0, Math.ceil(WANTED_TIERS[policeState.level].loseDelay - policeState.decayTimer))}s`;
+  return ` | ${status} | ${cops.length} units`;
+}
+
 function updateCollisions(dt, fullWorldCollisions = true) {
   if (fullWorldCollisions) {
     const vehicles = [player, ...cops, ...traffic];
@@ -5205,6 +5784,7 @@ function updateCollisions(dt, fullWorldCollisions = true) {
     for (const car of traffic) collideVehicles(player, car);
   }
   if (gameMode !== "walking") collideRemotePlayers();
+  collidePoliceRoadblocks(dt);
 
   let arrestPressure = 0;
   for (const cop of cops) {
@@ -5360,6 +5940,16 @@ function drawMinimap() {
     c.beginPath();
     c.arc(mx(cop.x), mz(cop.z), 4, 0, Math.PI * 2);
     c.fill();
+  }
+  c.fillStyle = "#f2eee3";
+  for (const roadblock of policeRoadblocks) c.fillRect(mx(roadblock.x) - 5, mz(roadblock.z) - 2, 10, 4);
+  c.fillStyle = "#79b8ff";
+  for (const helicopter of policeHelicopters) {
+    c.beginPath();
+    c.arc(mx(helicopter.x), mz(helicopter.z), 5, 0, Math.PI * 2);
+    c.strokeStyle = "#79b8ff";
+    c.lineWidth = 2;
+    c.stroke();
   }
   c.fillStyle = "#18d2ff";
   for (const remote of remotePlayers.values()) {
@@ -5591,6 +6181,12 @@ function vehicleNetworkState(v) {
     dir: v.dir,
     timer: v.timer || 0,
     personality: v.personality,
+    policeRole: v.policeRole || "",
+    currentTask: v.currentTask || "",
+    roleTargetX: v.roleTargetX || 0,
+    roleTargetZ: v.roleTargetZ || 0,
+    roleTargetSet: !!v.roleTargetSet,
+    deployed: !!v.deployed,
     paintColor: v.paintColor || null,
     airborne: !!v.airborne,
     wrecked: !!v.wrecked,
@@ -5604,7 +6200,24 @@ function worldNetworkState() {
     chaseTime,
     backupTime,
     idleHeat,
+    police: { ...policeState },
     cops: cops.map(vehicleNetworkState),
+    helicopters: policeHelicopters.map((helicopter) => ({
+      x: helicopter.x,
+      z: helicopter.z,
+      y: helicopter.y,
+      angle: helicopter.angle,
+      phase: helicopter.phase,
+      hasVisual: helicopter.hasVisual,
+    })),
+    roadblocks: policeRoadblocks.map((roadblock) => ({
+      x: roadblock.x,
+      z: roadblock.z,
+      angle: roadblock.angle,
+      life: roadblock.life,
+      strength: roadblock.strength,
+      hasSpikes: roadblock.hasSpikes,
+    })),
     traffic: traffic.map(vehicleNetworkState),
     storeVendor: storeState.vendor ? {
       hp: storeState.vendorHp,
@@ -5724,6 +6337,12 @@ function applyVehicleNetworkState(v, state, snap = false) {
   v.dir = state.dir ?? v.dir;
   v.timer = state.timer || 0;
   v.personality = state.personality || v.personality;
+  v.policeRole = state.policeRole || v.policeRole;
+  v.currentTask = state.currentTask || v.currentTask;
+  v.roleTargetX = Number.isFinite(state.roleTargetX) ? state.roleTargetX : v.roleTargetX;
+  v.roleTargetZ = Number.isFinite(state.roleTargetZ) ? state.roleTargetZ : v.roleTargetZ;
+  v.roleTargetSet = !!state.roleTargetSet;
+  v.deployed = !!state.deployed;
   v.airborne = !!state.airborne;
   v.wrecked = !!state.wrecked;
   v.roll = state.roll || 0;
@@ -5760,6 +6379,40 @@ function syncNetworkVehicleList(list, states) {
   }
 }
 
+function syncNetworkHelicopters(states) {
+  while (policeHelicopters.length > states.length) removePoliceHelicopter(policeHelicopters.length - 1);
+  for (let i = 0; i < states.length; i++) {
+    if (!policeHelicopters[i]) policeHelicopters.push(makePoliceHelicopter(states[i].x || 0, states[i].z || 0));
+    policeHelicopters[i].remoteTarget = { ...states[i] };
+    policeHelicopters[i].hasVisual = !!states[i].hasVisual;
+    if (!Number.isFinite(policeHelicopters[i].y)) policeHelicopters[i].y = states[i].y || 250;
+  }
+}
+
+function syncNetworkRoadblocks(states) {
+  while (policeRoadblocks.length > states.length) removePoliceRoadblock(policeRoadblocks.length - 1);
+  for (let i = 0; i < states.length; i++) {
+    const state = states[i];
+    const current = policeRoadblocks[i];
+    const needsReplacement = !current || current.hasSpikes !== !!state.hasSpikes || current.strength !== (state.strength || 1);
+    if (needsReplacement) {
+      if (current) removePoliceRoadblock(i);
+      const created = createPoliceRoadblock(state, state.strength || 1, !!state.hasSpikes);
+      if (policeRoadblocks[policeRoadblocks.length - 1] === created && i !== policeRoadblocks.length - 1) {
+        policeRoadblocks.pop();
+        policeRoadblocks.splice(i, 0, created);
+      }
+    }
+    const roadblock = policeRoadblocks[i];
+    roadblock.x = state.x || 0;
+    roadblock.z = state.z || 0;
+    roadblock.angle = state.angle || 0;
+    roadblock.life = Number.isFinite(state.life) ? state.life : roadblock.life;
+    roadblock.group.position.set(roadblock.x, 0, roadblock.z);
+    roadblock.group.rotation.y = roadblock.angle;
+  }
+}
+
 function applyWorldState(state) {
   if (!state || multiplayer.mode !== "client") return;
   if (Number.isFinite(state.seed) && state.seed !== seed) {
@@ -5770,11 +6423,20 @@ function applyWorldState(state) {
     fallingTrees.length = 0;
     updateChunks();
   }
-  chaseTime = state.chaseTime || chaseTime;
-  backupTime = state.backupTime || backupTime;
-  idleHeat = state.idleHeat || idleHeat;
+  if (Number.isFinite(state.chaseTime)) chaseTime = state.chaseTime;
+  if (Number.isFinite(state.backupTime)) backupTime = state.backupTime;
+  if (Number.isFinite(state.idleHeat)) idleHeat = state.idleHeat;
+  if (state.police) {
+    for (const key of Object.keys(policeState)) {
+      if (typeof policeState[key] === "boolean") policeState[key] = !!state.police[key];
+      else if (typeof policeState[key] === "number" && Number.isFinite(state.police[key])) policeState[key] = state.police[key];
+      else if (typeof policeState[key] === "string" && typeof state.police[key] === "string") policeState[key] = state.police[key];
+    }
+  }
   syncNetworkVehicleList(cops, Array.isArray(state.cops) ? state.cops : []);
   syncNetworkVehicleList(traffic, Array.isArray(state.traffic) ? state.traffic : []);
+  syncNetworkHelicopters(Array.isArray(state.helicopters) ? state.helicopters : []);
+  syncNetworkRoadblocks(Array.isArray(state.roadblocks) ? state.roadblocks : []);
   const vendor = state.storeVendor;
   if (vendor && storeState.vendor) {
     storeState.vendorHp = Number.isFinite(vendor.hp) ? vendor.hp : 100;
@@ -5804,6 +6466,19 @@ function updateNetworkWorldVehicles(dt) {
     v.pitch = lerp(v.pitch || 0, target.pitch || 0, follow);
     v.group.position.set(v.x, v.y || 0, v.z);
     v.group.rotation.set(v.pitch || 0, v.angle, v.roll || 0);
+  }
+  for (const helicopter of policeHelicopters) {
+    const target = helicopter.remoteTarget;
+    if (!target) continue;
+    helicopter.x = lerp(helicopter.x, target.x || 0, follow);
+    helicopter.z = lerp(helicopter.z, target.z || 0, follow);
+    helicopter.y = lerp(helicopter.y || 250, target.y || 250, follow);
+    helicopter.angle += angleDelta(helicopter.angle || 0, target.angle || 0) * follow;
+    helicopter.rotor.rotation.y += dt * 19;
+    helicopter.tailRotor.rotation.x += dt * 24;
+    helicopter.group.position.set(helicopter.x, helicopter.y, helicopter.z);
+    helicopter.group.rotation.y = helicopter.angle;
+    helicopter.searchLight.intensity = helicopter.hasVisual ? 4.2 : 1.25;
   }
 }
 
@@ -6145,7 +6820,7 @@ function chooseDevice(device) {
   inputState.mobile = device === "phone";
   deviceChoiceEl.classList.add("hidden");
   menuEl.classList.remove("hidden");
-  mobileControlsEl.classList.toggle("hidden", !inputState.mobile);
+  mobileControlsEl.classList.add("hidden");
   mobileJumpButton.classList.add("hidden");
   resetJoystick();
   hintEl.textContent = inputState.mobile ? "Joystick: up/down drive, left/right turn" : "W/S drive, A/D turn";
@@ -6155,15 +6830,40 @@ function resetJoystick() {
   inputState.steer = 0;
   inputState.throttle = 0;
   inputState.joystickPointerId = null;
-  inputState.jumpQueued = false;
+  inputState.lookPointerId = null;
   joystickStickEl.style.transform = "translate(-50%, -50%)";
+}
+
+function updateMobileControlLayout() {
+  const active = inputState.mobile && running && !gameOver;
+  mobileControlsEl.classList.toggle("hidden", !active);
+  if (!active) return;
+
+  if (mobileControlsEl.dataset.mode !== gameMode) mobileControlsEl.dataset.mode = gameMode;
+  mobileActionButton.classList.toggle("hidden", !["driving", "walking", "store"].includes(gameMode));
+  mobileJumpButton.classList.toggle("hidden", gameMode !== "store" || storeState.dead);
+  mobilePunchButton.classList.toggle("hidden", gameMode !== "store" || storeState.dead);
+  mobileUseButton.classList.toggle("hidden", gameMode !== "store" || storeState.dead || storeState.purchaseTimer > 0);
+
+  if (gameMode === "driving") {
+    if (mobileActionButton.textContent !== "EXIT") mobileActionButton.textContent = "EXIT";
+  } else if (gameMode === "walking") {
+    const ownCarClose = Math.hypot(player.x - outsideState.x, player.z - outsideState.z) < 62;
+    const label = ownCarClose ? "ENTER" : findCarjackTarget() ? "JACK" : "ACTION";
+    if (mobileActionButton.textContent !== label) mobileActionButton.textContent = label;
+  } else {
+    if (mobileActionButton.textContent !== "CAM") mobileActionButton.textContent = "CAM";
+  }
+  const useLabel = storeState.hasMegaforce ? "DRINK" : "BUY";
+  if (mobileUseButton.textContent !== useLabel) mobileUseButton.textContent = useLabel;
+  if (purchasePromptKeyEl) purchasePromptKeyEl.textContent = inputState.mobile ? "USE" : "E";
 }
 
 function updateJoystickFromPointer(event) {
   const rect = joystickEl.getBoundingClientRect();
   const centerX = rect.left + rect.width * 0.5;
   const centerY = rect.top + rect.height * 0.5;
-  const maxRadius = rect.width * 0.34;
+  const maxRadius = rect.width * 0.35;
   const dx = event.clientX - centerX;
   const dy = event.clientY - centerY;
   const distance = Math.hypot(dx, dy);
@@ -6172,22 +6872,24 @@ function updateJoystickFromPointer(event) {
   const stickY = dy * limited;
   const nx = clamp(stickX / maxRadius, -1, 1);
   const ny = clamp(stickY / maxRadius, -1, 1);
-  const steerDeadzone = 0.16;
-  const throttleDeadzone = 0.1;
+  const steerDeadzone = gameMode === "driving" ? 0.2 : 0.14;
+  const throttleDeadzone = 0.12;
   const steerAmount = Math.abs(nx) <= steerDeadzone
     ? 0
-    : Math.pow((Math.abs(nx) - steerDeadzone) / (1 - steerDeadzone), 1.55) * Math.sign(nx);
+    : Math.pow((Math.abs(nx) - steerDeadzone) / (1 - steerDeadzone), gameMode === "driving" ? 1.85 : 1.45) * Math.sign(nx);
   const throttleAmount = Math.abs(ny) <= throttleDeadzone
     ? 0
     : ((Math.abs(ny) - throttleDeadzone) / (1 - throttleDeadzone)) * Math.sign(ny);
 
-  inputState.steer = -steerAmount * 0.78;
-  inputState.throttle = clamp(-throttleAmount, -1, 1);
+  const steeringScale = gameMode === "driving" ? 0.64 : gameMode === "store" ? 0.76 : 0.9;
+  inputState.steer = -steerAmount * steeringScale;
+  inputState.throttle = clamp(-Math.sign(throttleAmount) * Math.pow(Math.abs(throttleAmount), 1.08), -1, 1);
   joystickStickEl.style.transform = `translate(calc(-50% + ${stickX}px), calc(-50% + ${stickY}px))`;
 }
 
 function resetGame() {
   if (document.pointerLockElement === canvas) document.exitPointerLock();
+  resetJoystick();
   gameMode = "driving";
   transitionLock = false;
   setTransition(false);
@@ -6233,6 +6935,8 @@ function resetGame() {
   syncVehicle(player);
 
   for (const cop of cops) scene.remove(cop.group);
+  for (const helicopter of policeHelicopters) scene.remove(helicopter.group);
+  for (const roadblock of policeRoadblocks) scene.remove(roadblock.group);
   for (const car of traffic) scene.remove(car.group);
   for (const p of smoke) {
     scene.remove(p.mesh);
@@ -6261,6 +6965,8 @@ function resetGame() {
   chunks.clear();
   colliders.length = 0;
   cops.length = 0;
+  policeHelicopters.length = 0;
+  policeRoadblocks.length = 0;
   traffic.length = 0;
   smoke.length = 0;
   skidMarks.length = 0;
@@ -6276,6 +6982,26 @@ function resetGame() {
   chaseTime = 0;
   backupTime = 0;
   idleHeat = 0;
+  Object.assign(policeState, {
+    level: 0,
+    dispatchPending: true,
+    escalationTimer: 0,
+    unseenTimer: 0,
+    decayTimer: 0,
+    spawnTimer: 0,
+    roadblockTimer: 0,
+    helicopterTimer: 0,
+    sightCheckTimer: 0,
+    hasVisual: false,
+    visualSource: "dispatch",
+    lastKnownX: player.x,
+    lastKnownZ: player.z,
+    lastKnownVx: 0,
+    lastKnownVz: 0,
+    lastKnownAngle: player.angle,
+    lastSeenAgo: 0,
+    searchPhase: 0,
+  });
   lastPlayerX = player.x;
   lastPlayerZ = player.z;
   cameraState.position.set(player.x, 210, player.z + 210);
@@ -6326,7 +7052,7 @@ function update(dt) {
     }
     updateCollisions(dt, worldHostControlsSimulation());
     sendNetworkState(dt);
-    if (chaseTime > 3.2 && cops.length > 0) hintEl.textContent += ` | ${cops.length} cops`;
+    if (chaseTime > 3.2 && policeState.level > 0) hintEl.textContent += policeHudStatus();
   } else if (running && !gameOver && gameMode === "walking") {
     updateWalking(dt);
     if (worldHostControlsSimulation()) {
@@ -6337,6 +7063,7 @@ function update(dt) {
     }
     updateCollisions(dt, worldHostControlsSimulation());
     sendNetworkState(dt);
+    if (chaseTime > 3.2 && policeState.level > 0) hintEl.textContent = `On foot${policeHudStatus()}`;
   } else if (running && !gameOver && gameMode === "store") {
     moveStoreCharacter(dt);
     updateStorePunch(dt);
@@ -6346,6 +7073,7 @@ function update(dt) {
     sendNetworkState(dt);
   }
   updateWantedMeter();
+  updateMobileControlLayout();
   updatePoliceLights(dt);
   updateRemotePlayers(dt);
   updateDriveEffects(dt);
@@ -6434,7 +7162,78 @@ mobileJumpButton.addEventListener("pointerdown", (event) => {
   inputState.jumpQueued = true;
   event.preventDefault();
 });
+mobileActionButton.addEventListener("pointerdown", (event) => {
+  if (!inputState.mobile || transitionLock || gameOver || !running) return;
+  unlockAudio();
+  mobileActionButton.classList.add("pressed");
+  if (mobileActionButton.setPointerCapture) mobileActionButton.setPointerCapture(event.pointerId);
+  if (gameMode === "driving") exitVehicleToFoot();
+  else if (gameMode === "walking") handleOutsideAction();
+  else if (gameMode === "store") toggleStoreCameraMode();
+  event.preventDefault();
+});
+const releaseMobileAction = () => mobileActionButton.classList.remove("pressed");
+mobileActionButton.addEventListener("pointerup", releaseMobileAction);
+mobileActionButton.addEventListener("pointercancel", releaseMobileAction);
+
+mobilePunchButton.addEventListener("pointerdown", (event) => {
+  if (!inputState.mobile || gameMode !== "store" || transitionLock || storeState.dead) return;
+  unlockAudio();
+  mobilePunchButton.classList.add("pressed");
+  if (mobilePunchButton.setPointerCapture) mobilePunchButton.setPointerCapture(event.pointerId);
+  startStorePunch({ button: 0 });
+  event.preventDefault();
+});
+const releaseMobilePunch = (event) => {
+  mobilePunchButton.classList.remove("pressed");
+  if (storeState.punchCharging) releaseStorePunch({ button: 0 });
+  if (event) event.preventDefault();
+};
+mobilePunchButton.addEventListener("pointerup", releaseMobilePunch);
+mobilePunchButton.addEventListener("pointercancel", releaseMobilePunch);
+
+mobileUseButton.addEventListener("pointerdown", (event) => {
+  if (!inputState.mobile || gameMode !== "store" || transitionLock || storeState.dead) return;
+  unlockAudio();
+  mobileUseButton.classList.add("pressed");
+  if (mobileUseButton.setPointerCapture) mobileUseButton.setPointerCapture(event.pointerId);
+  if (storeState.hasMegaforce) startStoreDrink({ button: 2, preventDefault() {} });
+  else tryBuyMegaforce();
+  event.preventDefault();
+});
+const releaseMobileUse = (event) => {
+  mobileUseButton.classList.remove("pressed");
+  if (storeState.drinking) stopStoreDrink({ button: 2, preventDefault() {} });
+  if (event) event.preventDefault();
+};
+mobileUseButton.addEventListener("pointerup", releaseMobileUse);
+mobileUseButton.addEventListener("pointercancel", releaseMobileUse);
 canvas.addEventListener("click", requestStorePointerLock);
+canvas.addEventListener("pointerdown", (event) => {
+  if (!inputState.mobile || gameMode !== "store" || transitionLock || storeState.dead) return;
+  inputState.lookPointerId = event.pointerId;
+  inputState.lookX = event.clientX;
+  inputState.lookY = event.clientY;
+  canvas.setPointerCapture(event.pointerId);
+  event.preventDefault();
+});
+canvas.addEventListener("pointermove", (event) => {
+  if (!inputState.mobile || gameMode !== "store" || inputState.lookPointerId !== event.pointerId) return;
+  const dx = event.clientX - inputState.lookX;
+  const dy = event.clientY - inputState.lookY;
+  inputState.lookX = event.clientX;
+  inputState.lookY = event.clientY;
+  storeState.angle -= dx * 0.006;
+  storeState.cameraYaw = storeState.angle;
+  const pitchLimit = storeState.cameraMode === "first" ? 1.48 : 0.62;
+  storeState.pitch = clamp(storeState.pitch - dy * 0.0048, -pitchLimit, pitchLimit);
+  event.preventDefault();
+});
+const releaseMobileLook = (event) => {
+  if (inputState.lookPointerId === event.pointerId) inputState.lookPointerId = null;
+};
+canvas.addEventListener("pointerup", releaseMobileLook);
+canvas.addEventListener("pointercancel", releaseMobileLook);
 singleplayerButton.addEventListener("click", startSingleplayer);
 createGameButton.addEventListener("click", createGame);
 joinGameButton.addEventListener("click", showJoinGame);
