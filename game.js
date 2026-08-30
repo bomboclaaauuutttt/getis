@@ -163,6 +163,7 @@ const WANTED_TIERS = Object.freeze([
 const POLICE_SPAWN_MIN = 720;
 const POLICE_SPAWN_MAX = 1460;
 const ROADBLOCK_LIFETIME = 38;
+const MIN_WANTED_LEVEL = 1;
 const PLAYER_MAX_HP = 300;
 const VENDOR_MAX_HP = 300;
 const VENDOR_NAME = "OuTii";
@@ -287,7 +288,7 @@ let idleHeat = 0;
 let lastPlayerX = 0;
 let lastPlayerZ = 48;
 const policeState = {
-  level: 0,
+  level: MIN_WANTED_LEVEL,
   dispatchPending: true,
   escalationTimer: 0,
   unseenTimer: 0,
@@ -5528,8 +5529,8 @@ function updateCops(dt) {
   chaseTime += dt;
   backupTime += dt;
   policeState.searchPhase += dt * 0.62;
-  if (chaseTime > 3 && policeState.level === 0 && policeState.dispatchPending) {
-    policeState.level = 1;
+  if (chaseTime > 3 && policeState.dispatchPending) {
+    policeState.level = Math.max(MIN_WANTED_LEVEL, policeState.level);
     policeState.dispatchPending = false;
     policeState.lastKnownX = focusX();
     policeState.lastKnownZ = focusZ();
@@ -5559,20 +5560,18 @@ function updateCops(dt) {
       policeState.spawnTimer = WANTED_TIERS[policeState.level].spawnInterval * 0.35;
       showNotification(`${policeState.level} STAR RESPONSE ESCALATED`, true);
     }
-  } else {
+  } else if (policeState.level > MIN_WANTED_LEVEL) {
     const nearestUnit = cops.reduce((best, cop) => Math.min(best, Math.hypot(cop.x - focusX(), cop.z - focusZ())), Infinity);
     if (nearestUnit > tier.escapeDistance && policeState.lastSeenAgo > 7) policeState.decayTimer += dt;
     else policeState.decayTimer = Math.max(0, policeState.decayTimer - dt * 0.65);
     if (policeState.decayTimer >= tier.loseDelay) {
-      policeState.level--;
+      policeState.level = Math.max(MIN_WANTED_LEVEL, policeState.level - 1);
       policeState.decayTimer = 0;
       policeState.escalationTimer = 0;
-      showNotification(policeState.level > 0 ? `Wanted level reduced to ${policeState.level}` : "You escaped the police");
-      if (policeState.level === 0) {
-        chaseTime = 0;
-        policeState.dispatchPending = false;
-      }
+      showNotification(`Wanted level reduced to ${policeState.level}`);
     }
+  } else {
+    policeState.decayTimer = 0;
   }
 
   const activeTier = WANTED_TIERS[policeState.level];
@@ -5822,8 +5821,8 @@ function collideRemotePlayers() {
 }
 
 function wantedLevel() {
-  if (!running || gameOver || chaseTime < 3) return 0;
-  return clamp(policeState.level, 0, 5);
+  if (!running || gameOver) return 0;
+  return clamp(Math.max(MIN_WANTED_LEVEL, policeState.level), MIN_WANTED_LEVEL, 5);
 }
 
 function updateWantedMeter() {
@@ -5847,7 +5846,9 @@ function policeHudStatus() {
   if (policeState.level <= 0) return "";
   const status = policeState.hasVisual
     ? policeState.visualSource === "helicopter" ? "HELICOPTER VISUAL" : "SPOTTED"
-    : `SEARCHING ${Math.max(0, Math.ceil(WANTED_TIERS[policeState.level].loseDelay - policeState.decayTimer))}s`;
+    : policeState.level <= MIN_WANTED_LEVEL
+      ? "SEARCHING"
+      : `SEARCHING ${Math.max(0, Math.ceil(WANTED_TIERS[policeState.level].loseDelay - policeState.decayTimer))}s`;
   return ` | ${status} | ${cops.length} units`;
 }
 
@@ -7084,7 +7085,7 @@ function resetGame() {
   backupTime = 0;
   idleHeat = 0;
   Object.assign(policeState, {
-    level: 0,
+    level: MIN_WANTED_LEVEL,
     dispatchPending: true,
     escalationTimer: 0,
     unseenTimer: 0,
