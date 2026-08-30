@@ -17,6 +17,17 @@ const joystickEl = document.getElementById("joystick");
 const joystickStickEl = document.getElementById("joystickStick");
 const mobileJumpButton = document.getElementById("mobileJumpButton");
 const menuEl = document.getElementById("menu");
+const customizeButton = document.getElementById("customizeButton");
+const customizeScreenEl = document.getElementById("customizeScreen");
+const saveCustomizeButton = document.getElementById("saveCustomizeButton");
+const backCustomizeButton = document.getElementById("backCustomizeButton");
+const previewHeadEl = document.getElementById("previewHead");
+const previewHairEl = document.getElementById("previewHair");
+const previewTorsoEl = document.getElementById("previewTorso");
+const previewLeftArmEl = document.getElementById("previewLeftArm");
+const previewRightArmEl = document.getElementById("previewRightArm");
+const previewLeftLegEl = document.getElementById("previewLeftLeg");
+const previewRightLegEl = document.getElementById("previewRightLeg");
 const gameOverEl = document.getElementById("gameOver");
 const arrestFx = document.getElementById("arrestFx");
 const singleplayerButton = document.getElementById("singleplayerButton");
@@ -225,6 +236,20 @@ let lastPlayerX = 0;
 let lastPlayerZ = 48;
 let playerName = localStorage.getItem("policeGetawayName") || "";
 let playerColor = colorForName(playerName || "Driver");
+const CHARACTER_STYLE_STORAGE = "policeGetawayCharacterStyle";
+const CHARACTER_PALETTES = {
+  skin: ["#f1c08a", "#d99b64", "#9f6b45", "#6a4532", "#f5d7ad", "#c7866a"],
+  hair: ["#171411", "#4a2a14", "#d7b05e", "#7b4930", "#0f0f10", "#c74b31"],
+  shirt: ["#2f6fd0", "#e2363d", "#1ca35a", "#f0d44e", "#20252b", "#8f52d7"],
+  pants: ["#123d87", "#27313a", "#395642", "#7d512e", "#6d6d72", "#111315"],
+};
+const DEFAULT_CHARACTER_STYLE = {
+  skin: "#f1c08a",
+  hair: "#171411",
+  shirt: "#2f6fd0",
+  pants: "#123d87",
+};
+let characterStyle = loadCharacterStyle();
 let lastWantedNoticeLevel = 0;
 let gameMode = "driving";
 let transitionLock = false;
@@ -664,6 +689,81 @@ function colorForName(name) {
     h = Math.imul(h, 16777619);
   }
   return palette[(h >>> 0) % palette.length];
+}
+
+function cleanHexColor(value, fallback) {
+  const text = String(value || "").trim().toLowerCase();
+  return /^#[0-9a-f]{6}$/.test(text) ? text : fallback;
+}
+
+function hexToNumber(value) {
+  return Number.parseInt(String(value).replace("#", ""), 16);
+}
+
+function shadeHex(value, amount) {
+  const color = new THREE.Color(cleanHexColor(value, "#ffffff"));
+  color.offsetHSL(0, 0, amount);
+  return `#${color.getHexString()}`;
+}
+
+function loadCharacterStyle() {
+  let saved = {};
+  try {
+    saved = JSON.parse(localStorage.getItem(CHARACTER_STYLE_STORAGE) || "{}") || {};
+  } catch {
+    saved = {};
+  }
+  return sanitizeCharacterStyle(saved);
+}
+
+function sanitizeCharacterStyle(style = {}) {
+  const clean = {};
+  for (const key of Object.keys(DEFAULT_CHARACTER_STYLE)) {
+    const fallback = DEFAULT_CHARACTER_STYLE[key];
+    const value = cleanHexColor(style[key], fallback);
+    clean[key] = CHARACTER_PALETTES[key].includes(value) ? value : fallback;
+  }
+  return clean;
+}
+
+function saveCharacterStyle() {
+  characterStyle = sanitizeCharacterStyle(characterStyle);
+  localStorage.setItem(CHARACTER_STYLE_STORAGE, JSON.stringify(characterStyle));
+  applyCharacterStyleToPerson(storeState.character, characterStyle);
+  if (storeState.fist) applyCharacterStyleToPerson(storeState.fist, characterStyle);
+}
+
+function characterStyleMaterials(style = characterStyle) {
+  const clean = sanitizeCharacterStyle(style);
+  return {
+    shirt: new THREE.MeshLambertMaterial({ color: hexToNumber(clean.shirt) }),
+    shirtLight: new THREE.MeshLambertMaterial({ color: hexToNumber(shadeHex(clean.shirt, 0.12)) }),
+    pants: new THREE.MeshLambertMaterial({ color: hexToNumber(clean.pants) }),
+    skin: new THREE.MeshLambertMaterial({ color: hexToNumber(clean.skin) }),
+    skinShadow: new THREE.MeshLambertMaterial({ color: hexToNumber(shadeHex(clean.skin, -0.16)) }),
+    hair: new THREE.MeshLambertMaterial({ color: hexToNumber(clean.hair) }),
+    shoe: new THREE.MeshLambertMaterial({ color: 0x111315 }),
+  };
+}
+
+function setStyleSlot(mesh, slot) {
+  mesh.userData.characterSlot = slot;
+  return mesh;
+}
+
+function applyCharacterStyleToPerson(root, style = characterStyle) {
+  if (!root) return;
+  const materials = characterStyleMaterials(style);
+  root.traverse((child) => {
+    const slot = child.userData?.characterSlot;
+    if (!slot || !materials[slot]) return;
+    child.material = materials[slot];
+    if (root.userData.firstPersonRoot) {
+      child.material.depthTest = false;
+      child.material.depthWrite = false;
+    }
+  });
+  root.userData.characterStyle = sanitizeCharacterStyle(style);
 }
 
 function hash(x, z, salt = 0) {
@@ -1582,18 +1682,21 @@ function addStoreBox(parent, x, z, w, h, d, material, solid = true) {
   return mesh;
 }
 
-function makePerson() {
+function makePerson(style = characterStyle) {
   const group = new THREE.Group();
+  const personMats = characterStyleMaterials(style);
 
-  function detailBox(parent, x, y, z, w, h, d, material) {
+  function detailBox(parent, x, y, z, w, h, d, material, slot = "") {
     const mesh = makeBox(w, h, d, material);
+    if (slot) setStyleSlot(mesh, slot);
     mesh.position.set(x, y, z);
     parent.add(mesh);
     return mesh;
   }
 
-  function detailSphere(parent, x, y, z, radius, scale, material, segments = 12) {
+  function detailSphere(parent, x, y, z, radius, scale, material, segments = 12, slot = "") {
     const mesh = new THREE.Mesh(new THREE.SphereGeometry(radius, segments, Math.max(8, segments - 2)), material);
+    if (slot) setStyleSlot(mesh, slot);
     mesh.scale.set(scale.x, scale.y, scale.z);
     mesh.position.set(x, y, z);
     mesh.castShadow = true;
@@ -1602,46 +1705,46 @@ function makePerson() {
     return mesh;
   }
 
-  const hips = makeBox(18, 8, 11, mats.personPants);
+  const hips = setStyleSlot(makeBox(18, 8, 11, personMats.pants), "pants");
   hips.position.set(0, 18, 0);
-  const belt = makeBox(19, 2.2, 11.6, mats.personShoe);
+  const belt = setStyleSlot(makeBox(19, 2.2, 11.6, personMats.shoe), "shoe");
   belt.position.set(0, 22.8, -0.2);
-  const torso = makeBox(20, 24, 12, mats.personBody);
+  const torso = setStyleSlot(makeBox(20, 24, 12, personMats.shirt), "shirt");
   torso.position.set(0, 34, 0);
-  const chest = makeBox(13.5, 18, 12.7, mats.personShirtLight);
+  const chest = setStyleSlot(makeBox(13.5, 18, 12.7, personMats.shirtLight), "shirtLight");
   chest.position.set(0, 34.5, -0.42);
-  const collar = makeBox(12, 2.6, 13, mats.personShoe);
+  const collar = setStyleSlot(makeBox(12, 2.6, 13, personMats.shoe), "shoe");
   collar.position.set(0, 46, -0.5);
-  const neck = makeBox(6.5, 5, 6, mats.personSkinShadow);
+  const neck = setStyleSlot(makeBox(6.5, 5, 6, personMats.skinShadow), "skinShadow");
   neck.position.set(0, 48, 0);
 
   const headPivot = new THREE.Group();
   headPivot.position.set(0, 49.5, 0);
-  const head = detailSphere(headPivot, 0, 6, 0, 7.4, { x: 0.95, y: 1.08, z: 0.9 }, mats.personHead, 16);
-  const hairCap = detailSphere(headPivot, 0, 9.6, 0.7, 7.1, { x: 0.95, y: 0.35, z: 0.86 }, mats.personHair, 14);
-  const hairFront = detailBox(headPivot, 0, 10.1, 5.35, 12.2, 3.2, 2.1, mats.personHair);
-  const leftSideburn = detailBox(headPivot, -6.2, 6.5, 2.8, 1.8, 5.8, 2, mats.personHair);
-  const rightSideburn = detailBox(headPivot, 6.2, 6.5, 2.8, 1.8, 5.8, 2, mats.personHair);
+  const head = detailSphere(headPivot, 0, 6, 0, 7.4, { x: 0.95, y: 1.08, z: 0.9 }, personMats.skin, 16, "skin");
+  const hairCap = detailSphere(headPivot, 0, 9.6, 0.7, 7.1, { x: 0.95, y: 0.35, z: 0.86 }, personMats.hair, 14, "hair");
+  const hairFront = detailBox(headPivot, 0, 10.1, 5.35, 12.2, 3.2, 2.1, personMats.hair, "hair");
+  const leftSideburn = detailBox(headPivot, -6.2, 6.5, 2.8, 1.8, 5.8, 2, personMats.hair, "hair");
+  const rightSideburn = detailBox(headPivot, 6.2, 6.5, 2.8, 1.8, 5.8, 2, personMats.hair, "hair");
   const leftEye = detailBox(headPivot, -2.6, 6.5, 6.1, 2.1, 1.25, 0.8, mats.eyeWhite);
   const rightEye = detailBox(headPivot, 2.6, 6.5, 6.1, 2.1, 1.25, 0.8, mats.eyeWhite);
   detailBox(headPivot, -2.6, 6.35, 6.62, 0.75, 0.95, 0.55, mats.glass);
   detailBox(headPivot, 2.6, 6.35, 6.62, 0.75, 0.95, 0.55, mats.glass);
-  detailBox(headPivot, 0, 4.6, 6.45, 1.35, 2.1, 0.75, mats.personSkinShadow);
+  detailBox(headPivot, 0, 4.6, 6.45, 1.35, 2.1, 0.75, personMats.skinShadow, "skinShadow");
   const face = detailBox(headPivot, 0, 2.4, 6.35, 5.6, 0.9, 0.65, mats.glass);
 
   function arm(side) {
     const pivot = new THREE.Group();
-    detailBox(pivot, 0, -5, 0, 6.2, 10, 6, mats.personBody);
-    detailBox(pivot, side * 0.3, -15, 0, 5.2, 11, 5.4, mats.personHead);
-    detailSphere(pivot, side * 0.45, -22.2, -0.2, 3.35, { x: 0.9, y: 0.9, z: 1.02 }, mats.personHead, 10);
+    detailBox(pivot, 0, -5, 0, 6.2, 10, 6, personMats.shirt, "shirt");
+    detailBox(pivot, side * 0.3, -15, 0, 5.2, 11, 5.4, personMats.skin, "skin");
+    detailSphere(pivot, side * 0.45, -22.2, -0.2, 3.35, { x: 0.9, y: 0.9, z: 1.02 }, personMats.skin, 10, "skin");
     return pivot;
   }
 
   function leg(side) {
     const pivot = new THREE.Group();
-    detailBox(pivot, 0, -7.5, 0, 6.4, 15, 6.2, mats.personPants);
-    detailBox(pivot, 0, -18.5, 0, 5.4, 10, 5.4, mats.personPants);
-    detailBox(pivot, 0, -25.2, -2.4, 7.4, 3.7, 10.2, mats.personShoe);
+    detailBox(pivot, 0, -7.5, 0, 6.4, 15, 6.2, personMats.pants, "pants");
+    detailBox(pivot, 0, -18.5, 0, 5.4, 10, 5.4, personMats.pants, "pants");
+    detailBox(pivot, 0, -25.2, -2.4, 7.4, 3.7, 10.2, personMats.shoe, "shoe");
     detailBox(pivot, side * 1.9, -24.1, -2.3, 1.2, 2, 7.4, mats.pumpDark);
     return pivot;
   }
@@ -1666,12 +1769,13 @@ function makePerson() {
   drinkCan.add(drinkLiquid);
   rightArm.add(drinkCan);
 
-  detailBox(group, -13.2, 43.5, 0, 4.5, 7, 7, mats.personBody);
-  detailBox(group, 13.2, 43.5, 0, 4.5, 7, 7, mats.personBody);
-  detailBox(group, 0, 34.2, 6.55, 7.2, 16, 0.9, mats.personShirtLight);
-  detailBox(group, 0, 23.9, 6.65, 15, 1.7, 0.8, mats.personShoe);
+  detailBox(group, -13.2, 43.5, 0, 4.5, 7, 7, personMats.shirt, "shirt");
+  detailBox(group, 13.2, 43.5, 0, 4.5, 7, 7, personMats.shirt, "shirt");
+  detailBox(group, 0, 34.2, 6.55, 7.2, 16, 0.9, personMats.shirtLight, "shirtLight");
+  detailBox(group, 0, 23.9, 6.65, 15, 1.7, 0.8, personMats.shoe, "shoe");
 
   group.add(hips, belt, torso, chest, collar, neck, headPivot, leftArm, rightArm, leftLeg, rightLeg);
+  group.userData.characterStyle = sanitizeCharacterStyle(style);
   group.userData.leftArm = leftArm;
   group.userData.rightArm = rightArm;
   group.userData.leftLeg = leftLeg;
@@ -1692,14 +1796,15 @@ function makePerson() {
 function makeFirstPersonFist() {
   const group = new THREE.Group();
   group.visible = false;
+  const personMats = characterStyleMaterials(characterStyle);
 
-  const arm = new THREE.Mesh(new THREE.CylinderGeometry(3.2, 4.1, 118, 18), mats.personShirtLight);
+  const arm = setStyleSlot(new THREE.Mesh(new THREE.CylinderGeometry(3.2, 4.1, 118, 18), personMats.shirtLight), "shirtLight");
   arm.rotation.x = Math.PI * 0.5;
   arm.rotation.z = 0.03;
   arm.position.set(0, 0, -18);
   arm.castShadow = true;
   arm.receiveShadow = true;
-  const fist = new THREE.Mesh(new THREE.SphereGeometry(5.25, 16, 12), mats.personHead);
+  const fist = setStyleSlot(new THREE.Mesh(new THREE.SphereGeometry(5.25, 16, 12), personMats.skin), "skin");
   fist.scale.set(1.12, 0.9, 1.18);
   fist.position.set(0, 0, -78);
   fist.castShadow = true;
@@ -1719,6 +1824,8 @@ function makeFirstPersonFist() {
   makeFirstPersonOverlay(group);
   group.userData.can = can;
   group.userData.liquid = liquid;
+  group.userData.characterStyle = sanitizeCharacterStyle(characterStyle);
+  group.userData.firstPersonRoot = true;
   group.position.set(18, -38, -46);
   group.rotation.set(-0.06, -0.18, 0.06);
   group.scale.setScalar(0.48);
@@ -1907,7 +2014,7 @@ function addMegaforceDisplay(parent, x, y, z) {
 }
 
 function makeVendor() {
-  const vendor = makePerson();
+  const vendor = makePerson({ skin: "#d99b64", hair: "#4a2a14", shirt: "#1ca35a", pants: "#27313a" });
   vendor.scale.setScalar(0.96);
   vendor.rotation.y = 0;
   const apron = makeBox(14, 21, 1.4, mats.vendorApron);
@@ -4380,6 +4487,77 @@ function showNotification(text, hot = false) {
   window.setTimeout(() => item.remove(), 4700);
 }
 
+function updateCharacterPreview() {
+  const style = sanitizeCharacterStyle(characterStyle);
+  const shirtLight = shadeHex(style.shirt, 0.12);
+  const previewTargets = [
+    previewHeadEl,
+    previewLeftArmEl,
+    previewRightArmEl,
+    previewHairEl,
+    previewTorsoEl,
+    previewLeftLegEl,
+    previewRightLegEl,
+  ];
+  for (const el of previewTargets) {
+    if (!el) continue;
+    el.style.setProperty("--skin", style.skin);
+    el.style.setProperty("--hair", style.hair);
+    el.style.setProperty("--shirt", style.shirt);
+    el.style.setProperty("--shirtLight", shirtLight);
+    el.style.setProperty("--pants", style.pants);
+  }
+  document.querySelectorAll(".swatch-button").forEach((button) => {
+    button.classList.toggle("active", characterStyle[button.dataset.part] === button.dataset.color);
+  });
+}
+
+function buildCharacterCustomisation() {
+  document.querySelectorAll(".customize-row").forEach((row) => {
+    const part = row.dataset.part;
+    const swatches = row.querySelector(".swatches");
+    if (!part || !swatches || !CHARACTER_PALETTES[part]) return;
+    swatches.textContent = "";
+    CHARACTER_PALETTES[part].forEach((color) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "swatch-button";
+      button.dataset.part = part;
+      button.dataset.color = color;
+      button.style.setProperty("--swatch", color);
+      button.setAttribute("aria-label", `${part} ${color}`);
+      button.addEventListener("click", () => {
+        characterStyle = sanitizeCharacterStyle({ ...characterStyle, [part]: color });
+        updateCharacterPreview();
+        playUiClick();
+      });
+      swatches.appendChild(button);
+    });
+  });
+  updateCharacterPreview();
+}
+
+function openCharacterCustomisation() {
+  playConfirmSound();
+  characterStyle = sanitizeCharacterStyle(characterStyle);
+  updateCharacterPreview();
+  menuEl.classList.add("hidden");
+  customizeScreenEl.classList.remove("hidden");
+  setMenuStatus("");
+}
+
+function closeCharacterCustomisation(save = false) {
+  if (save) {
+    saveCharacterStyle();
+    showNotification("Character saved");
+    playPurchaseSound();
+  } else {
+    playUiClick();
+  }
+  customizeScreenEl.classList.add("hidden");
+  menuEl.classList.remove("hidden");
+}
+
 function submitPlayerName() {
   playerName = cleanPlayerName(playerNameInput.value);
   playerColor = colorForName(playerName);
@@ -4444,6 +4622,7 @@ function localNetworkState() {
   return {
     name: playerName,
     color: playerColor,
+    characterStyle: sanitizeCharacterStyle(characterStyle),
     x: player.x,
     z: player.z,
     y: player.y || 0,
@@ -4515,6 +4694,7 @@ function applyRemoteState(peerId, state) {
   if (!peerId || peerId === multiplayer.peerId || !state) return;
   const remoteName = state.name || "Driver";
   const remoteColor = state.color || colorForName(`${remoteName}-${peerId}`);
+  const remoteCharacterStyle = sanitizeCharacterStyle(state.characterStyle || {});
   let remote = remotePlayers.get(peerId);
   if (remote && remote.paintColor !== remoteColor) {
     scene.remove(remote.group);
@@ -4564,12 +4744,14 @@ function applyRemoteState(peerId, state) {
     deathPitch: Number.isFinite(state.storeDeathPitch) ? state.storeDeathPitch : 0,
   };
   if (!remote.storeCharacter && storeState.group) {
-    remote.storeCharacter = makePerson();
+    remote.storeCharacter = makePerson(remoteCharacterStyle);
     remote.storeCharacter.scale.setScalar(1.14);
     remote.storeCharacter.position.set(remote.storeTarget.x, 0, remote.storeTarget.z);
     remote.storeCharacter.rotation.y = remote.storeTarget.angle;
     remote.storeCharacter.visible = false;
     storeState.group.add(remote.storeCharacter);
+  } else if (remote.storeCharacter && JSON.stringify(remote.storeCharacter.userData.characterStyle || {}) !== JSON.stringify(remoteCharacterStyle)) {
+    applyCharacterStyleToPerson(remote.storeCharacter, remoteCharacterStyle);
   }
   setStoreNameTag(remote);
   remote.lastSeen = performance.now();
@@ -5201,6 +5383,9 @@ nameFormEl.addEventListener("submit", (event) => {
 });
 phoneButton.addEventListener("click", () => chooseDevice("phone"));
 computerButton.addEventListener("click", () => chooseDevice("computer"));
+customizeButton.addEventListener("click", openCharacterCustomisation);
+saveCustomizeButton.addEventListener("click", () => closeCharacterCustomisation(true));
+backCustomizeButton.addEventListener("click", () => closeCharacterCustomisation(false));
 joystickEl.addEventListener("pointerdown", (event) => {
   if (!inputState.mobile) return;
   inputState.joystickPointerId = event.pointerId;
@@ -5238,6 +5423,7 @@ joinForm.addEventListener("submit", (event) => {
 restartButton.addEventListener("click", resetGame);
 
 resize();
+buildCharacterCustomisation();
 createSMarketInterior();
 updateChunks();
 updateCamera(0.016);

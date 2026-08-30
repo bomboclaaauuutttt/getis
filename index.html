@@ -86,6 +86,7 @@
         <div class="menu-rule"></div>
         <p>Escape cops. Drift through traffic. Get paid for reckless driving.</p>
         <div class="menu-actions">
+          <button id="customizeButton" class="customize-button">Character Customisation</button>
           <button id="singleplayerButton">Singleplayer</button>
           <button id="joinPublicButton" class="public-button">Join public server</button>
           <button id="createGameButton">Create private game</button>
@@ -96,6 +97,55 @@
           <button id="joinConfirmButton" type="submit">Join</button>
         </form>
         <div id="menuStatus" class="menu-status"></div>
+      </div>
+    </div>
+
+    <div id="customizeScreen" class="menu-screen customize-screen hidden">
+      <div class="menu-flash"></div>
+      <div class="arrest-scanlines"></div>
+      <div class="customize-card">
+        <div class="menu-kicker">Character creator</div>
+        <h1>Customise</h1>
+        <div class="menu-rule"></div>
+        <div class="customize-layout">
+          <div class="character-preview">
+            <div id="previewHead" class="preview-head">
+              <span id="previewHair"></span>
+              <i></i>
+            </div>
+            <div id="previewTorso" class="preview-torso"></div>
+            <div class="preview-arms">
+              <span id="previewLeftArm"></span>
+              <span id="previewRightArm"></span>
+            </div>
+            <div class="preview-legs">
+              <span id="previewLeftLeg"></span>
+              <span id="previewRightLeg"></span>
+            </div>
+          </div>
+          <div class="customize-options">
+            <div class="customize-row" data-part="skin">
+              <strong>Skin</strong>
+              <div class="swatches"></div>
+            </div>
+            <div class="customize-row" data-part="hair">
+              <strong>Hair</strong>
+              <div class="swatches"></div>
+            </div>
+            <div class="customize-row" data-part="shirt">
+              <strong>Shirt</strong>
+              <div class="swatches"></div>
+            </div>
+            <div class="customize-row" data-part="pants">
+              <strong>Pants</strong>
+              <div class="swatches"></div>
+            </div>
+          </div>
+        </div>
+        <div class="customize-actions">
+          <button id="saveCustomizeButton">Save character</button>
+          <button id="backCustomizeButton" class="secondary-button">Back</button>
+        </div>
       </div>
     </div>
 
