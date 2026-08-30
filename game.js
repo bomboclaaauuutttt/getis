@@ -447,10 +447,10 @@ function makeCarShellGeometry(width, height, depth) {
 }
 
 const carGeometry = {
-  body: new THREE.BoxGeometry(28, 8.8, 50),
-  hood: new THREE.BoxGeometry(26, 5.2, 17),
-  trunkBox: new THREE.BoxGeometry(26, 5.8, 15),
-  cabinFrame: new THREE.BoxGeometry(21.5, 15.5, 23),
+  body: makeCarShellGeometry(29.5, 10.5, 52),
+  hood: makeHoodGeometry(27, 5.2, 18),
+  trunkBox: makeHoodGeometry(27, 5.6, 16),
+  cabinFrame: makeCarShellGeometry(23, 15.5, 27),
   roof: new THREE.BoxGeometry(19.2, 3.3, 20),
   topGlass: new THREE.BoxGeometry(15.5, 0.75, 15.8),
   sideWindow: new THREE.BoxGeometry(0.85, 8.2, 8.5),
@@ -463,12 +463,15 @@ const carGeometry = {
   light: new THREE.BoxGeometry(5.2, 2, 1.1),
   tailLight: new THREE.BoxGeometry(4.5, 2, 1.1),
   bumper: new THREE.BoxGeometry(22, 2.5, 2.2),
+  grille: new THREE.BoxGeometry(13, 4.2, 1.2),
+  plate: new THREE.BoxGeometry(8.5, 2.4, 0.7),
+  sideSkirt: new THREE.BoxGeometry(2.2, 2.5, 35),
+  mirror: new THREE.BoxGeometry(3.4, 2.4, 5),
   policeBeacon: new THREE.BoxGeometry(7.4, 2.4, 4.2),
   policeGlow: new THREE.CircleGeometry(32, 24),
   arrestZone: new THREE.RingGeometry(COP_ARREST_RADIUS - 2.8, COP_ARREST_RADIUS, 72),
   wheel: new THREE.CylinderGeometry(4.8, 4.8, 5.4, 20),
   hubcap: new THREE.CylinderGeometry(2.45, 2.45, 0.7, 18),
-  fender: new THREE.BoxGeometry(5.4, 3.4, 10.8),
   policeTopStripe: new THREE.BoxGeometry(4.2, 0.7, 36),
   policeSideStripe: new THREE.BoxGeometry(0.9, 3.1, 34),
 };
@@ -1276,24 +1279,45 @@ function setStoreNameTag(remote) {
 
 function makeMarketSign() {
   const canvas = document.createElement("canvas");
-  canvas.width = 512;
-  canvas.height = 160;
+  canvas.width = 1024;
+  canvas.height = 280;
   const ctx = canvas.getContext("2d");
-  ctx.fillStyle = "#0f75c8";
+  const blue = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
+  blue.addColorStop(0, "#179ee0");
+  blue.addColorStop(1, "#0874bd");
+  ctx.fillStyle = blue;
   ctx.fillRect(0, 0, canvas.width, canvas.height);
-  ctx.fillStyle = "rgba(255, 255, 255, 0.18)";
-  ctx.fillRect(0, 0, canvas.width, 12);
-  ctx.font = "900 58px Arial, Helvetica, sans-serif";
+  ctx.fillStyle = "rgba(255, 255, 255, 0.22)";
+  ctx.fillRect(0, 0, canvas.width, 18);
+
+  ctx.fillStyle = "#ffffff";
+  ctx.beginPath();
+  ctx.roundRect(42, 43, 176, 176, 34);
+  ctx.fill();
+  const logoGradient = ctx.createLinearGradient(58, 56, 202, 208);
+  logoGradient.addColorStop(0, "#41b94b");
+  logoGradient.addColorStop(0.52, "#18a957");
+  logoGradient.addColorStop(0.53, "#169add");
+  logoGradient.addColorStop(1, "#0877c4");
+  ctx.fillStyle = logoGradient;
+  ctx.font = "italic 900 142px Arial, Helvetica, sans-serif";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.lineWidth = 8;
-  ctx.strokeStyle = "rgba(0, 34, 70, 0.8)";
-  ctx.strokeText("S-MARKET", 256, 69);
+  ctx.fillText("S", 130, 135);
+
+  ctx.font = "900 112px Arial, Helvetica, sans-serif";
+  ctx.textAlign = "left";
+  ctx.textBaseline = "middle";
+  ctx.lineWidth = 12;
+  ctx.strokeStyle = "rgba(0, 42, 76, 0.65)";
+  ctx.strokeText("S-MARKET", 252, 118);
   ctx.fillStyle = "#ffffff";
-  ctx.fillText("S-MARKET", 256, 69);
-  ctx.font = "900 25px Arial, Helvetica, sans-serif";
-  ctx.fillText("7-22  11-19", 256, 122);
+  ctx.fillText("S-MARKET", 252, 118);
+  ctx.font = "700 39px Arial, Helvetica, sans-serif";
+  ctx.fillStyle = "rgba(255, 255, 255, 0.94)";
+  ctx.fillText("AVOINNA  7-22   |   SU 11-19", 258, 208);
   const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
   texture.needsUpdate = true;
   return new THREE.MeshBasicMaterial({ map: texture, transparent: true });
 }
@@ -1321,24 +1345,23 @@ function makeVehicle(kind, x, z, angle, paintColor = null) {
     return mesh;
   };
 
-  addPart(carGeometry.body, mat, 0, 7.4, 0);
-  addPart(carGeometry.hood, mat, 0, 13.3, -16.8);
-  addPart(carGeometry.trunkBox, mat, 0, 13.6, 18.4);
-  addPart(carGeometry.cabinFrame, mat, 0, 18.5, -1.4);
+  addPart(carGeometry.body, mat, 0, 2.8, 0);
+  addPart(carGeometry.hood, mat, 0, 10.3, -17.2);
+  addPart(carGeometry.trunkBox, mat, 0, 10.5, 18.4, 0, Math.PI);
+  addPart(carGeometry.cabinFrame, mat, 0, 12.2, -1.2);
   addPart(carGeometry.roof, mat, 0, 27.7, -1.4);
   addPart(carGeometry.topGlass, mats.glass, 0, 29.65, -1.4);
-  addPart(carGeometry.windowDivider, mats.outline, 0, 30.1, -1.4);
-  addPart(carGeometry.hoodLine, mats.outline, 0, 16.05, -16.8);
-  addPart(carGeometry.trunkLine, mats.outline, 0, 16.85, 18.4);
+  addPart(carGeometry.windowDivider, mats.outline, 0, 29.5, -1.4);
   addPart(carGeometry.windshield, mats.glass, 0, 20.5, -13.2, -0.14);
   addPart(carGeometry.windshield, mats.glass, 0, 20.2, 10.6, 0.12);
 
   for (const sx of [-1, 1]) {
-    addPart(carGeometry.sideWindow, mats.glass, sx * 11.1, 21.1, -6.2);
-    addPart(carGeometry.sideWindow, mats.glass, sx * 11.1, 21.1, 3.6);
-    addPart(carGeometry.doorLine, mats.outline, sx * 14.2, 13.8, -1.1);
-    addPart(carGeometry.handle, mats.outline, sx * 14.35, 16.4, -6.5);
-    addPart(carGeometry.handle, mats.outline, sx * 14.35, 16.4, 4.8);
+    addPart(carGeometry.sideWindow, mats.glass, sx * 10.9, 21.1, -6.2);
+    addPart(carGeometry.sideWindow, mats.glass, sx * 10.9, 21.1, 3.6);
+    addPart(carGeometry.handle, mats.outline, sx * 14.3, 15.5, -5.5);
+    addPart(carGeometry.handle, mats.outline, sx * 14.3, 15.5, 5.2);
+    addPart(carGeometry.sideSkirt, mats.tire, sx * 14.25, 5.1, 1.2);
+    addPart(carGeometry.mirror, mat, sx * 13.1, 19.2, -10.4, 0, 0, sx * 0.08);
   }
 
   if (kind === "cop") {
@@ -1389,10 +1412,12 @@ function makeVehicle(kind, x, z, angle, paintColor = null) {
   addPart(carGeometry.tailLight, mats.copRed, 7.2, 10.2, 25.5);
   addPart(carGeometry.bumper, mats.tire, 0, 6.2, -26.4);
   addPart(carGeometry.bumper, mats.tire, 0, 6.2, 26.4);
+  addPart(carGeometry.grille, mats.pumpDark, 0, 8.8, -26.2);
+  addPart(carGeometry.plate, mats.curb, 0, 5.7, -27.7);
+  addPart(carGeometry.plate, mats.curb, 0, 6.2, 27.7);
 
   for (const sx of [-11.8, 11.8]) {
     for (const sz of [-15.6, 15.6]) {
-      addPart(carGeometry.fender, mat, sx, 8.4, sz);
       addPart(carGeometry.wheel, mats.tire, sx * 1.09, 5.2, sz, 0, 0, Math.PI / 2);
       addPart(carGeometry.hubcap, mats.hubcap, sx * 1.09, 5.2, sz, 0, 0, Math.PI / 2);
     }
@@ -1541,8 +1566,28 @@ function addBush(parent, x, z, scale = 1) {
   parent.add(bush);
 }
 
+function makeBuildingLabel(text, background = "#174e86", foreground = "#ffffff") {
+  const canvas = document.createElement("canvas");
+  canvas.width = 512;
+  canvas.height = 128;
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = background;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = "rgba(255,255,255,0.18)";
+  ctx.fillRect(0, 0, canvas.width, 10);
+  ctx.font = "900 64px Arial, Helvetica, sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillStyle = foreground;
+  ctx.fillText(text, 256, 66);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return new THREE.MeshBasicMaterial({ map: texture });
+}
+
 function makeBuilding(x, z, w, d, h, type, rng, parent) {
   const group = new THREE.Group();
+  const specialVariant = type === "special" ? (hash(Math.round(x), Math.round(z), 804) % 2 ? "school" : "civic") : "";
   const mat = type === "shop" ? buildingMats[3] : type === "special" ? buildingMats[4] : buildingMats[Math.floor(rng() * 3)];
   const yard = makePlane(w + 24, d + 24, type === "shop" ? mats.concrete : mats.lawn, 0.035);
   yard.position.y = 0.035;
@@ -1598,10 +1643,34 @@ function makeBuilding(x, z, w, d, h, type, rng, parent) {
   }
 
   if (type === "special") {
-    const tower = new THREE.Mesh(new THREE.CylinderGeometry(7, 10, 54, 10), buildingMats[4]);
-    tower.position.set(w * 0.28, h + 27, d * 0.2);
-    tower.castShadow = true;
-    group.add(tower);
+    const labelText = specialVariant === "school" ? "KOULU" : "KAUPUNGINTALO";
+    const label = new THREE.Mesh(new THREE.PlaneGeometry(Math.min(w * 0.62, 62), 13), makeBuildingLabel(labelText, specialVariant === "school" ? "#cfb331" : "#315e75"));
+    label.position.set(-w * 0.1, h * 0.7, -d * 0.5 - 2.5);
+    label.rotation.y = Math.PI;
+    label.renderOrder = 7;
+    group.add(label);
+
+    if (specialVariant === "school") {
+      for (const sx of [-w * 0.3, -w * 0.1, w * 0.1]) {
+        addBuildingWindow(group, sx, h * 0.42, -d * 0.5 - 1.3, 13, 19, "front", true);
+      }
+      const flagPole = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 1, 48, 8), mats.metal);
+      flagPole.position.set(w * 0.42, 24, -d * 0.5 - 12);
+      const flag = makeBox(14, 8, 0.8, mats.marketBlue);
+      flag.position.set(w * 0.42 - 6.5, 43, -d * 0.5 - 12);
+      group.add(flagPole, flag);
+    } else {
+      const tower = makeBox(24, 48, 24, buildingMats[4]);
+      tower.position.set(w * 0.3, h + 18, d * 0.12);
+      const towerRoof = new THREE.Mesh(new THREE.ConeGeometry(19, 22, 4), mats.roofDark);
+      towerRoof.rotation.y = Math.PI * 0.25;
+      towerRoof.position.set(w * 0.3, h + 53, d * 0.12);
+      towerRoof.castShadow = true;
+      const clock = new THREE.Mesh(new THREE.CircleGeometry(6, 20), mats.light);
+      clock.position.set(w * 0.3, h + 27, d * 0.12 - 12.6);
+      clock.rotation.y = Math.PI;
+      group.add(tower, towerRoof, clock);
+    }
   }
 
   group.rotation.y = Math.floor(rng() * 2) * Math.PI;
@@ -1776,26 +1845,59 @@ function addSMarket(parent, x, z) {
   addCurb(parent, x, z - 182, 680, 4);
   addCurb(parent, x, z + 162, 680, 4);
 
-  const building = makeBox(440, 76, 132, mats.marketBrick);
-  building.position.set(x + 42, 38, z + 82);
-  const frontHall = makeBox(172, 108, 140, mats.marketWall);
-  frontHall.position.set(x - 176, 54, z + 76);
-  const rightWing = makeBox(190, 62, 120, mats.stationWall);
-  rightWing.position.set(x + 338, 31, z + 74);
-  const roof = makeBox(466, 10, 154, mats.roof);
-  roof.position.set(x + 42, 83, z + 82);
-  const hallRoof = makeBox(194, 10, 160, mats.roof);
-  hallRoof.position.set(x - 176, 113, z + 76);
-  const wingRoof = makeBox(206, 9, 138, mats.roof);
-  wingRoof.position.set(x + 338, 67, z + 74);
+  const building = makeBox(440, 82, 132, mats.marketBrick);
+  building.position.set(x + 42, 41, z + 82);
+  const frontHall = makeBox(172, 112, 140, mats.marketWall);
+  frontHall.position.set(x - 176, 56, z + 76);
+  const rightWing = makeBox(190, 70, 120, mats.stationWall);
+  rightWing.position.set(x + 338, 35, z + 74);
+  const roof = makeBox(466, 8, 154, mats.roofDark);
+  roof.position.set(x + 42, 86, z + 82);
+  const hallRoof = makeBox(194, 8, 160, mats.roofDark);
+  hallRoof.position.set(x - 176, 116, z + 76);
+  const wingRoof = makeBox(206, 8, 138, mats.roofDark);
+  wingRoof.position.set(x + 338, 74, z + 74);
   parent.add(building, frontHall, rightWing, roof, hallRoof, wingRoof);
 
-  const blueFacade = makeBox(186, 46, 5, mats.marketBlue);
-  blueFacade.position.set(x - 176, 74, z + 3);
-  const signBack = makeBox(190, 56, 4, mats.marketGlow);
-  signBack.position.set(x - 176, 75, z - 0.5);
-  const sign = new THREE.Mesh(new THREE.PlaneGeometry(170, 52), makeMarketSign());
-  sign.position.set(x - 176, 77, z - 3.2);
+  const lowerFacade = makeBox(438, 18, 5, mats.foundation);
+  lowerFacade.position.set(x + 42, 9, z + 14);
+  const upperBand = makeBox(438, 16, 5, mats.marketWall);
+  upperBand.position.set(x + 42, 69, z + 14);
+  parent.add(lowerFacade, upperBand);
+
+  for (let i = 0; i < 9; i++) {
+    const panelX = x - 128 + i * 49;
+    const windowFrame = makeBox(39, 33, 2.4, mats.metal);
+    windowFrame.position.set(panelX, 38, z + 10.8);
+    const windowGlass = makeBox(33, 27, 2.8, i % 4 === 0 ? mats.windowWarm : mats.window);
+    windowGlass.position.set(panelX, 38, z + 8.9);
+    const brickPier = makeBox(7, 50, 5, mats.marketBrick);
+    brickPier.position.set(panelX + 23, 34, z + 11.2);
+    parent.add(windowFrame, windowGlass, brickPier);
+  }
+
+  const loadingDoorA = makeBox(48, 34, 3, mats.pumpDark);
+  loadingDoorA.position.set(x + 312, 20, z + 10);
+  const loadingDoorB = makeBox(48, 34, 3, mats.pumpDark);
+  loadingDoorB.position.set(x + 370, 20, z + 10);
+  const loadingCanopy = makeBox(126, 5, 22, mats.roofDark);
+  loadingCanopy.position.set(x + 341, 43, z - 1);
+  parent.add(loadingDoorA, loadingDoorB, loadingCanopy);
+
+  for (const [hx, hz, hw, hd] of [[x - 42, z + 74, 54, 34], [x + 92, z + 84, 68, 38], [x + 286, z + 72, 52, 34]]) {
+    const hvacBase = makeBox(hw, 8, hd, mats.metal);
+    hvacBase.position.set(hx, 94, hz);
+    const hvacTop = makeBox(hw * 0.72, 6, hd * 0.7, mats.foundation);
+    hvacTop.position.set(hx, 101, hz);
+    parent.add(hvacBase, hvacTop);
+  }
+
+  const blueFacade = makeBox(204, 63, 7, mats.marketBlue);
+  blueFacade.position.set(x - 176, 79, z + 3);
+  const signBack = makeBox(212, 69, 5, mats.marketGlow);
+  signBack.position.set(x - 176, 79, z - 1);
+  const sign = new THREE.Mesh(new THREE.PlaneGeometry(194, 58), makeMarketSign());
+  sign.position.set(x - 176, 80, z - 4.2);
   sign.rotation.y = Math.PI;
   sign.renderOrder = 8;
   parent.add(blueFacade, signBack, sign);
@@ -1805,15 +1907,21 @@ function addSMarket(parent, x, z) {
   entryPad.renderOrder = 3;
   parent.add(entryPad);
 
-  const entryFrame = makeBox(126, 52, 5, mats.marketBlue);
-  entryFrame.position.set(x - 176, 26, z - 2);
-  parent.add(entryFrame);
+  const entryLeft = makeBox(13, 58, 13, mats.marketBlue);
+  entryLeft.position.set(x - 235, 29, z - 3);
+  const entryRight = makeBox(13, 58, 13, mats.marketBlue);
+  entryRight.position.set(x - 117, 29, z - 3);
+  const entryLintel = makeBox(131, 13, 14, mats.marketBlue);
+  entryLintel.position.set(x - 176, 52, z - 3);
+  const vestibuleRoof = makeBox(148, 6, 38, mats.roofDark);
+  vestibuleRoof.position.set(x - 176, 60, z - 15);
+  parent.add(entryLeft, entryRight, entryLintel, vestibuleRoof);
   addSMarketEntranceGlow(parent, x - 176, z - 5);
 
-  for (let i = 0; i < 12; i++) {
-    const window = makeBox(22, 24, 1.4, mats.glass);
-    window.position.set(x - 64 + i * 32, 24, z + 12);
-    parent.add(window);
+  for (const bx of [-244, -224, -204, -148, -128, -108]) {
+    const bollard = new THREE.Mesh(new THREE.CylinderGeometry(2.1, 2.1, 15, 10), mats.marketBlue);
+    bollard.position.set(x + bx, 7.5, z - 45);
+    parent.add(bollard);
   }
 
   addParkingBayRow(parent, x - 16, z - 160, 13, 42, 62, 1);
@@ -1845,6 +1953,46 @@ function addSMarket(parent, x, z) {
       leg.position.set(x + 212 + sx, 8.5, z - 56 + sz);
       parent.add(leg);
     }
+  }
+
+  for (let i = 0; i < 5; i++) {
+    const cart = new THREE.Group();
+    const basket = new THREE.Mesh(new THREE.BoxGeometry(15, 8, 18), mats.metal);
+    basket.position.y = 10;
+    basket.scale.set(1, 0.72, 1);
+    const handle = makeBox(19, 1.5, 1.5, mats.marketBlue);
+    handle.position.set(0, 16, 7);
+    cart.add(basket, handle);
+    for (const cx of [-6, 6]) {
+      for (const cz of [-6, 6]) {
+        const wheel = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.5, 1.2, 8), mats.tire);
+        wheel.rotation.z = Math.PI * 0.5;
+        wheel.position.set(cx, 3, cz);
+        cart.add(wheel);
+      }
+    }
+    cart.position.set(x + 190 + i * 10, 1, z - 56);
+    cart.scale.setScalar(0.78);
+    parent.add(cart);
+  }
+
+  for (let i = 0; i < 5; i++) {
+    const rack = new THREE.Mesh(new THREE.TorusGeometry(8, 1.2, 6, 16, Math.PI), mats.metal);
+    rack.rotation.y = Math.PI * 0.5;
+    rack.position.set(x - 286 + i * 16, 8, z - 51);
+    parent.add(rack);
+  }
+
+  const recyclingBase = makeBox(66, 24, 28, mats.marketWall);
+  recyclingBase.position.set(x + 277, 12, z - 54);
+  const recyclingTop = makeBox(72, 5, 34, mats.marketBlue);
+  recyclingTop.position.set(x + 277, 27, z - 54);
+  parent.add(recyclingBase, recyclingTop);
+  for (const offset of [-19, 0, 19]) {
+    const opening = new THREE.Mesh(new THREE.CircleGeometry(5.2, 16), mats.pumpDark);
+    opening.position.set(x + 277 + offset, 14, z - 68.1);
+    opening.rotation.y = Math.PI;
+    parent.add(opening);
   }
 
   addSolidRect(parent, x + 42, z + 82, 440, 132, 4);
@@ -1887,65 +2035,49 @@ function makePerson(style = characterStyle) {
     return mesh;
   }
 
-  const hips = setStyleSlot(makeBox(16, 7, 9.5, personMats.pants), "pants");
-  hips.position.set(0, 19.5, 0);
-  const belt = setStyleSlot(makeBox(17.4, 2.1, 10.4, personMats.shoe), "shoe");
-  belt.position.set(0, 23.5, -0.2);
-  const torso = setStyleSlot(makeBox(21, 28, 11, personMats.shirt), "shirt");
-  torso.position.set(0, 38, 0);
-  const chest = setStyleSlot(makeBox(12.5, 26, 11.8, personMats.shirtLight), "shirtLight");
-  chest.position.set(-3.4, 38.7, -0.42);
-  const shirtSide = setStyleSlot(makeBox(4.4, 25, 11.9, personMats.shirtLight), "shirtLight");
-  shirtSide.position.set(-11.2, 37.8, -0.35);
-  const shoulderLeft = setStyleSlot(makeBox(6, 11, 11.5, personMats.shirtLight), "shirtLight");
-  shoulderLeft.position.set(-14.2, 43.5, 0);
-  const shoulderRight = setStyleSlot(makeBox(6, 11, 11.5, personMats.shirt), "shirt");
-  shoulderRight.position.set(14.2, 43.5, 0);
-  const collar = setStyleSlot(makeBox(11.5, 2.4, 11.8, personMats.shoe), "shoe");
-  collar.position.set(0, 52.4, -0.5);
-  const neck = setStyleSlot(makeBox(6.2, 5.8, 5.8, personMats.skinShadow), "skinShadow");
-  neck.position.set(0, 54, 0);
+  const hips = setStyleSlot(makeBox(15, 6, 10, personMats.pants), "pants");
+  hips.position.set(0, 22, 0);
+  const torso = setStyleSlot(makeBox(24, 30, 12, personMats.shirt), "shirt");
+  torso.position.set(0, 39, 0);
+  const shirtFront = setStyleSlot(makeBox(18, 25, 1, personMats.shirtLight), "shirtLight");
+  shirtFront.position.set(0, 39, 6.25);
+  const collar = setStyleSlot(makeBox(9, 2, 12.5, personMats.shirtLight), "shirtLight");
+  collar.position.set(0, 53, 0);
+  const neck = setStyleSlot(makeBox(6, 5, 6, personMats.skinShadow), "skinShadow");
+  neck.position.set(0, 56, 0);
 
   const headPivot = new THREE.Group();
-  headPivot.position.set(0, 56.2, 0);
-  const head = detailSphere(headPivot, 0, 6, 0, 8.4, { x: 0.92, y: 1.02, z: 0.88 }, personMats.skin, 20, "skin");
-  const hairCap = detailSphere(headPivot, 0, 10.2, 0.45, 8.3, { x: 0.95, y: 0.42, z: 0.88 }, personMats.hair, 18, "hair");
-  const hairFront = detailBox(headPivot, 0, 10.7, 5.1, 13.2, 3.4, 2.3, personMats.hair, "hair");
-  const hairBack = detailBox(headPivot, 0, 9.5, -4.7, 12.8, 3.8, 2.8, personMats.hair, "hair");
-  const leftSideburn = detailBox(headPivot, -6.55, 6.4, 2.1, 1.9, 6.2, 2.4, personMats.hair, "hair");
-  const rightSideburn = detailBox(headPivot, 6.55, 6.4, 2.1, 1.9, 6.2, 2.4, personMats.hair, "hair");
-  const leftEye = detailBox(headPivot, -2.7, 6.25, 6.75, 2.2, 1.25, 0.72, mats.eyeWhite);
-  const rightEye = detailBox(headPivot, 2.7, 6.25, 6.75, 2.2, 1.25, 0.72, mats.eyeWhite);
-  detailBox(headPivot, -2.7, 6.16, 7.18, 0.75, 0.95, 0.5, mats.glass);
-  detailBox(headPivot, 2.7, 6.16, 7.18, 0.75, 0.95, 0.5, mats.glass);
-  detailBox(headPivot, 0, 4.55, 7.02, 1.25, 1.9, 0.65, personMats.skinShadow, "skinShadow");
-  const face = detailBox(headPivot, 0, 2.25, 6.98, 5.7, 0.85, 0.55, mats.glass);
+  headPivot.position.set(0, 57, 0);
+  const head = detailSphere(headPivot, 0, 7, 0, 9, { x: 0.9, y: 1.04, z: 0.86 }, personMats.skin, 18, "skin");
+  const hairCap = detailSphere(headPivot, 0, 11, -0.3, 8.8, { x: 0.93, y: 0.42, z: 0.9 }, personMats.hair, 16, "hair");
+  detailBox(headPivot, 0, 11.4, 5.3, 13.5, 2.6, 2.4, personMats.hair, "hair");
+  const leftEye = detailSphere(headPivot, -2.8, 7.4, 7.2, 0.72, { x: 1, y: 1.15, z: 0.5 }, mats.glass, 8);
+  const rightEye = detailSphere(headPivot, 2.8, 7.4, 7.2, 0.72, { x: 1, y: 1.15, z: 0.5 }, mats.glass, 8);
+  const face = detailBox(headPivot, 0, 3.8, 7.45, 5.2, 0.75, 0.48, mats.glass);
 
   function arm(side) {
     const pivot = new THREE.Group();
-    detailBox(pivot, 0, -5.4, 0, 5.4, 11, 5.4, side < 0 ? personMats.shirtLight : personMats.shirt, side < 0 ? "shirtLight" : "shirt");
-    detailBox(pivot, side * 0.25, -17.3, 0, 4.4, 13.5, 4.5, personMats.skin, "skin");
-    detailSphere(pivot, side * 0.35, -25.2, -0.2, 2.75, { x: 0.86, y: 1, z: 0.95 }, personMats.skin, 12, "skin");
+    detailBox(pivot, 0, -5, 0, 6, 10, 6, personMats.shirt, "shirt");
+    detailBox(pivot, 0, -18, 0, 4.8, 17, 4.8, personMats.skin, "skin");
+    detailSphere(pivot, 0, -27, 0, 2.7, { x: 0.9, y: 1, z: 0.9 }, personMats.skin, 10, "skin");
     return pivot;
   }
 
   function leg(side) {
     const pivot = new THREE.Group();
-    detailBox(pivot, 0, -9, 0, 4.6, 18, 4.8, personMats.pants, "pants");
-    detailBox(pivot, side * 0.1, -24.1, 0, 3.9, 12.5, 4.1, personMats.pants, "pants");
-    detailBox(pivot, 0, -32, -2.7, 6.9, 3.2, 9.5, personMats.shoe, "shoe");
-    detailBox(pivot, side * 1.45, -30.8, -2.4, 0.9, 1.8, 7, mats.pumpDark);
+    detailBox(pivot, 0, -13, 0, 5.4, 26, 5.8, personMats.pants, "pants");
+    detailBox(pivot, 0, -27.8, -2.4, 7, 4.2, 10.2, personMats.shoe, "shoe");
     return pivot;
   }
 
   const leftArm = arm(-1);
-  leftArm.position.set(-15.8, 48.5, 0);
+  leftArm.position.set(-15, 49, 0);
   const rightArm = arm(1);
-  rightArm.position.set(15.8, 48.5, 0);
+  rightArm.position.set(15, 49, 0);
   const leftLeg = leg(-1);
-  leftLeg.position.set(-4.8, 20, 0);
+  leftLeg.position.set(-4.5, 21, 0);
   const rightLeg = leg(1);
-  rightLeg.position.set(4.8, 20, 0);
+  rightLeg.position.set(4.5, 21, 0);
   const drinkCan = new THREE.Group();
   drinkCan.position.set(1.5, -24, 7.2);
   drinkCan.rotation.set(1.1, 0.1, 0.05);
@@ -1958,10 +2090,7 @@ function makePerson(style = characterStyle) {
   drinkCan.add(drinkLiquid);
   rightArm.add(drinkCan);
 
-  detailBox(group, 0, 39.2, 6.12, 8.4, 21, 0.8, personMats.shirtLight, "shirtLight");
-  detailBox(group, 0, 24.8, 5.65, 14.5, 1.6, 0.72, personMats.shoe, "shoe");
-
-  group.add(hips, belt, torso, chest, shirtSide, shoulderLeft, shoulderRight, collar, neck, headPivot, leftArm, rightArm, leftLeg, rightLeg);
+  group.add(hips, torso, shirtFront, collar, neck, headPivot, leftArm, rightArm, leftLeg, rightLeg);
   group.userData.characterStyle = sanitizeCharacterStyle(style);
   group.userData.leftArm = leftArm;
   group.userData.rightArm = rightArm;
@@ -3649,6 +3778,57 @@ function addPlayground(parent, x, z, rng) {
   }
 }
 
+function addBusStop(parent, x, z, axis) {
+  const stop = new THREE.Group();
+  stop.position.set(x, 0, z);
+  stop.rotation.y = axis === "z" ? Math.PI * 0.5 : 0;
+
+  const pad = makePlane(58, 27, mats.concrete, 0.08);
+  pad.position.y = 0.08;
+  const roof = makeBox(54, 3.5, 24, mats.marketBlue);
+  roof.position.set(0, 29, 0);
+  const backFrame = makeBox(54, 24, 2.2, mats.metal);
+  backFrame.position.set(0, 15, 10.5);
+  const backGlass = makeBox(47, 19, 1.4, mats.window);
+  backGlass.position.set(0, 15, 9.2);
+  stop.add(pad, roof, backFrame, backGlass);
+
+  for (const side of [-1, 1]) {
+    const sideFrame = makeBox(2.2, 24, 21, mats.metal);
+    sideFrame.position.set(side * 25.8, 15, 0);
+    stop.add(sideFrame);
+  }
+
+  const seat = makeBox(34, 3, 8, mats.fence);
+  seat.position.set(0, 8, 5);
+  const seatBack = makeBox(34, 11, 2.2, mats.fence);
+  seatBack.position.set(0, 14, 8.5);
+  stop.add(seat, seatBack);
+
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(1.1, 1.4, 31, 8), mats.metal);
+  pole.position.set(35, 15.5, 0);
+  const marker = makeBox(12, 15, 2.2, mats.marketBlue);
+  marker.position.set(35, 29, 0);
+  const markerFace = new THREE.Mesh(new THREE.CircleGeometry(4, 16), mats.light);
+  markerFace.position.set(35, 30, -1.2);
+  stop.add(pole, marker, markerFace);
+  parent.add(stop);
+}
+
+function findRoadsideSpot(baseX, baseZ, rng, reserved, placed) {
+  for (let i = 0; i < 28; i++) {
+    const x = baseX + (rng() - 0.5) * (CHUNK - 48);
+    const z = baseZ + (rng() - 0.5) * (CHUNK - 48);
+    if (inSpawnRoadKeepout(x, z)) continue;
+    const road = nearestRoad(x, z);
+    if (road.distance < ROAD * 0.5 + 12 || road.distance > ROAD * 0.5 + 28) continue;
+    if (reserved.some((p) => Math.abs(p.x - x) < p.w * 0.55 + 34 && Math.abs(p.z - z) < p.d * 0.55 + 24)) continue;
+    if (placed.some((p) => Math.abs(p.x - x) < p.w * 0.55 + 34 && Math.abs(p.z - z) < p.d * 0.55 + 24)) continue;
+    return { x, z, axis: road.axis };
+  }
+  return null;
+}
+
 function addAmbientLandscape(parent, baseX, baseZ, biome, rng, reserved, placed) {
   const freeSpot = (radius, margin = 16) => {
     const spot = randomOffRoadSpot(baseX, baseZ, radius, radius, rng);
@@ -3686,6 +3866,11 @@ function addAmbientLandscape(parent, baseX, baseZ, biome, rng, reserved, placed)
       parent.add(path);
       for (const offset of [-13, 13]) addBush(parent, spot.x + offset, spot.z, 0.75);
     }
+  }
+
+  if ((biome === "open" || biome === "sparseForest" || biome === "playground") && rng() < 0.24) {
+    const stop = findRoadsideSpot(baseX, baseZ, rng, reserved, placed);
+    if (stop) addBusStop(parent, stop.x, stop.z, stop.axis);
   }
 }
 
