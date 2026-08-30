@@ -106,7 +106,11 @@ const audioState = {
   sirenGain: null,
   sirenPhase: 0,
   driveSpeed: 0,
+  driveThrottle: 0,
   driftIntensity: 0,
+  engineGear: 1,
+  engineRpm: 0,
+  engineShiftTimer: 0,
   storeMoving: false,
   nextFootstep: 0,
   footstepSide: 0,
@@ -652,19 +656,55 @@ function playArrestSound() {
   playTone(98, 0.38, "sawtooth", 0.1, 0.34);
 }
 
+function playGearShiftSound() {
+  playTone(118, 0.075, "square", 0.035);
+  playTone(86, 0.12, "sawtooth", 0.025, 0.045);
+}
+
 function updateAudio(dt) {
   if (!audioState.ctx) return;
   const ctx = audioState.ctx;
   const now = ctx.currentTime;
   const driving = running && !gameOver && gameMode === "driving";
-  const speed01 = clamp(audioState.driveSpeed / 260, 0, 1);
+  const speed = driving ? Math.abs(audioState.driveSpeed) : 0;
+  const speed01 = clamp(speed / 330, 0, 1);
+  const throttle01 = driving ? clamp(Math.abs(audioState.driveThrottle), 0, 1) : 0;
   const drift01 = driving ? clamp(audioState.driftIntensity, 0, 1) : 0;
   const copDistance = cops.reduce((best, cop) => Math.min(best, dist(player, cop)), Infinity);
   const siren01 = driving && cops.length > 0 ? clamp(1 - (copDistance - 150) / 760, 0.08, 0.75) : 0;
 
-  audioState.engineOsc.frequency.setTargetAtTime(42 + speed01 * 132, now, 0.08);
-  audioState.engineGain.gain.setTargetAtTime(driving ? 0.1 + speed01 * 0.36 : 0, now, 0.14);
-  audioState.engineFilter.frequency.setTargetAtTime(360 + speed01 * 1250, now, 0.1);
+  const gearBands = [0, 38, 76, 124, 184, 255, 360];
+  let targetGear = 1;
+  for (let i = 1; i < gearBands.length; i++) {
+    if (speed >= gearBands[i]) targetGear = Math.min(i + 1, gearBands.length - 1);
+  }
+  if (!driving) {
+    targetGear = 1;
+    audioState.engineShiftTimer = 0;
+  } else if (targetGear !== audioState.engineGear && audioState.engineShiftTimer <= 0) {
+    audioState.engineGear = targetGear;
+    audioState.engineShiftTimer = 0.24;
+    audioState.engineRpm *= 0.54;
+    playGearShiftSound();
+  }
+
+  audioState.engineShiftTimer = Math.max(0, audioState.engineShiftTimer - dt);
+  const gearIndex = clamp(audioState.engineGear - 1, 0, gearBands.length - 2);
+  const gearLow = gearBands[gearIndex];
+  const gearHigh = gearBands[gearIndex + 1];
+  const gearRange = Math.max(1, gearHigh - gearLow);
+  const gearProgress = clamp((speed - gearLow) / gearRange, 0, 1);
+  const targetRpm = driving ? clamp(0.22 + gearProgress * 0.78 + throttle01 * 0.16, 0.18, 1) : 0;
+  const rpmDrop = audioState.engineShiftTimer > 0 ? 0.62 + audioState.engineShiftTimer * 0.6 : 1;
+  audioState.engineRpm = lerp(audioState.engineRpm, targetRpm * rpmDrop, 1 - Math.exp(-dt * 9));
+
+  const gearPitchDrop = 1 - (audioState.engineGear - 1) * 0.045;
+  const rpm = clamp(audioState.engineRpm, 0, 1);
+  const engineFreq = (46 + rpm * 104) * gearPitchDrop;
+  const engineGain = driving ? 0.18 + throttle01 * 0.16 + rpm * 0.09 + drift01 * 0.04 : 0;
+  audioState.engineOsc.frequency.setTargetAtTime(engineFreq, now, 0.055);
+  audioState.engineGain.gain.setTargetAtTime(engineGain, now, 0.12);
+  audioState.engineFilter.frequency.setTargetAtTime(520 + rpm * 1250 + throttle01 * 340, now, 0.09);
   audioState.driftGain.gain.setTargetAtTime(drift01 * 0.58, now, 0.055);
   audioState.driftFilter.frequency.setTargetAtTime(720 + speed01 * 1550, now, 0.08);
 
@@ -4240,6 +4280,7 @@ function updatePlayer(dt) {
   const motion = driveVehicle(player, { steer, throttle }, dt, surface.tune);
   collideWorld(player);
   audioState.driveSpeed = motion.total;
+  audioState.driveThrottle = throttle;
   audioState.driftIntensity = 0;
 
   if (motion.total > 95) money += (motion.total - 90) * dt * (surface.onRoad ? 0.18 : 0.11);
