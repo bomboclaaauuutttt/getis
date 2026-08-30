@@ -111,6 +111,7 @@ const audioState = {
   engineGear: 1,
   engineRpm: 0,
   engineShiftTimer: 0,
+  engineRedlineTimer: 0,
   storeMoving: false,
   nextFootstep: 0,
   footstepSide: 0,
@@ -683,35 +684,60 @@ function updateAudio(dt) {
   const copDistance = cops.reduce((best, cop) => Math.min(best, dist(player, cop)), Infinity);
   const siren01 = driving && cops.length > 0 ? clamp(1 - (copDistance - 150) / 760, 0.08, 0.75) : 0;
 
-  const gearBands = [0, 38, 76, 124, 184, 255, 360];
-  let targetGear = 1;
-  for (let i = 1; i < gearBands.length; i++) {
-    if (speed >= gearBands[i]) targetGear = Math.min(i + 1, gearBands.length - 1);
-  }
+  const gearBands = [0, 68, 132, 198, 266, 338, 430];
+  audioState.engineShiftTimer = Math.max(0, audioState.engineShiftTimer - dt);
   if (!driving) {
-    targetGear = 1;
+    audioState.engineGear = 1;
     audioState.engineShiftTimer = 0;
-  } else if (targetGear !== audioState.engineGear && audioState.engineShiftTimer <= 0) {
-    audioState.engineGear = targetGear;
-    audioState.engineShiftTimer = 0.24;
-    audioState.engineRpm *= 0.54;
-    playGearShiftSound();
+    audioState.engineRedlineTimer = 0;
   }
 
-  audioState.engineShiftTimer = Math.max(0, audioState.engineShiftTimer - dt);
-  const gearIndex = clamp(audioState.engineGear - 1, 0, gearBands.length - 2);
-  const gearLow = gearBands[gearIndex];
-  const gearHigh = gearBands[gearIndex + 1];
-  const gearRange = Math.max(1, gearHigh - gearLow);
-  const gearProgress = clamp((speed - gearLow) / gearRange, 0, 1);
+  let gearIndex = clamp(audioState.engineGear - 1, 0, gearBands.length - 2);
+  let gearLow = gearBands[gearIndex];
+  let gearHigh = gearBands[gearIndex + 1];
+  let gearRange = Math.max(1, gearHigh - gearLow);
+  let gearProgress = clamp((speed - gearLow) / gearRange, 0, 1);
+  const nearRedline = gearProgress > 0.9 && audioState.engineRpm > 0.86;
+
+  if (driving && audioState.engineShiftTimer <= 0) {
+    if (nearRedline && throttle01 > 0.16 && audioState.engineGear < gearBands.length - 1) {
+      audioState.engineRedlineTimer += dt * (0.72 + throttle01 * 0.28);
+      if (audioState.engineRedlineTimer >= 0.44) {
+        audioState.engineGear += 1;
+        audioState.engineShiftTimer = 0.3;
+        audioState.engineRedlineTimer = 0;
+        audioState.engineRpm *= 0.5;
+        playGearShiftSound();
+      }
+    } else {
+      audioState.engineRedlineTimer = Math.max(0, audioState.engineRedlineTimer - dt * 2.8);
+    }
+
+    const downshiftSpeed = gearLow * 0.7;
+    if (audioState.engineGear > 1 && speed < downshiftSpeed) {
+      audioState.engineGear -= 1;
+      audioState.engineShiftTimer = 0.2;
+      audioState.engineRedlineTimer = 0;
+      audioState.engineRpm = Math.min(0.78, Math.max(0.42, audioState.engineRpm * 1.22));
+      playGearShiftSound();
+    }
+  }
+
+  gearIndex = clamp(audioState.engineGear - 1, 0, gearBands.length - 2);
+  gearLow = gearBands[gearIndex];
+  gearHigh = gearBands[gearIndex + 1];
+  gearRange = Math.max(1, gearHigh - gearLow);
+  gearProgress = clamp((speed - gearLow) / gearRange, 0, 1);
   const targetRpm = driving ? clamp(0.22 + gearProgress * 0.78 + throttle01 * 0.16, 0.18, 1) : 0;
-  const rpmDrop = audioState.engineShiftTimer > 0 ? 0.62 + audioState.engineShiftTimer * 0.6 : 1;
-  audioState.engineRpm = lerp(audioState.engineRpm, targetRpm * rpmDrop, 1 - Math.exp(-dt * 9));
+  const shiftProgress = clamp(audioState.engineShiftTimer / 0.3, 0, 1);
+  const rpmDrop = audioState.engineShiftTimer > 0 ? lerp(0.52, 0.76, shiftProgress) : 1;
+  audioState.engineRpm = lerp(audioState.engineRpm, targetRpm * rpmDrop, 1 - Math.exp(-dt * (audioState.engineShiftTimer > 0 ? 13 : 7.4)));
 
   const gearPitchDrop = 1 - (audioState.engineGear - 1) * 0.045;
   const rpm = clamp(audioState.engineRpm, 0, 1);
   const engineFreq = (46 + rpm * 104) * gearPitchDrop;
-  const engineGain = driving ? 0.18 + throttle01 * 0.16 + rpm * 0.09 + drift01 * 0.04 : 0;
+  const clutchVolume = audioState.engineShiftTimer > 0 ? 0.72 : 1;
+  const engineGain = driving ? (0.18 + throttle01 * 0.16 + rpm * 0.09 + drift01 * 0.04) * clutchVolume : 0;
   audioState.engineOsc.frequency.setTargetAtTime(engineFreq, now, 0.055);
   audioState.engineGain.gain.setTargetAtTime(engineGain, now, 0.12);
   audioState.engineFilter.frequency.setTargetAtTime(520 + rpm * 1250 + throttle01 * 340, now, 0.09);
