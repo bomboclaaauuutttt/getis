@@ -268,6 +268,10 @@ const mats = {
   fence: new THREE.MeshLambertMaterial({ color: 0xb7aa86 }),
   hay: new THREE.MeshLambertMaterial({ color: 0xc7a84c }),
   metal: new THREE.MeshLambertMaterial({ color: 0x687176 }),
+  smashWood: new THREE.MeshLambertMaterial({ color: 0x9a6738 }),
+  smashOrange: new THREE.MeshLambertMaterial({ color: 0xf26722 }),
+  smashBlue: new THREE.MeshLambertMaterial({ color: 0x258bc7 }),
+  smashRed: new THREE.MeshLambertMaterial({ color: 0xc93636 }),
 };
 
 const buildingMats = [
@@ -4550,10 +4554,11 @@ function checkSMarketEntrance() {
 function biomeForChunk(cx, cz) {
   const biomeRng = rngFor(Math.floor(cx / 3), Math.floor(cz / 3), 901);
   const roll = biomeRng();
-  if (roll < 0.12) return "denseForest";
-  if (roll < 0.32) return "sparseForest";
-  if (roll < 0.55) return "field";
-  if (roll < 0.62) return "playground";
+  if (roll < 0.1) return "denseForest";
+  if (roll < 0.25) return "sparseForest";
+  if (roll < 0.48) return "field";
+  if (roll < 0.56) return "playground";
+  if (roll < 0.66) return "smashyard";
   return "open";
 }
 
@@ -4573,7 +4578,7 @@ function addFieldPatch(parent, x, z, w, d, rng) {
     parent.add(stripe);
   }
 
-  const baleCount = 2 + Math.floor(rng() * 3);
+  const baleCount = 3 + Math.floor(rng() * 4);
   for (let i = 0; i < baleCount; i++) {
     const bale = new THREE.Mesh(new THREE.CylinderGeometry(6.5, 6.5, 12, 12), mats.hay);
     bale.rotation.z = Math.PI * 0.5;
@@ -4764,6 +4769,163 @@ function addAmbientLandscape(parent, baseX, baseZ, biome, rng, reserved, placed)
   }
 }
 
+function addSmashableSetPiece(parent, x, z, kind, rng, rotation = 0) {
+  const group = new THREE.Group();
+  group.position.set(x, 0, z);
+  group.rotation.y = rotation;
+  let radius = 10;
+
+  if (kind === "crate") {
+    const body = makeBox(15, 13, 15, mats.smashWood);
+    body.position.y = 6.5;
+    group.add(body);
+    for (const side of [-1, 1]) {
+      const slat = makeBox(16, 2, 2.2, mats.fence);
+      slat.position.set(0, 6.5 + side * 4.2, 7.7);
+      group.add(slat);
+    }
+    const brace = makeBox(2.2, 13, 2.2, mats.fence);
+    brace.position.set(0, 6.5, 7.9);
+    brace.rotation.z = 0.65;
+    group.add(brace);
+    radius = 11;
+  } else if (kind === "barrel") {
+    const body = new THREE.Mesh(new THREE.CylinderGeometry(6, 6.4, 17, 14), rng() < 0.5 ? mats.smashBlue : mats.smashRed);
+    body.position.y = 8.5;
+    group.add(body);
+    for (const y of [2.5, 8.5, 14.5]) {
+      const band = new THREE.Mesh(new THREE.TorusGeometry(6.25, 0.65, 6, 14), mats.metal);
+      band.rotation.x = Math.PI * 0.5;
+      band.position.y = y;
+      group.add(band);
+    }
+    radius = 8;
+  } else if (kind === "cone") {
+    const base = makeBox(11, 1.5, 11, mats.smashOrange);
+    base.position.y = 0.8;
+    const cone = new THREE.Mesh(new THREE.ConeGeometry(5, 14, 10), mats.smashOrange);
+    cone.position.y = 8;
+    const stripe = new THREE.Mesh(new THREE.CylinderGeometry(3.6, 4.2, 2.4, 10), mats.curb);
+    stripe.position.y = 6.4;
+    group.add(base, cone, stripe);
+    radius = 7;
+  } else if (kind === "tires") {
+    const stackCount = 2 + Math.floor(rng() * 3);
+    for (let i = 0; i < stackCount; i++) {
+      const tire = new THREE.Mesh(new THREE.TorusGeometry(7, 2.6, 8, 15), mats.tire);
+      tire.rotation.x = Math.PI * 0.5;
+      tire.position.y = 2.7 + i * 4.5;
+      group.add(tire);
+    }
+    radius = 10;
+  } else if (kind === "sign") {
+    for (const side of [-1, 1]) {
+      const leg = makeBox(2.2, 17, 2.2, mats.metal);
+      leg.position.set(side * 8, 8.5, 0);
+      group.add(leg);
+    }
+    const panel = makeBox(23, 11, 2.2, mats.smashOrange);
+    panel.position.y = 18;
+    const stripe = makeBox(18, 2.2, 2.6, mats.curb);
+    stripe.position.set(0, 18, -0.2);
+    stripe.rotation.z = -0.3;
+    group.add(panel, stripe);
+    radius = 14;
+  } else if (kind === "table") {
+    const top = makeBox(28, 3, 16, mats.smashWood);
+    top.position.y = 12;
+    group.add(top);
+    for (const sx of [-10, 10]) {
+      for (const sz of [-5, 5]) {
+        const leg = makeBox(2.4, 11, 2.4, mats.metal);
+        leg.position.set(sx, 5.5, sz);
+        group.add(leg);
+      }
+    }
+    radius = 17;
+  } else if (kind === "cart") {
+    const basket = makeBox(20, 10, 16, mats.metal);
+    basket.position.set(0, 13, 0);
+    const handle = makeBox(24, 2.2, 2.2, mats.smashBlue);
+    handle.position.set(0, 21, 7);
+    group.add(basket, handle);
+    for (const sx of [-7, 7]) {
+      for (const sz of [-5, 5]) {
+        const wheel = new THREE.Mesh(new THREE.CylinderGeometry(2.2, 2.2, 1.8, 10), mats.tire);
+        wheel.rotation.z = Math.PI * 0.5;
+        wheel.position.set(sx, 4, sz);
+        group.add(wheel);
+      }
+    }
+    radius = 14;
+  } else if (kind === "pallet") {
+    for (let i = -2; i <= 2; i++) {
+      const slat = makeBox(4, 2.3, 24, mats.smashWood);
+      slat.position.set(i * 5, 2.8, 0);
+      group.add(slat);
+    }
+    for (const zOffset of [-8, 8]) {
+      const support = makeBox(25, 2.4, 3, mats.fence);
+      support.position.set(0, 1.2, zOffset);
+      group.add(support);
+    }
+    radius = 15;
+  } else {
+    const beam = makeBox(30, 4, 4, mats.curb);
+    beam.position.y = 9;
+    for (const side of [-1, 1]) {
+      const foot = makeBox(4, 10, 8, mats.smashRed);
+      foot.position.set(side * 12, 5, 0);
+      group.add(foot);
+    }
+    group.add(beam);
+    radius = 17;
+  }
+
+  group.traverse((obj) => {
+    if (obj.isMesh) obj.castShadow = true;
+  });
+  parent.add(group);
+  registerBreakableProp(parent, group, kind, radius, 0);
+  return group;
+}
+
+function addSmashZone(parent, x, z, w, d, rng, variant = "yard") {
+  const groundMaterial = variant === "farm" ? mats.field : variant === "market" ? mats.parking : mats.concrete;
+  const pad = makePlane(w, d, groundMaterial, 0.045);
+  pad.position.set(x, 0.045, z);
+  parent.add(pad);
+
+  const pools = {
+    farm: ["crate", "pallet", "barrel", "tires", "crate", "hay"],
+    market: ["cart", "table", "crate", "cone", "barrier", "cart"],
+    yard: ["barrel", "cone", "barrier", "tires", "pallet", "sign", "crate"],
+  };
+  const pool = pools[variant] || pools.yard;
+  const columns = 6;
+  const rows = 3;
+  for (let row = 0; row < rows; row++) {
+    for (let column = 0; column < columns; column++) {
+      const kind = pool[Math.floor(rng() * pool.length)];
+      const px = x + (column - (columns - 1) * 0.5) * (w / 6.7) + (rng() - 0.5) * 7;
+      const pz = z + (row - 1) * (d / 3.7) + (rng() - 0.5) * 7;
+      if (kind === "hay") {
+        const bale = new THREE.Mesh(new THREE.CylinderGeometry(6.5, 6.5, 12, 12), mats.hay);
+        bale.rotation.set(0, rng() * Math.PI, Math.PI * 0.5);
+        bale.position.set(px, 6.7, pz);
+        parent.add(bale);
+        registerBreakableProp(parent, bale, "hay", 9, 6.7);
+      } else {
+        addSmashableSetPiece(parent, px, pz, kind, rng, (rng() - 0.5) * 0.55);
+      }
+    }
+  }
+
+  for (const side of [-1, 1]) {
+    addSmashableSetPiece(parent, x + side * (w * 0.43), z - d * 0.42, "sign", rng, 0);
+  }
+}
+
 function makeSpawnArea(parent) {
   const lot = makePlane(340, 250, mats.parking, 0.16);
   lot.position.set(0, 0.16, 48);
@@ -4865,7 +5027,7 @@ function generateChunk(cx, cz) {
 
   const biome = biomeForChunk(cx, cz);
   const forestZone = biome === "denseForest";
-  const openZone = biome === "open" || biome === "field" || biome === "playground";
+  const openZone = biome === "open" || biome === "field" || biome === "playground" || biome === "smashyard";
   const reserved = [];
   if (biome === "field") {
     const w = 150 + rng() * 56;
@@ -4874,12 +5036,33 @@ function generateChunk(cx, cz) {
     if (spot && !areaTouchesRoad(spot.x, spot.z, w, d, 20)) {
       addFieldPatch(group, spot.x, spot.z, w, d, rng);
       reserved.push({ x: spot.x, z: spot.z, w, d });
+      if (rng() < 0.64) {
+        addSmashZone(group, spot.x, spot.z, Math.min(158, w * 0.9), Math.min(108, d * 0.78), rng, "farm");
+      }
     }
   } else if (biome === "playground") {
     const spot = randomOffRoadSpot(baseX, baseZ, 86, 60, rng);
     if (spot && !areaTouchesRoad(spot.x, spot.z, 172, 120, 22)) {
       addPlayground(group, spot.x, spot.z, rng);
       reserved.push({ x: spot.x, z: spot.z, w: 190, d: 138 });
+    }
+  } else if (biome === "smashyard") {
+    const w = 168;
+    const d = 126;
+    const spot = randomOffRoadSpot(baseX, baseZ, w * 0.5, d * 0.5, rng);
+    if (spot && !areaTouchesRoad(spot.x, spot.z, w, d, 18)) {
+      const variantRoll = rng();
+      const variant = variantRoll < 0.42 ? "yard" : variantRoll < 0.72 ? "market" : "farm";
+      addSmashZone(group, spot.x, spot.z, w, d, rng, variant);
+      reserved.push({ x: spot.x, z: spot.z, w, d });
+    }
+  } else if (biome === "open" && rng() < 0.16) {
+    const w = 146;
+    const d = 104;
+    const spot = randomOffRoadSpot(baseX, baseZ, w * 0.5, d * 0.5, rng);
+    if (spot && !areaTouchesRoad(spot.x, spot.z, w, d, 20)) {
+      addSmashZone(group, spot.x, spot.z, w, d, rng, rng() < 0.5 ? "market" : "yard");
+      reserved.push({ x: spot.x, z: spot.z, w, d });
     }
   }
 
@@ -4908,6 +5091,7 @@ function generateChunk(cx, cz) {
     biome === "sparseForest" ? 4 + Math.floor(rng() * 6) :
     biome === "field" ? Math.floor(rng() * 3) :
     biome === "playground" ? Math.floor(rng() * 2) :
+    biome === "smashyard" ? Math.floor(rng() * 2) :
     rng() < 0.35 ? 1 + Math.floor(rng() * 3) : 0;
   for (let i = 0; i < treeCount; i++) {
     const scale = 0.95 + rng() * 1.05;
@@ -5058,8 +5242,9 @@ function launchBreakableProp(prop, v, speed) {
   const awayX = dx / distance;
   const awayZ = dz / distance;
   const impulse = clamp(46 + speed * 0.72, 58, 230);
-  const isMetal = prop.kind === "streetlight" || prop.kind === "shelter" || prop.kind === "courtFence";
-  const lift = prop.kind === "hay" ? 38 + speed * 0.24 : 28 + speed * 0.16;
+  const isMetal = ["streetlight", "shelter", "courtFence", "barrel", "sign", "cart", "barrier"].includes(prop.kind);
+  const isLight = prop.kind === "cone" || prop.kind === "pallet" || prop.kind === "tires";
+  const lift = prop.kind === "hay" ? 38 + speed * 0.24 : isLight ? 35 + speed * 0.2 : 28 + speed * 0.16;
   prop.vx = forward.x * impulse * 0.72 + awayX * impulse * 0.28;
   prop.vz = forward.z * impulse * 0.72 + awayZ * impulse * 0.28;
   prop.vy = lift;
@@ -5069,12 +5254,19 @@ function launchBreakableProp(prop, v, speed) {
   prop.life = prop.kind === "hay" ? 5.5 : 6.5;
   flyingProps.push(prop);
 
-  const color = prop.kind === "hay" ? 0xc7a84c : prop.kind === "bush" ? 0x2f8d48 : isMetal ? 0xc9cfca : prop.kind === "bench" ? 0x8f7956 : 0xb7aa86;
-  makeDebrisBurst(prop.x, prop.z, prop.kind === "hay" ? 12 : 9, 36 + speed * 0.16, color);
+  const color =
+    prop.kind === "hay" ? 0xc7a84c :
+    prop.kind === "bush" ? 0x2f8d48 :
+    prop.kind === "cone" ? 0xf26722 :
+    prop.kind === "barrel" ? 0x258bc7 :
+    prop.kind === "tires" ? 0x202020 :
+    ["crate", "pallet", "table", "bench"].includes(prop.kind) ? 0x9a6738 :
+    isMetal ? 0xc9cfca : 0xb7aa86;
+  makeDebrisBurst(prop.x, prop.z, prop.kind === "hay" ? 12 : isLight ? 7 : 9, 36 + speed * 0.16, color);
   makeSmoke(prop.x, prop.z, prop.kind === "hay" ? 4.8 : 3.2, prop.kind === "hay" ? 0xc9b76d : prop.kind === "bush" ? 0x57945d : 0x9b8a72, 0.48);
   if (isMetal) makeImpactSparks(prop.x, prop.z, 70 + speed * 0.35);
-  playNoiseHit(prop.kind === "hay" ? 0.16 : 0.11, prop.kind === "hay" ? 0.1 : 0.13, prop.kind === "hay" ? 560 : isMetal ? 1850 : 1250);
-  playTone(prop.kind === "hay" ? 92 : 148, 0.09, "triangle", 0.035);
+  playNoiseHit(prop.kind === "hay" ? 0.16 : 0.11, prop.kind === "hay" ? 0.1 : 0.13, prop.kind === "hay" ? 560 : isMetal ? 1850 : prop.kind === "tires" ? 420 : 1250);
+  playTone(prop.kind === "hay" ? 92 : isMetal ? 178 : 148, 0.09, "triangle", 0.035);
   cameraState.shake = Math.max(cameraState.shake, 0.46 + clamp(speed / 300, 0, 0.42));
   awardSmash(prop.kind);
 }
@@ -6965,6 +7157,15 @@ function awardSmash(kind) {
   const values = {
     bush: 3,
     hay: 5,
+    cone: 3,
+    pallet: 5,
+    crate: 7,
+    tires: 7,
+    barrel: 8,
+    barrier: 9,
+    cart: 10,
+    table: 11,
+    sign: 12,
     fence: 7,
     courtFence: 9,
     bench: 11,
