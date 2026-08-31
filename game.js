@@ -6,6 +6,8 @@ const moneyEl = document.getElementById("money");
 const hintEl = document.getElementById("hint");
 const wantedStarsEl = document.getElementById("wantedStars");
 const notificationFeedEl = document.getElementById("notificationFeed");
+const smashComboEl = document.getElementById("smashCombo");
+const rewardLayerEl = document.getElementById("rewardLayer");
 const nameScreenEl = document.getElementById("nameScreen");
 const nameFormEl = document.getElementById("nameForm");
 const playerNameInput = document.getElementById("playerNameInput");
@@ -300,6 +302,19 @@ const effectGeometry = {
 let running = false;
 let gameOver = false;
 let money = 0;
+const smashState = {
+  hits: 0,
+  multiplier: 1,
+  totalReward: 0,
+  timer: 0,
+  maxTimer: 3.8,
+  stoppedTime: 0,
+};
+const driftRewardState = {
+  pending: 0,
+  displayTimer: 0,
+  active: false,
+};
 let arrestTime = 0;
 let chaseTime = 0;
 let backupTime = 0;
@@ -1872,6 +1887,7 @@ function addBush(parent, x, z, scale = 1) {
   bush.position.set(x, 5 * scale, z);
   bush.castShadow = true;
   parent.add(bush);
+  if (parent.userData.chunkKey) registerBreakableProp(parent, bush, "bush", 9 * scale, 5 * scale);
 }
 
 function makeBuildingLabel(text, background = "#174e86", foreground = "#ffffff") {
@@ -4414,15 +4430,19 @@ function addPlayground(parent, x, z, rng) {
   parent.add(center);
 
   for (const side of [-1, 1]) {
+    const goal = new THREE.Group();
+    goal.position.set(x + side * (w * 0.5 - 3), 0, z);
     const goalTop = makeBox(30, 2, 2, mats.curb);
-    goalTop.position.set(x + side * (w * 0.5 - 3), 12, z);
+    goalTop.position.set(0, 12, 0);
     goalTop.rotation.y = Math.PI * 0.5;
-    parent.add(goalTop);
+    goal.add(goalTop);
     for (const gz of [-14, 14]) {
       const goalPost = makeBox(2, 24, 2, mats.curb);
-      goalPost.position.set(x + side * (w * 0.5 - 3), 12, z + gz);
-      parent.add(goalPost);
+      goalPost.position.set(0, 12, gz);
+      goal.add(goalPost);
     }
+    parent.add(goal);
+    registerBreakableProp(parent, goal, "courtFence", 18, 0);
   }
 
   const bench = new THREE.Group();
@@ -4838,7 +4858,7 @@ function launchBreakableProp(prop, v, speed) {
   const awayX = dx / distance;
   const awayZ = dz / distance;
   const impulse = clamp(46 + speed * 0.72, 58, 230);
-  const isMetal = prop.kind === "streetlight" || prop.kind === "shelter";
+  const isMetal = prop.kind === "streetlight" || prop.kind === "shelter" || prop.kind === "courtFence";
   const lift = prop.kind === "hay" ? 38 + speed * 0.24 : 28 + speed * 0.16;
   prop.vx = forward.x * impulse * 0.72 + awayX * impulse * 0.28;
   prop.vz = forward.z * impulse * 0.72 + awayZ * impulse * 0.28;
@@ -4849,13 +4869,14 @@ function launchBreakableProp(prop, v, speed) {
   prop.life = prop.kind === "hay" ? 5.5 : 6.5;
   flyingProps.push(prop);
 
-  const color = prop.kind === "hay" ? 0xc7a84c : isMetal ? 0x78868d : prop.kind === "bench" ? 0x8f7956 : 0xb7aa86;
+  const color = prop.kind === "hay" ? 0xc7a84c : prop.kind === "bush" ? 0x2f8d48 : isMetal ? 0xc9cfca : prop.kind === "bench" ? 0x8f7956 : 0xb7aa86;
   makeDebrisBurst(prop.x, prop.z, prop.kind === "hay" ? 12 : 9, 36 + speed * 0.16, color);
-  makeSmoke(prop.x, prop.z, prop.kind === "hay" ? 4.8 : 3.2, prop.kind === "hay" ? 0xc9b76d : 0x9b8a72, 0.48);
+  makeSmoke(prop.x, prop.z, prop.kind === "hay" ? 4.8 : 3.2, prop.kind === "hay" ? 0xc9b76d : prop.kind === "bush" ? 0x57945d : 0x9b8a72, 0.48);
   if (isMetal) makeImpactSparks(prop.x, prop.z, 70 + speed * 0.35);
   playNoiseHit(prop.kind === "hay" ? 0.16 : 0.11, prop.kind === "hay" ? 0.1 : 0.13, prop.kind === "hay" ? 560 : isMetal ? 1850 : 1250);
   playTone(prop.kind === "hay" ? 92 : 148, 0.09, "triangle", 0.035);
   cameraState.shake = Math.max(cameraState.shake, 0.46 + clamp(speed / 300, 0, 0.42));
+  awardSmash(prop.kind);
 }
 
 function collideBreakableProps(v) {
@@ -5495,6 +5516,7 @@ function knockTree(tree, hitX, hitZ, power) {
   playTone(118, 0.2, "sawtooth", 0.06);
   makeDebrisBurst(tree.x, tree.z, 8, 42 + power * 0.18, 0x6b4a2c);
   makeSmoke(tree.x, tree.z, 5.5, 0x9b8a66, 0.75);
+  awardSmash("tree");
 }
 
 function launchVehicle(v, dirX, dirZ, power) {
@@ -5671,15 +5693,21 @@ function updatePlayer(dt) {
   audioState.driveSpeed = motion.total;
   audioState.driveThrottle = throttle;
   audioState.driftIntensity = 0;
+  driftRewardState.displayTimer = Math.max(0, driftRewardState.displayTimer - dt);
 
   if (motion.total > 95) money += (motion.total - 90) * dt * (surface.onRoad ? 0.18 : 0.11);
 
   const driftAmount = Math.abs(motion.side);
   const driftTrigger = motion.slip > 0.08 || driftAmount > (surface.onRoad ? 16 : 10);
-  if (motion.total > 48 && driftTrigger) {
+  const drifting = motion.total > 48 && driftTrigger;
+  if (drifting) {
     const intensity = clamp(Math.max((driftAmount - 10) / 54, motion.slip * 1.35), 0, 1);
     audioState.driftIntensity = intensity;
-    money += driftAmount * dt * (surface.onRoad ? 0.42 : 0.24);
+    const driftReward = driftAmount * dt * (surface.onRoad ? 0.42 : 0.24);
+    money += driftReward;
+    driftRewardState.pending += driftReward;
+    driftRewardState.active = true;
+    if (driftRewardState.displayTimer <= 0) showDriftReward(intensity);
     if (Math.random() < (surface.onRoad ? 0.82 : 0.98)) makeTireSpray(player, 0.55 + intensity * 0.9, surface.onRoad);
     if (Math.random() < (surface.onRoad ? 0.32 : 0.54)) makeSmoke(player.x + Math.sin(player.angle) * 16, player.z + Math.cos(player.angle) * 16, 2.2 + intensity * 1.7, surface.onRoad ? 0xd0d0d0 : 0xbba36f, 0.34 + intensity * 0.18);
     if (surface.onRoad && Math.random() < 0.82) makeSkidMarks(player, intensity);
@@ -5687,6 +5715,12 @@ function updatePlayer(dt) {
     const intensity = clamp(motion.total / 135, 0.18, surface.onRoad ? 0.62 : 0.9);
     makeTireSpray(player, intensity, surface.onRoad);
   }
+
+  if (!drifting && driftRewardState.active) {
+    showDriftReward(audioState.driftIntensity || 0.35);
+    driftRewardState.active = false;
+  }
+  updateSmashCombo(dt, motion.total);
 
   moneyEl.textContent = "$" + Math.floor(money);
   const boostText = megaforceBoostActive() ? ` | Megaforce ${Math.ceil(megaforceBoostRemaining())}s` : "";
@@ -6686,6 +6720,95 @@ function showNotification(text, hot = false) {
 
   window.setTimeout(() => item.classList.add("fade-out"), 4300);
   window.setTimeout(() => item.remove(), 4700);
+}
+
+function pulseMoneyDisplay() {
+  moneyEl.classList.remove("reward-pulse");
+  void moneyEl.offsetWidth;
+  moneyEl.classList.add("reward-pulse");
+}
+
+function spawnRewardPopup(text, type = "smash") {
+  if (!rewardLayerEl) return;
+  const popup = document.createElement("div");
+  popup.className = `reward-pop ${type}`;
+  popup.textContent = text;
+  popup.style.marginLeft = `${(Math.random() - 0.5) * 90}px`;
+  rewardLayerEl.appendChild(popup);
+  while (rewardLayerEl.children.length > 5) rewardLayerEl.firstElementChild.remove();
+  window.setTimeout(() => popup.remove(), 950);
+}
+
+function refreshSmashHud(pop = false) {
+  if (!smashComboEl || smashState.hits <= 0) return;
+  smashComboEl.classList.remove("hidden");
+  smashComboEl.querySelector("strong").textContent = `x${smashState.multiplier.toFixed(2)}`;
+  smashComboEl.querySelector("span").textContent = `${smashState.hits} smash${smashState.hits === 1 ? "" : "es"} | +$${smashState.totalReward}`;
+  smashComboEl.querySelector("i b").style.transform = `scaleX(${clamp(smashState.timer / smashState.maxTimer, 0, 1)})`;
+  if (pop) {
+    smashComboEl.classList.remove("pop");
+    void smashComboEl.offsetWidth;
+    smashComboEl.classList.add("pop");
+  }
+}
+
+function resetSmashCombo() {
+  smashState.hits = 0;
+  smashState.multiplier = 1;
+  smashState.totalReward = 0;
+  smashState.timer = 0;
+  smashState.stoppedTime = 0;
+  smashComboEl?.classList.add("hidden");
+}
+
+function awardSmash(kind) {
+  const values = {
+    bush: 3,
+    hay: 5,
+    fence: 7,
+    courtFence: 9,
+    bench: 11,
+    streetlight: 13,
+    shelter: 22,
+    tree: 18,
+  };
+  const baseReward = values[kind] || 5;
+  smashState.hits += 1;
+  smashState.multiplier = Math.min(6, 1 + (smashState.hits - 1) * 0.32);
+  smashState.timer = smashState.maxTimer;
+  smashState.stoppedTime = 0;
+  const reward = Math.max(1, Math.round(baseReward * smashState.multiplier));
+  smashState.totalReward += reward;
+  money += reward;
+  moneyEl.textContent = "$" + Math.floor(money);
+  refreshSmashHud(true);
+  spawnRewardPopup(`SMASH x${smashState.multiplier.toFixed(2)}  +$${reward}`);
+  pulseMoneyDisplay();
+  const comboPitch = Math.min(980, 330 + smashState.hits * 42);
+  playTone(comboPitch, 0.075, "triangle", 0.055);
+  if (smashState.hits % 4 === 0) playTone(comboPitch * 1.35, 0.11, "sine", 0.05, 0.045);
+}
+
+function updateSmashCombo(dt, speed) {
+  if (smashState.hits <= 0) return;
+  smashState.timer = Math.max(0, smashState.timer - dt);
+  smashState.stoppedTime = speed < 14 ? smashState.stoppedTime + dt : 0;
+  if (smashState.timer <= 0 || smashState.stoppedTime > 0.65 || gameMode !== "driving") {
+    resetSmashCombo();
+    return;
+  }
+  refreshSmashHud(false);
+}
+
+function showDriftReward(intensity = 0.5) {
+  const reward = Math.floor(driftRewardState.pending);
+  if (reward < 1) return;
+  driftRewardState.pending -= reward;
+  driftRewardState.displayTimer = 0.62;
+  spawnRewardPopup(`DRIFT  +$${reward}`, "drift");
+  pulseMoneyDisplay();
+  playTone(470 + intensity * 260, 0.08, "sine", 0.038);
+  playTone(690 + intensity * 310, 0.09, "triangle", 0.028, 0.045);
 }
 
 function updateCharacterPreview() {
@@ -7728,6 +7851,11 @@ function resetGame() {
   updateChunks();
 
   money = 0;
+  resetSmashCombo();
+  driftRewardState.pending = 0;
+  driftRewardState.displayTimer = 0;
+  driftRewardState.active = false;
+  rewardLayerEl?.replaceChildren();
   speedBoostUntil = 0;
   arrestTime = 0;
   chaseTime = 0;
@@ -7791,6 +7919,7 @@ function loseGame() {
 
 function update(dt) {
   if (gameMode === "driving" || gameMode === "walking") updateChunks();
+  if (gameMode !== "driving" && smashState.hits > 0) resetSmashCombo();
   if (running && gameMode !== "store" && worldHostControlsSimulation()) updateVendor(dt);
   if (running && !gameOver && gameMode === "driving") {
     updatePlayer(dt);
