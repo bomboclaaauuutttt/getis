@@ -591,6 +591,13 @@ const carGeometry = {
 
 const player = makeVehicle("player", 0, 48, 0);
 scene.add(player.group);
+const defaultPlayerVehicle = {
+  group: player.group,
+  radius: player.radius,
+  halfWidth: player.halfWidth,
+  halfLength: player.halfLength,
+  mass: player.mass,
+};
 
 function resize() {
   const w = window.innerWidth;
@@ -1190,6 +1197,13 @@ function playerSurfaceTuning() {
         steerSharpness: 5.2,
         steerBuild: 1.75,
       };
+  if (player.trafficTune) {
+    const vehicleTune = player.trafficTune;
+    tune.maxSpeed *= clamp(vehicleTune.maxSpeed / 90, 0.84, 1.45);
+    tune.accel *= clamp(vehicleTune.accel / 92, 0.74, 1.28);
+    tune.grip *= clamp(vehicleTune.grip / 5.6, 0.82, 1.18);
+    tune.turnRate *= clamp(vehicleTune.turnRate / 1.8, 0.8, 1.2);
+  }
   tune.maxSpeed *= boost;
   tune.accel *= boost;
   tune.reverseAccel *= boost;
@@ -1398,7 +1412,7 @@ function makeStoreNameTagTexture(name, color, hp, maxHp = PLAYER_MAX_HP) {
 function setStoreNameTag(remote) {
   if (!remote.storeCharacter) return;
   const hp = remote.storeTarget?.hp ?? PLAYER_MAX_HP;
-  const tagColor = remote.paintColor || colorForName(remote.playerName || "Driver");
+  const tagColor = remote.playerColor || remote.paintColor || colorForName(remote.playerName || "Driver");
   if (!remote.storeNameTag) {
     const material = new THREE.SpriteMaterial({
       map: makeStoreNameTagTexture(remote.playerName || "Driver", tagColor, hp),
@@ -4253,13 +4267,74 @@ function exitVehicleToFoot() {
   }, 220);
 }
 
+function restoreDefaultPlayerVehicle() {
+  if (player.group !== defaultPlayerVehicle.group) {
+    scene.remove(player.group);
+    player.group = defaultPlayerVehicle.group;
+  }
+  if (!player.group.parent) scene.add(player.group);
+  player.radius = defaultPlayerVehicle.radius;
+  player.halfWidth = defaultPlayerVehicle.halfWidth;
+  player.halfLength = defaultPlayerVehicle.halfLength;
+  player.mass = defaultPlayerVehicle.mass;
+  player.paintColor = null;
+  player.trafficClass = null;
+  player.trafficTune = null;
+}
+
+function adoptCarjackedVehicle(vehicle) {
+  if (!vehicle || vehicle === player) return;
+  const previousPlayerGroup = player.group;
+  if (previousPlayerGroup !== vehicle.group) scene.remove(previousPlayerGroup);
+  player.group = vehicle.group;
+  player.radius = vehicle.radius;
+  player.halfWidth = vehicle.halfWidth;
+  player.halfLength = vehicle.halfLength;
+  player.mass = vehicle.mass;
+  player.paintColor = vehicle.paintColor;
+  player.trafficClass = vehicle.trafficClass;
+  player.trafficTune = vehicle.trafficTune || TRAFFIC_ARCHETYPE_BY_ID[vehicle.trafficClass] || null;
+  player.group.visible = true;
+}
+
+function announceCarjackedTraffic(vehicle, trafficIndex) {
+  if (multiplayer.mode === "singleplayer") return;
+  const message = {
+    type: "event",
+    event: "traffic-carjacked",
+    trafficIndex,
+    x: vehicle.x,
+    z: vehicle.z,
+    trafficClass: vehicle.trafficClass || null,
+  };
+  if (multiplayer.mode === "host") broadcastNetworkMessage(message);
+  else sendToConnection(multiplayer.hostConnection, message);
+}
+
+function removeCarjackedTrafficFromWorld(message) {
+  let target = traffic[message.trafficIndex];
+  const targetMatches = target
+    && (!message.trafficClass || target.trafficClass === message.trafficClass)
+    && Math.hypot(target.x - message.x, target.z - message.z) < 180;
+  if (!targetMatches) {
+    target = traffic
+      .filter((car) => !message.trafficClass || car.trafficClass === message.trafficClass)
+      .sort((a, b) => Math.hypot(a.x - message.x, a.z - message.z) - Math.hypot(b.x - message.x, b.z - message.z))[0];
+    if (!target || Math.hypot(target.x - message.x, target.z - message.z) >= 180) return;
+  }
+  const index = traffic.indexOf(target);
+  if (index >= 0) traffic.splice(index, 1);
+  scene.remove(target.group);
+}
+
 function enterVehicleFromFoot(vehicle = player) {
   if (gameMode !== "walking" || transitionLock || !running) return;
   if (vehicle !== player) {
     vehicle.beingCarjacked = false;
     const index = traffic.indexOf(vehicle);
+    announceCarjackedTraffic(vehicle, index);
     if (index >= 0) traffic.splice(index, 1);
-    scene.remove(vehicle.group);
+    adoptCarjackedVehicle(vehicle);
   }
   player.x = vehicle.x;
   player.z = vehicle.z;
@@ -7079,6 +7154,8 @@ function localNetworkState() {
     vx: player.vx,
     vz: player.vz,
     angle: player.angle,
+    vehicleTrafficClass: player.trafficClass || null,
+    vehiclePaintColor: player.paintColor ?? null,
     gameMode,
     outsideX: outsideState.x,
     outsideZ: outsideState.z,
@@ -7192,19 +7269,60 @@ function worldNetworkState() {
   };
 }
 
+function remoteVehicleAppearanceKey(state, remoteColor) {
+  return state.vehicleTrafficClass
+    ? `${state.vehicleTrafficClass}:${state.vehiclePaintColor ?? "default"}`
+    : `player:${remoteColor}`;
+}
+
+function replaceRemoteVehicleAppearance(remote, state, remoteColor) {
+  const trafficClass = state.vehicleTrafficClass || null;
+  const paintColor = trafficClass ? state.vehiclePaintColor : remoteColor;
+  const replacement = makeVehicle(
+    trafficClass ? "normal" : "remote",
+    remote.x,
+    remote.z,
+    remote.angle,
+    paintColor,
+    trafficClass
+  );
+  scene.remove(remote.group);
+  remote.group = replacement.group;
+  remote.radius = replacement.radius;
+  remote.halfWidth = replacement.halfWidth;
+  remote.halfLength = replacement.halfLength;
+  remote.mass = replacement.mass;
+  remote.paintColor = replacement.paintColor;
+  remote.trafficClass = replacement.trafficClass;
+  remote.trafficTune = replacement.trafficTune;
+  remote.nameTag = null;
+  remote.nameTagText = "";
+  remote.nameTagColor = null;
+  remote.vehicleAppearanceKey = remoteVehicleAppearanceKey(state, remoteColor);
+  remote.group.position.set(remote.x, remote.y || 0, remote.z);
+  remote.group.rotation.y = remote.angle;
+  scene.add(remote.group);
+}
+
 function applyRemoteState(peerId, state) {
   if (!peerId || peerId === multiplayer.peerId || !state) return;
   const remoteName = state.name || "Driver";
   const remoteColor = state.color || colorForName(`${remoteName}-${peerId}`);
   const remoteCharacterStyle = sanitizeCharacterStyle(state.characterStyle || {});
+  const appearanceKey = remoteVehicleAppearanceKey(state, remoteColor);
   let remote = remotePlayers.get(peerId);
-  if (remote && remote.paintColor !== remoteColor) {
-    scene.remove(remote.group);
-    remotePlayers.delete(peerId);
-    remote = null;
-  }
   if (!remote) {
-    remote = makeVehicle("remote", state.x || 0, state.z || 48, state.angle || 0, remoteColor);
+    const trafficClass = state.vehicleTrafficClass || null;
+    remote = makeVehicle(
+      trafficClass ? "normal" : "remote",
+      state.x || 0,
+      state.z || 48,
+      state.angle || 0,
+      trafficClass ? state.vehiclePaintColor : remoteColor,
+      trafficClass
+    );
+    remote.kind = "remote";
+    remote.vehicleAppearanceKey = appearanceKey;
     remote.remoteTarget = { ...state };
     remote.lastSeen = performance.now();
     remote.playerName = remoteName;
@@ -7213,8 +7331,11 @@ function applyRemoteState(peerId, state) {
     scene.add(remote.group);
     remotePlayers.set(peerId, remote);
     showNotification(`${remote.playerName} joined the chase`);
+  } else if (remote.vehicleAppearanceKey !== appearanceKey) {
+    replaceRemoteVehicleAppearance(remote, state, remoteColor);
   }
   remote.playerName = remoteName || remote.playerName || "Driver";
+  remote.playerColor = remoteColor;
   setVehicleNameTag(remote, remote.playerName, remoteColor);
   if (!remote.gameOver && state.gameOver) showNotification(`${remote.playerName} got arrested`, true);
   if ((state.wanted || 0) >= 3 && (state.wanted || 0) > (remote.lastWantedNoticeLevel || 0)) {
@@ -7576,6 +7697,7 @@ function handleNetworkMessage(fromPeer, message) {
   if (message.type === "event") {
     if (message.event === "arrested") showNotification(`${message.name || "Driver"} got arrested`, true);
     if (message.event === "store-punch") applyStorePunchEvent(message);
+    if (message.event === "traffic-carjacked") removeCarjackedTrafficFromWorld(message);
     if (message.event === "vendor-knife" && message.targetPeerId === multiplayer.peerId && gameMode === "store") {
       applyStoreDamage(VENDOR_KNIFE_DAMAGE, VENDOR_NAME, message);
     }
@@ -7883,6 +8005,7 @@ function resetGame() {
   transitionLock = false;
   setTransition(false);
   world.visible = true;
+  restoreDefaultPlayerVehicle();
   player.group.visible = true;
   if (outsideState.character) outsideState.character.visible = false;
   outsideState.carjackTarget = null;
