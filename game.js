@@ -2405,19 +2405,25 @@ function makeFirstPersonFist() {
   group.visible = false;
   const personMats = characterStyleMaterials(characterStyle);
 
-  const arm = setStyleSlot(new THREE.Mesh(new THREE.CylinderGeometry(3.2, 4.1, 118, 18), personMats.shirtLight), "shirtLight");
+  const arm = setStyleSlot(new THREE.Mesh(new THREE.CylinderGeometry(7.2, 4.5, 150, 24), personMats.shirt), "shirt");
   arm.rotation.x = Math.PI * 0.5;
-  arm.rotation.z = 0.03;
-  arm.position.set(0, 0, -18);
+  arm.rotation.z = -0.025;
+  arm.position.set(0, 0, -10);
   arm.castShadow = true;
   arm.receiveShadow = true;
-  const fist = setStyleSlot(new THREE.Mesh(new THREE.SphereGeometry(5.25, 16, 12), personMats.skin), "skin");
-  fist.scale.set(1.12, 0.9, 1.18);
-  fist.position.set(0, 0, -78);
+
+  const cuff = setStyleSlot(new THREE.Mesh(new THREE.TorusGeometry(5.1, 1.15, 10, 24), personMats.shirtLight), "shirtLight");
+  cuff.position.set(0, 0, -85);
+  cuff.castShadow = true;
+
+  const fist = setStyleSlot(new THREE.Mesh(new THREE.SphereGeometry(6.8, 22, 16), personMats.skin), "skin");
+  fist.scale.set(0.94, 1.12, 1.12);
+  fist.position.set(0, 0, -91);
   fist.castShadow = true;
   fist.receiveShadow = true;
+
   const can = new THREE.Group();
-  can.position.set(-2.8, 5.5, -80);
+  can.position.set(-3.2, 6.5, -94);
   can.rotation.set(-0.18, 0.12, -0.08);
   can.visible = false;
   can.userData.firstPersonOverlay = true;
@@ -2427,15 +2433,15 @@ function makeFirstPersonFist() {
   liquid.rotation.set(0.7, 0.18, -0.18);
   liquid.visible = false;
 
-  group.add(arm, fist, can, liquid);
+  group.add(arm, cuff, fist, can, liquid);
   makeFirstPersonOverlay(group);
   group.userData.can = can;
   group.userData.liquid = liquid;
   group.userData.characterStyle = sanitizeCharacterStyle(characterStyle);
   group.userData.firstPersonRoot = true;
-  group.position.set(18, -38, -46);
-  group.rotation.set(-0.06, -0.18, 0.06);
-  group.scale.setScalar(0.48);
+  group.position.set(30, -47, -52);
+  group.rotation.set(0.12, -0.28, -0.08);
+  group.scale.setScalar(0.56);
   camera.add(group);
   return group;
 }
@@ -2941,24 +2947,24 @@ function updateStorePunch(dt) {
   const carryingDrink = storeState.hasMegaforce || storeState.drinking;
   const settle = 1 - Math.exp(-dt * 14);
   const lookDownGuard = clamp(-storeState.pitch / 1.52, 0, 1);
-  const wantedX = carryingDrink ? 25 : 19 - strike * 5;
-  const wantedY = (carryingDrink ? -43 + drinkLift * 18 + drinkSip : -33 + strike * 3) + lookDownGuard * 38;
-  const wantedZ = (carryingDrink ? -82 + drinkLift * 9 : -70 + windup * 18 - strike * (32 + storeState.lastPunchDamage * 0.13)) + lookDownGuard * 8;
+  const wantedX = carryingDrink ? 31 - drinkLift * 8 : 31 - windup * 7 - strike * 10;
+  const wantedY = (carryingDrink ? -49 + drinkLift * 23 + drinkSip : -46 - windup * 5 + strike * 12) + lookDownGuard * 44;
+  const wantedZ = (carryingDrink ? -64 + drinkLift * 8 : -58 + windup * 20 - strike * (38 + storeState.lastPunchDamage * 0.14)) + lookDownGuard * 10;
   storeState.fist.position.x = lerp(storeState.fist.position.x, wantedX, settle);
   storeState.fist.position.y = lerp(storeState.fist.position.y, wantedY, settle);
   storeState.fist.position.z = lerp(storeState.fist.position.z, wantedZ, settle);
-  storeState.fist.rotation.x = lerp(storeState.fist.rotation.x, carryingDrink ? -0.1 - drinkLift * 0.34 : -0.12 - windup * 0.55 + strike * 0.36, settle);
-  storeState.fist.rotation.y = lerp(storeState.fist.rotation.y, carryingDrink ? -0.28 + drinkLift * 0.05 : -0.2 + strike * 0.18, settle);
-  storeState.fist.rotation.z = lerp(storeState.fist.rotation.z, carryingDrink ? 0.1 + drinkLift * 0.18 : 0.06 + windup * 0.14 - strike * 0.13, settle);
+  storeState.fist.rotation.x = lerp(storeState.fist.rotation.x, carryingDrink ? 0.08 - drinkLift * 0.42 : 0.13 - windup * 0.5 + strike * 0.5, settle);
+  storeState.fist.rotation.y = lerp(storeState.fist.rotation.y, carryingDrink ? -0.34 + drinkLift * 0.08 : -0.28 + windup * 0.08 + strike * 0.22, settle);
+  storeState.fist.rotation.z = lerp(storeState.fist.rotation.z, carryingDrink ? -0.04 + drinkLift * 0.2 : -0.08 + windup * 0.18 - strike * 0.18, settle);
   if (storeState.fist.userData.can) {
     if (!storeState.fist.userData.canOverlayApplied) {
       makeFirstPersonOverlay(storeState.fist.userData.can);
       storeState.fist.userData.canOverlayApplied = true;
     }
     storeState.fist.userData.can.visible = carryingDrink;
-    storeState.fist.userData.can.position.x = lerp(storeState.fist.userData.can.position.x, -2.8 - drinkLift * 1.6, settle);
-    storeState.fist.userData.can.position.y = lerp(storeState.fist.userData.can.position.y, 5.5 + drinkLift * 7.5, settle);
-    storeState.fist.userData.can.position.z = lerp(storeState.fist.userData.can.position.z, -80 + drinkLift * 8, settle);
+    storeState.fist.userData.can.position.x = lerp(storeState.fist.userData.can.position.x, -3.2 - drinkLift * 1.8, settle);
+    storeState.fist.userData.can.position.y = lerp(storeState.fist.userData.can.position.y, 6.5 + drinkLift * 8.5, settle);
+    storeState.fist.userData.can.position.z = lerp(storeState.fist.userData.can.position.z, -94 + drinkLift * 10, settle);
     storeState.fist.userData.can.rotation.x = lerp(storeState.fist.userData.can.rotation.x, -0.18 + drinkLift * 0.82, settle);
     storeState.fist.userData.can.rotation.y = lerp(storeState.fist.userData.can.rotation.y, 0.12 + drinkLift * 0.12, settle);
     storeState.fist.userData.can.rotation.z = lerp(storeState.fist.userData.can.rotation.z, -0.08 + drinkLift * 0.3, settle);
