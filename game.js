@@ -145,6 +145,16 @@ const MAX_TRAFFIC = 11;
 const TRAFFIC_SPAWN_MIN = 980;
 const TRAFFIC_SPAWN_MAX = 1550;
 const TRAFFIC_DESPAWN_DISTANCE = 1900;
+const TRAFFIC_ARCHETYPES = Object.freeze([
+  { id: "sedan", label: "Sedan", weight: 30, halfWidth: 14.4, halfLength: 26.2, mass: 1, maxSpeed: 90, accel: 92, grip: 5.6, turnRate: 1.8 },
+  { id: "wagon", label: "Farmari", weight: 22, halfWidth: 14.6, halfLength: 28.4, mass: 1.08, maxSpeed: 86, accel: 87, grip: 5.8, turnRate: 1.72 },
+  { id: "suv", label: "Maastoauto", weight: 17, halfWidth: 15.8, halfLength: 28.8, mass: 1.3, maxSpeed: 82, accel: 79, grip: 5.25, turnRate: 1.58 },
+  { id: "van", label: "Pakettiauto", weight: 12, halfWidth: 16.1, halfLength: 30.2, mass: 1.45, maxSpeed: 76, accel: 70, grip: 5.1, turnRate: 1.42 },
+  { id: "pickup", label: "Pickup", weight: 10, halfWidth: 15.7, halfLength: 30.5, mass: 1.34, maxSpeed: 84, accel: 77, grip: 4.9, turnRate: 1.52 },
+  { id: "sports", label: "Urheiluauto", weight: 7, halfWidth: 15.2, halfLength: 27.5, mass: 0.94, maxSpeed: 124, accel: 112, grip: 6.25, turnRate: 2.05 },
+  { id: "supercar", label: "Superauto", weight: 2, halfWidth: 16.2, halfLength: 28.2, mass: 0.9, maxSpeed: 148, accel: 128, grip: 6.7, turnRate: 2.2 },
+]);
+const TRAFFIC_ARCHETYPE_BY_ID = Object.freeze(Object.fromEntries(TRAFFIC_ARCHETYPES.map((archetype) => [archetype.id, archetype])));
 const COP_DESPAWN_DISTANCE = 2300;
 const COP_ARREST_RADIUS = 76;
 const POLICE_KINDS = new Set(["cop", "swat", "interceptor"]);
@@ -1398,10 +1408,183 @@ function makeMarketSign() {
   return new THREE.MeshBasicMaterial({ map: texture, transparent: true });
 }
 
-function makeVehicle(kind, x, z, angle, paintColor = null) {
+function chooseTrafficArchetype() {
+  let roll = Math.random() * TRAFFIC_ARCHETYPES.reduce((sum, archetype) => sum + archetype.weight, 0);
+  for (const archetype of TRAFFIC_ARCHETYPES) {
+    roll -= archetype.weight;
+    if (roll <= 0) return archetype;
+  }
+  return TRAFFIC_ARCHETYPES[0];
+}
+
+const trafficGeometryCache = new Map();
+const trafficPaintMaterialCache = new Map();
+
+function cachedTrafficGeometry(type, dimensions, factory) {
+  const key = `${type}:${dimensions.join(":")}`;
+  if (!trafficGeometryCache.has(key)) trafficGeometryCache.set(key, factory());
+  return trafficGeometryCache.get(key);
+}
+
+function trafficBox(width, height, depth) {
+  return cachedTrafficGeometry("box", [width, height, depth], () => new THREE.BoxGeometry(width, height, depth));
+}
+
+function trafficCylinder(radius, depth, segments) {
+  return cachedTrafficGeometry("cylinder", [radius, depth, segments], () => new THREE.CylinderGeometry(radius, radius, depth, segments));
+}
+
+function trafficShell(width, height, depth) {
+  return cachedTrafficGeometry("shell", [width, height, depth], () => makeCarShellGeometry(width, height, depth));
+}
+
+function trafficCabin(width, height, depth, topScaleX, topScaleZ) {
+  return cachedTrafficGeometry("cabin", [width, height, depth, topScaleX, topScaleZ], () => makeTaperedBoxGeometry(width, height, depth, topScaleX, topScaleZ));
+}
+
+function trafficHood(width, height, depth) {
+  return cachedTrafficGeometry("hood", [width, height, depth], () => makeHoodGeometry(width, height, depth));
+}
+
+function trafficPaintMaterial(color) {
+  if (!trafficPaintMaterialCache.has(color)) trafficPaintMaterialCache.set(color, new THREE.MeshLambertMaterial({ color }));
+  return trafficPaintMaterialCache.get(color);
+}
+
+function addTrafficVehicleModel(addPart, material, archetype) {
+  const id = archetype.id;
+  const width = archetype.halfWidth * 2 - 0.8;
+  const length = archetype.halfLength * 2 - 1.2;
+  let bodyHeight = 9.2;
+  let cabinHeight = 13.5;
+  let cabinLength = 25;
+  let cabinZ = 0;
+  let wheelRadius = 4.8;
+  let wheelFront = -15.8;
+  let wheelRear = 15.8;
+
+  if (id === "wagon") {
+    bodyHeight = 10;
+    cabinHeight = 15.5;
+    cabinLength = 34;
+    cabinZ = 2.5;
+    wheelFront = -17;
+    wheelRear = 18;
+  } else if (id === "suv") {
+    bodyHeight = 12.5;
+    cabinHeight = 18;
+    cabinLength = 32;
+    cabinZ = 2;
+    wheelRadius = 5.8;
+    wheelFront = -17.2;
+    wheelRear = 17.2;
+  } else if (id === "van") {
+    bodyHeight = 14;
+    cabinHeight = 24;
+    cabinLength = 44;
+    cabinZ = 4;
+    wheelRadius = 5.3;
+    wheelFront = -18.2;
+    wheelRear = 19;
+  } else if (id === "pickup") {
+    bodyHeight = 11;
+    cabinHeight = 17;
+    cabinLength = 22;
+    cabinZ = -7;
+    wheelRadius = 5.7;
+    wheelFront = -18;
+    wheelRear = 19;
+  } else if (id === "sports") {
+    bodyHeight = 7;
+    cabinHeight = 10.5;
+    cabinLength = 20;
+    cabinZ = 2;
+    wheelRadius = 4.9;
+    wheelFront = -16.5;
+    wheelRear = 16.5;
+  } else if (id === "supercar") {
+    bodyHeight = 6.2;
+    cabinHeight = 9;
+    cabinLength = 18;
+    cabinZ = 2.5;
+    wheelRadius = 5.1;
+    wheelFront = -17;
+    wheelRear = 17;
+  }
+
+  addPart(trafficShell(width, bodyHeight, length), material, 0, 2, 0);
+
+  if (id === "van") {
+    addPart(trafficBox(width * 0.9, cabinHeight, cabinLength), material, 0, bodyHeight + cabinHeight * 0.45, cabinZ);
+    addPart(trafficBox(width * 0.72, 9, 0.9), mats.glass, 0, 24, -18.4);
+    for (const side of [-1, 1]) {
+      addPart(trafficBox(0.8, 8, 10), mats.glass, side * width * 0.46, 24, -11);
+      addPart(trafficBox(0.9, 12, 1), mats.outline, side * width * 0.46, 18, 8);
+      addPart(trafficBox(0.9, 1, 13), mats.outline, side * width * 0.46, 12, 8);
+    }
+    addPart(trafficBox(width * 0.78, 1.2, cabinLength * 0.78), mats.outline, 0, 37, cabinZ);
+  } else if (id === "pickup") {
+    addPart(trafficCabin(width * 0.82, cabinHeight, cabinLength, 0.82, 0.84), material, 0, bodyHeight * 0.72, cabinZ);
+    addPart(trafficBox(width * 0.62, 7.5, 0.8), mats.glass, 0, 18.5, -17.8);
+    for (const side of [-1, 1]) addPart(trafficBox(0.8, 7.5, 8), mats.glass, side * width * 0.42, 18.5, -7.5);
+    addPart(trafficBox(width * 0.86, 2, 20), mats.outline, 0, 7.8, 17.2);
+    addPart(trafficBox(2, 8, 21), material, -width * 0.43, 11, 17.2);
+    addPart(trafficBox(2, 8, 21), material, width * 0.43, 11, 17.2);
+    addPart(trafficBox(width * 0.88, 8, 2), material, 0, 11, 27);
+  } else {
+    addPart(trafficCabin(width * (id === "supercar" ? 0.72 : 0.78), cabinHeight, cabinLength, 0.76, id === "wagon" || id === "suv" ? 0.9 : 0.78), material, 0, bodyHeight * 0.72, cabinZ);
+    const glassY = bodyHeight + cabinHeight * 0.64;
+    const glassLength = cabinLength * 0.34;
+    addPart(trafficBox(width * 0.58, cabinHeight * 0.46, 0.8), mats.glass, 0, glassY, cabinZ - cabinLength * 0.42, -0.1);
+    addPart(trafficBox(width * 0.56, cabinHeight * 0.42, 0.8), mats.glass, 0, glassY - 0.2, cabinZ + cabinLength * 0.42, 0.1);
+    for (const side of [-1, 1]) {
+      addPart(trafficBox(0.75, cabinHeight * 0.42, glassLength), mats.glass, side * width * 0.4, glassY, cabinZ - cabinLength * 0.18);
+      addPart(trafficBox(0.75, cabinHeight * 0.42, glassLength), mats.glass, side * width * 0.4, glassY, cabinZ + cabinLength * 0.2);
+    }
+    addPart(trafficBox(width * 0.58, 1.8, cabinLength * 0.72), material, 0, bodyHeight + cabinHeight * 0.96, cabinZ);
+  }
+
+  if (id === "suv") {
+    addPart(trafficBox(width * 0.72, 1.4, 35), mats.outline, 0, 35, 2);
+    addPart(trafficBox(2, 2.5, 35), mats.metal, -8, 37, 2);
+    addPart(trafficBox(2, 2.5, 35), mats.metal, 8, 37, 2);
+  } else if (id === "wagon") {
+    addPart(trafficBox(2, 1.8, 31), mats.metal, -7, 31, 3);
+    addPart(trafficBox(2, 1.8, 31), mats.metal, 7, 31, 3);
+  } else if (id === "sports" || id === "supercar") {
+    addPart(trafficHood(width * 0.92, id === "supercar" ? 2.2 : 3, 18), material, 0, 7, -18);
+    addPart(trafficBox(width * 0.76, 1.8, id === "supercar" ? 8 : 6), mats.outline, 0, 12, 23.5);
+    addPart(trafficBox(2, 5, 2), mats.outline, -9, 9.5, 23.5);
+    addPart(trafficBox(2, 5, 2), mats.outline, 9, 9.5, 23.5);
+    for (const side of [-1, 1]) addPart(trafficBox(1.2, 5, 10), mats.outline, side * width * 0.47, 7, 7);
+  }
+
+  const lightZ = -archetype.halfLength + 0.5;
+  const tailZ = archetype.halfLength - 0.5;
+  const lightX = archetype.halfWidth * 0.5;
+  addPart(trafficBox(5, 2, 1), mats.light, -lightX, 8.5, lightZ);
+  addPart(trafficBox(5, 2, 1), mats.light, lightX, 8.5, lightZ);
+  addPart(trafficBox(5, 2, 1), mats.copRed, -lightX, 8.5, tailZ);
+  addPart(trafficBox(5, 2, 1), mats.copRed, lightX, 8.5, tailZ);
+  addPart(trafficBox(width * 0.78, 2.2, 2), mats.tire, 0, 5.5, lightZ - 0.8);
+  addPart(trafficBox(width * 0.78, 2.2, 2), mats.tire, 0, 5.5, tailZ + 0.8);
+  addPart(trafficBox(width * 0.42, 3.2, 1), mats.pumpDark, 0, 7.2, lightZ - 0.3);
+
+  const wheelX = archetype.halfWidth - 1.4;
+  for (const sx of [-wheelX, wheelX]) {
+    for (const sz of [wheelFront, wheelRear]) {
+      addPart(trafficCylinder(wheelRadius, 5.4, 16), mats.tire, sx, wheelRadius + 0.4, sz, 0, 0, Math.PI / 2);
+      addPart(trafficCylinder(wheelRadius * 0.5, 0.7, 14), mats.hubcap, sx, wheelRadius + 0.4, sz, 0, 0, Math.PI / 2);
+    }
+  }
+}
+
+function makeVehicle(kind, x, z, angle, paintColor = null, trafficClass = null) {
   const group = new THREE.Group();
   const policeVehicle = POLICE_KINDS.has(kind);
-  const trafficPalette = [0xe39a42, 0x58a6d6, 0xe0d35b, 0x58b66d, 0xb86bd6, 0xe36b78];
+  const trafficVehicle = kind === "normal" || kind === "grandma" || kind === "drunk";
+  const archetype = trafficVehicle ? (TRAFFIC_ARCHETYPE_BY_ID[trafficClass] || chooseTrafficArchetype()) : null;
+  const trafficPalette = [0xe39a42, 0x58a6d6, 0xe0d35b, 0x58b66d, 0xb86bd6, 0xe36b78, 0xe9e7df, 0x373b42, 0x8f2430, 0x315f9b];
   const trafficColor = paintColor ?? trafficPalette[Math.floor(Math.random() * trafficPalette.length)];
   const remoteColor = paintColor ?? 0x18d2ff;
   const mat =
@@ -1409,8 +1592,7 @@ function makeVehicle(kind, x, z, angle, paintColor = null) {
     kind === "swat" ? mats.swat :
     kind === "interceptor" ? mats.interceptor :
     kind === "cop" ? mats.copWhite :
-    kind === "grandma" ? mats.grandma :
-    kind === "drunk" ? mats.drunk :
+    trafficVehicle ? trafficPaintMaterial(trafficColor) :
     kind === "remote" ? new THREE.MeshLambertMaterial({ color: remoteColor }) :
     new THREE.MeshLambertMaterial({ color: trafficColor });
 
@@ -1424,23 +1606,27 @@ function makeVehicle(kind, x, z, angle, paintColor = null) {
     return mesh;
   };
 
-  addPart(carGeometry.body, mat, 0, 2.8, 0);
-  addPart(carGeometry.hood, mat, 0, 10.3, -17.2);
-  addPart(carGeometry.trunkBox, mat, 0, 10.5, 18.4, 0, Math.PI);
-  addPart(carGeometry.cabinFrame, mat, 0, 12.2, -1.2);
-  addPart(carGeometry.roof, mat, 0, 27.7, -1.4);
-  addPart(carGeometry.topGlass, mats.glass, 0, 29.65, -1.4);
-  addPart(carGeometry.windowDivider, mats.outline, 0, 29.5, -1.4);
-  addPart(carGeometry.windshield, mats.glass, 0, 20.5, -13.2, -0.14);
-  addPart(carGeometry.windshield, mats.glass, 0, 20.2, 10.6, 0.12);
+  if (trafficVehicle) {
+    addTrafficVehicleModel(addPart, mat, archetype);
+  } else {
+    addPart(carGeometry.body, mat, 0, 2.8, 0);
+    addPart(carGeometry.hood, mat, 0, 10.3, -17.2);
+    addPart(carGeometry.trunkBox, mat, 0, 10.5, 18.4, 0, Math.PI);
+    addPart(carGeometry.cabinFrame, mat, 0, 12.2, -1.2);
+    addPart(carGeometry.roof, mat, 0, 27.7, -1.4);
+    addPart(carGeometry.topGlass, mats.glass, 0, 29.65, -1.4);
+    addPart(carGeometry.windowDivider, mats.outline, 0, 29.5, -1.4);
+    addPart(carGeometry.windshield, mats.glass, 0, 20.5, -13.2, -0.14);
+    addPart(carGeometry.windshield, mats.glass, 0, 20.2, 10.6, 0.12);
 
-  for (const sx of [-1, 1]) {
-    addPart(carGeometry.sideWindow, mats.glass, sx * 10.9, 21.1, -6.2);
-    addPart(carGeometry.sideWindow, mats.glass, sx * 10.9, 21.1, 3.6);
-    addPart(carGeometry.handle, mats.outline, sx * 14.3, 15.5, -5.5);
-    addPart(carGeometry.handle, mats.outline, sx * 14.3, 15.5, 5.2);
-    addPart(carGeometry.sideSkirt, mats.tire, sx * 14.25, 5.1, 1.2);
-    addPart(carGeometry.mirror, mat, sx * 13.1, 19.2, -10.4, 0, 0, sx * 0.08);
+    for (const sx of [-1, 1]) {
+      addPart(carGeometry.sideWindow, mats.glass, sx * 10.9, 21.1, -6.2);
+      addPart(carGeometry.sideWindow, mats.glass, sx * 10.9, 21.1, 3.6);
+      addPart(carGeometry.handle, mats.outline, sx * 14.3, 15.5, -5.5);
+      addPart(carGeometry.handle, mats.outline, sx * 14.3, 15.5, 5.2);
+      addPart(carGeometry.sideSkirt, mats.tire, sx * 14.25, 5.1, 1.2);
+      addPart(carGeometry.mirror, mat, sx * 13.1, 19.2, -10.4, 0, 0, sx * 0.08);
+    }
   }
 
   if (policeVehicle) {
@@ -1495,20 +1681,22 @@ function makeVehicle(kind, x, z, angle, paintColor = null) {
     }
   }
 
-  addPart(carGeometry.light, mats.light, -6.9, 10.6, -25.5);
-  addPart(carGeometry.light, mats.light, 6.9, 10.6, -25.5);
-  addPart(carGeometry.tailLight, mats.copRed, -7.2, 10.2, 25.5);
-  addPart(carGeometry.tailLight, mats.copRed, 7.2, 10.2, 25.5);
-  addPart(carGeometry.bumper, mats.tire, 0, 6.2, -26.4);
-  addPart(carGeometry.bumper, mats.tire, 0, 6.2, 26.4);
-  addPart(carGeometry.grille, mats.pumpDark, 0, 8.8, -26.2);
-  addPart(carGeometry.plate, mats.curb, 0, 5.7, -27.7);
-  addPart(carGeometry.plate, mats.curb, 0, 6.2, 27.7);
+  if (!trafficVehicle) {
+    addPart(carGeometry.light, mats.light, -6.9, 10.6, -25.5);
+    addPart(carGeometry.light, mats.light, 6.9, 10.6, -25.5);
+    addPart(carGeometry.tailLight, mats.copRed, -7.2, 10.2, 25.5);
+    addPart(carGeometry.tailLight, mats.copRed, 7.2, 10.2, 25.5);
+    addPart(carGeometry.bumper, mats.tire, 0, 6.2, -26.4);
+    addPart(carGeometry.bumper, mats.tire, 0, 6.2, 26.4);
+    addPart(carGeometry.grille, mats.pumpDark, 0, 8.8, -26.2);
+    addPart(carGeometry.plate, mats.curb, 0, 5.7, -27.7);
+    addPart(carGeometry.plate, mats.curb, 0, 6.2, 27.7);
 
-  for (const sx of [-11.8, 11.8]) {
-    for (const sz of [-15.6, 15.6]) {
-      addPart(carGeometry.wheel, mats.tire, sx * 1.09, 5.2, sz, 0, 0, Math.PI / 2);
-      addPart(carGeometry.hubcap, mats.hubcap, sx * 1.09, 5.2, sz, 0, 0, Math.PI / 2);
+    for (const sx of [-11.8, 11.8]) {
+      for (const sz of [-15.6, 15.6]) {
+        addPart(carGeometry.wheel, mats.tire, sx * 1.09, 5.2, sz, 0, 0, Math.PI / 2);
+        addPart(carGeometry.hubcap, mats.hubcap, sx * 1.09, 5.2, sz, 0, 0, Math.PI / 2);
+      }
     }
   }
 
@@ -1522,9 +1710,10 @@ function makeVehicle(kind, x, z, angle, paintColor = null) {
     angle,
     steer: 0,
     steerCharge: 0,
-    radius: 20.5,
-    halfWidth: 14.4,
-    halfLength: 26.2,
+    radius: archetype ? Math.hypot(archetype.halfWidth, archetype.halfLength) * 0.7 : 20.5,
+    halfWidth: archetype?.halfWidth || 14.4,
+    halfLength: archetype?.halfLength || 26.2,
+    mass: archetype?.mass || 1,
     roadAxis: Math.random() < 0.5 ? "x" : "z",
     dir: Math.random() < 0.5 ? -1 : 1,
     timer: Math.random() * 10,
@@ -1540,7 +1729,9 @@ function makeVehicle(kind, x, z, angle, paintColor = null) {
     roleTimer: 0,
     searchOffset: Math.random() * Math.PI * 2,
     deployed: false,
-    paintColor: kind === "remote" ? remoteColor : kind === "normal" ? trafficColor : null,
+    paintColor: kind === "remote" ? remoteColor : trafficVehicle ? trafficColor : null,
+    trafficClass: archetype?.id || null,
+    trafficTune: archetype || null,
   };
   if (kind === "swat") {
     car.radius = 23.5;
@@ -4962,8 +5153,10 @@ function spawnCop(role = choosePoliceRole(policeState.level || 1)) {
 function spawnTraffic() {
   for (let attempt = 0; attempt < 10; attempt++) {
     const spawn = chooseHiddenRoadSpawn(TRAFFIC_SPAWN_MIN, TRAFFIC_SPAWN_MAX);
-    const kind = Math.random() < 0.22 ? "grandma" : Math.random() < 0.36 ? "drunk" : "normal";
-    const car = makeVehicle(kind, spawn.x, spawn.z, spawn.angle);
+    const behaviorRoll = Math.random();
+    const kind = behaviorRoll < 0.22 ? "grandma" : behaviorRoll < 0.38 ? "drunk" : "normal";
+    const archetype = chooseTrafficArchetype();
+    const car = makeVehicle(kind, spawn.x, spawn.z, spawn.angle, null, archetype.id);
     car.roadAxis = spawn.axis;
     car.roadId = spawn.id;
     car.dir = spawn.dir;
@@ -5379,16 +5572,19 @@ function updateTraffic(dt) {
       }
     }
 
-    const maxSpeed = car.kind === "grandma" ? 56 : car.kind === "drunk" ? 118 : 88;
+    const archetypeTune = car.trafficTune || TRAFFIC_ARCHETYPE_BY_ID.sedan;
+    const behaviorSpeed = car.kind === "grandma" ? 0.64 : car.kind === "drunk" ? 1.12 : 1;
+    const behaviorAccel = car.kind === "grandma" ? 0.72 : car.kind === "drunk" ? 1.08 : 1;
+    const maxSpeed = archetypeTune.maxSpeed * behaviorSpeed;
     driveVehicle(car, { steer, throttle }, dt, {
-      accel: escaping ? 96 : 92,
-      brake: 180,
-      reverseAccel: 35,
-      maxSpeed: escaping ? Math.min(maxSpeed + 18, 96) : maxSpeed,
+      accel: archetypeTune.accel * behaviorAccel * (escaping ? 1.08 : 1),
+      brake: 180 * Math.min(1.12, archetypeTune.grip / 5.2),
+      reverseAccel: 35 * behaviorAccel,
+      maxSpeed: escaping ? maxSpeed + 14 : maxSpeed,
       reverseMax: 38,
-      grip: escaping ? 3.15 : car.kind === "drunk" ? 2.3 : 5.6,
+      grip: escaping ? Math.min(3.3, archetypeTune.grip * 0.62) : car.kind === "drunk" ? archetypeTune.grip * 0.43 : archetypeTune.grip,
       coast: 65,
-      turnRate: escaping ? 2.55 : car.kind === "drunk" ? 2.2 : 1.8,
+      turnRate: escaping ? archetypeTune.turnRate * 1.36 : car.kind === "drunk" ? archetypeTune.turnRate * 1.22 : archetypeTune.turnRate,
     });
     const lane = laneCenterFor(car.roadAxis, car.dir, car.x, car.z, car.roadId);
     const lanePull = escaping ? 0.22 : car.kind === "drunk" ? 1.9 : throttle < 0.1 ? 2.6 : 5.8;
@@ -5946,8 +6142,8 @@ function collideVehicles(a, b) {
   const relVz = a.vz - b.vz;
   const impactSpeed = Math.abs(relVx * nx + relVz * nz);
   const push = hit.overlap + 0.35;
-  const aMass = a === player ? 1.12 : isPoliceVehicle(a) ? (a.kind === "swat" ? 1.38 : 1.08) : 1;
-  const bMass = b === player ? 1.12 : isPoliceVehicle(b) ? (b.kind === "swat" ? 1.38 : 1.08) : 1;
+  const aMass = a === player ? 1.12 : isPoliceVehicle(a) ? (a.kind === "swat" ? 1.38 : 1.08) : (a.mass || 1);
+  const bMass = b === player ? 1.12 : isPoliceVehicle(b) ? (b.kind === "swat" ? 1.38 : 1.08) : (b.mass || 1);
   const totalMass = aMass + bMass;
   a.x += nx * push * (bMass / totalMass);
   a.z += nz * push * (bMass / totalMass);
@@ -6491,6 +6687,7 @@ function vehicleNetworkState(v) {
     roleTargetSet: !!v.roleTargetSet,
     deployed: !!v.deployed,
     paintColor: v.paintColor || null,
+    trafficClass: v.trafficClass || null,
     airborne: !!v.airborne,
     wrecked: !!v.wrecked,
     lightTimer: v.lightTimer || 0,
@@ -6645,6 +6842,8 @@ function applyRemoteState(peerId, state) {
 
 function applyVehicleNetworkState(v, state, snap = false) {
   v.kind = state.kind || v.kind;
+  v.trafficClass = state.trafficClass || v.trafficClass;
+  v.trafficTune = TRAFFIC_ARCHETYPE_BY_ID[v.trafficClass] || v.trafficTune;
   v.remoteTarget = { ...state };
   v.vx = state.vx || 0;
   v.vz = state.vz || 0;
@@ -6685,9 +6884,9 @@ function syncNetworkVehicleList(list, states) {
 
   for (let i = 0; i < states.length; i++) {
     const state = states[i];
-    if (!list[i] || list[i].kind !== state.kind || list[i].paintColor !== (state.paintColor || null)) {
+    if (!list[i] || list[i].kind !== state.kind || list[i].paintColor !== (state.paintColor || null) || list[i].trafficClass !== (state.trafficClass || null)) {
       if (list[i]) scene.remove(list[i].group);
-      list[i] = makeVehicle(state.kind || "normal", state.x || 0, state.z || 48, state.angle || 0, state.paintColor || null);
+      list[i] = makeVehicle(state.kind || "normal", state.x || 0, state.z || 48, state.angle || 0, state.paintColor || null, state.trafficClass || null);
       scene.add(list[i].group);
       applyVehicleNetworkState(list[i], state, true);
     } else {
