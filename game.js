@@ -55,6 +55,7 @@ const storeHealthLabelEl = storeHealthEl.querySelector("span");
 const storeHealthFillEl = storeHealthEl.querySelector("b");
 const purchasePromptEl = document.getElementById("purchasePrompt");
 const purchasePromptKeyEl = purchasePromptEl.querySelector("span");
+const gameIntroEl = document.getElementById("gameIntro");
 
 const minimap = document.createElement("canvas");
 const miniCtx = minimap.getContext("2d");
@@ -455,6 +456,14 @@ const cameraState = {
   tilt: 0,
 };
 
+const gameIntroState = {
+  active: false,
+  elapsed: 0,
+  duration: 4.8,
+  titlePlayed: false,
+  startPlayed: false,
+};
+
 const PEER_PREFIX = "police-getaway-";
 const PUBLIC_SERVER_CODE = "PUBLIC";
 const PUBLIC_SERVER_PEER_ID = `${PEER_PREFIX}public`;
@@ -786,6 +795,19 @@ function playArrestSound() {
 function playGearShiftSound() {
   playTone(118, 0.075, "square", 0.035);
   playTone(86, 0.12, "sawtooth", 0.025, 0.045);
+}
+
+function playIntroHit(finalHit = false) {
+  if (finalHit) {
+    playNoiseHit(0.22, 0.13, 1280);
+    playTone(82, 0.28, "sawtooth", 0.11);
+    playTone(660, 0.1, "square", 0.055, 0.04);
+    playTone(990, 0.13, "triangle", 0.05, 0.12);
+    return;
+  }
+  playNoiseHit(0.16, 0.09, 820);
+  playTone(105, 0.24, "sawtooth", 0.08);
+  playTone(440, 0.11, "triangle", 0.04, 0.06);
 }
 
 function updateAudio(dt) {
@@ -3873,6 +3895,99 @@ function updateStoreCamera(dt) {
 
 function setTransition(active) {
   transitionFadeEl.classList.toggle("active", active);
+}
+
+function startGameIntro() {
+  gameIntroState.active = true;
+  gameIntroState.elapsed = 0;
+  gameIntroState.titlePlayed = false;
+  gameIntroState.startPlayed = false;
+  transitionLock = true;
+  resetJoystick();
+  keys.clear();
+  document.body.classList.add("game-intro-active");
+  gameIntroEl.className = "game-intro";
+  gameIntroEl.setAttribute("aria-hidden", "false");
+  void gameIntroEl.offsetWidth;
+  gameIntroEl.classList.add("reveal");
+
+  cameraState.position.set(player.x + 220, 190, player.z + 245);
+  cameraState.target.set(player.x, 13, player.z);
+  camera.position.copy(cameraState.position);
+  camera.lookAt(cameraState.target);
+  camera.fov = 44;
+  camera.updateProjectionMatrix();
+}
+
+function finishGameIntro() {
+  gameIntroState.active = false;
+  transitionLock = false;
+  document.body.classList.remove("game-intro-active");
+  gameIntroEl.className = "game-intro hidden";
+  gameIntroEl.setAttribute("aria-hidden", "true");
+  cameraState.position.set(player.x, 210, player.z + 210);
+  cameraState.target.set(player.x, 0, player.z - 28);
+  hintEl.textContent = "Police dispatch incoming";
+}
+
+function updateGameIntro(dt) {
+  gameIntroState.elapsed = Math.min(gameIntroState.duration, gameIntroState.elapsed + dt);
+  const t = gameIntroState.elapsed;
+  const carTarget = new THREE.Vector3(player.x, 12, player.z - 3);
+  let desired;
+  let target;
+
+  if (t < 1.7) {
+    const p = smoothStep01(t / 1.7);
+    desired = new THREE.Vector3().lerpVectors(
+      new THREE.Vector3(player.x + 220, 190, player.z + 245),
+      new THREE.Vector3(player.x + 130, 92, player.z + 168),
+      p
+    );
+    target = carTarget.clone().add(new THREE.Vector3(0, 5 + p * 2, -24 * p));
+  } else if (t < 3.35) {
+    const p = smoothStep01((t - 1.7) / 1.65);
+    desired = new THREE.Vector3().lerpVectors(
+      new THREE.Vector3(player.x + 130, 92, player.z + 168),
+      new THREE.Vector3(player.x + 150, 68, player.z + 112),
+      p
+    );
+    target = carTarget.clone().add(new THREE.Vector3(0, 4, -18 - p * 7));
+  } else {
+    const p = smoothStep01((t - 3.35) / (gameIntroState.duration - 3.35));
+    desired = new THREE.Vector3().lerpVectors(
+      new THREE.Vector3(player.x + 150, 68, player.z + 112),
+      new THREE.Vector3(player.x, 210, player.z + 210),
+      p
+    );
+    target = new THREE.Vector3().lerpVectors(
+      carTarget.clone().add(new THREE.Vector3(0, 4, -25)),
+      new THREE.Vector3(player.x, 0, player.z - 28),
+      p
+    );
+  }
+
+  cameraState.position.copy(desired);
+  cameraState.target.copy(target);
+  camera.position.copy(desired);
+  camera.lookAt(target);
+  camera.rotation.z += Math.sin(t * 1.7) * 0.004 * (1 - t / gameIntroState.duration);
+  camera.fov = lerp(44, 52.5, smoothStep01(t / gameIntroState.duration));
+  camera.updateProjectionMatrix();
+  sun.position.set(player.x - 260, 520, player.z + 180);
+  sun.target.position.set(player.x, 0, player.z);
+
+  if (t >= 2.7 && !gameIntroState.titlePlayed) {
+    gameIntroState.titlePlayed = true;
+    gameIntroEl.classList.add("title-hit");
+    playIntroHit(false);
+  }
+  if (t >= 4 && !gameIntroState.startPlayed) {
+    gameIntroState.startPlayed = true;
+    gameIntroEl.classList.add("finish");
+    playIntroHit(true);
+  }
+  if (t >= gameIntroState.duration) finishGameIntro();
 }
 
 function enterStoreMode() {
@@ -7709,7 +7824,7 @@ function resetJoystick() {
 }
 
 function updateMobileControlLayout() {
-  const active = inputState.mobile && running && !gameOver;
+  const active = inputState.mobile && running && !gameOver && !gameIntroState.active;
   mobileControlsEl.classList.toggle("hidden", !active);
   if (!active) return;
 
@@ -7909,6 +8024,7 @@ function resetGame() {
   hintEl.textContent = "Police dispatch incoming";
   updateWantedMeter();
   updateGameCodeHud();
+  startGameIntro();
 }
 
 function loseGame() {
@@ -7931,7 +8047,9 @@ function update(dt) {
   if (gameMode === "driving" || gameMode === "walking") updateChunks();
   if (gameMode !== "driving" && smashState.hits > 0) resetSmashCombo();
   if (running && gameMode !== "store" && worldHostControlsSimulation()) updateVendor(dt);
-  if (running && !gameOver && gameMode === "driving") {
+  if (gameIntroState.active) {
+    updateGameIntro(dt);
+  } else if (running && !gameOver && gameMode === "driving") {
     updatePlayer(dt);
     checkSMarketEntrance();
     if (worldHostControlsSimulation()) {
@@ -7969,7 +8087,9 @@ function update(dt) {
   updateDriveEffects(dt);
   updateGlows(dt);
   updateStoreImpactFx(dt);
-  if (gameMode === "store") {
+  if (gameIntroState.active) {
+    drawMinimap();
+  } else if (gameMode === "store") {
     updateStoreCamera(dt);
   } else if (gameMode === "walking") {
     updateOutsideCamera(dt);

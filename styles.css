@@ -436,6 +436,157 @@ body {
   opacity: 1;
 }
 
+.game-intro {
+  position: fixed;
+  inset: 0;
+  z-index: 12;
+  overflow: hidden;
+  pointer-events: none;
+  color: #fff;
+  background: #050607;
+  opacity: 1;
+}
+
+.game-intro.hidden {
+  display: none;
+}
+
+.game-intro.reveal {
+  animation: introReveal 900ms cubic-bezier(0.2, 0.8, 0.25, 1) both;
+}
+
+.intro-letterbox {
+  position: absolute;
+  left: 0;
+  width: 100%;
+  height: clamp(44px, 8vh, 94px);
+  background: #050607;
+  transform: translateY(0);
+}
+
+.intro-letterbox-top { top: 0; }
+.intro-letterbox-bottom { bottom: 0; }
+
+.game-intro.finish .intro-letterbox-top {
+  animation: introBarTop 700ms cubic-bezier(0.7, 0, 0.25, 1) both;
+}
+
+.game-intro.finish .intro-letterbox-bottom {
+  animation: introBarBottom 700ms cubic-bezier(0.7, 0, 0.25, 1) both;
+}
+
+.intro-location {
+  position: absolute;
+  left: clamp(20px, 4vw, 64px);
+  bottom: clamp(64px, 12vh, 142px);
+  padding-left: 14px;
+  border-left: 5px solid #ff1f32;
+  text-transform: uppercase;
+  text-shadow: 0 3px 10px rgba(0, 0, 0, 0.82);
+  animation: introLocationIn 650ms ease-out 650ms both;
+}
+
+.intro-location small,
+.intro-location strong {
+  display: block;
+  letter-spacing: 0;
+}
+
+.intro-location small {
+  color: #ffe052;
+  font-size: clamp(11px, 1.2vw, 15px);
+  font-weight: 900;
+}
+
+.intro-location strong {
+  margin-top: 4px;
+  font-size: clamp(22px, 3.2vw, 46px);
+  font-style: italic;
+  line-height: 0.9;
+}
+
+.game-intro.title-hit .intro-location {
+  animation: introLocationOut 260ms ease-in both;
+}
+
+.intro-title {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  display: none;
+  width: min(880px, calc(100vw - 30px));
+  text-align: center;
+  text-transform: uppercase;
+  transform: translate(-50%, -50%) rotate(-3deg);
+  filter: drop-shadow(0 9px 0 rgba(0, 0, 0, 0.76));
+}
+
+.game-intro.title-hit .intro-title {
+  display: block;
+  animation: introTitleHit 680ms cubic-bezier(0.1, 0.9, 0.2, 1) both;
+}
+
+.intro-title span,
+.intro-title strong {
+  display: block;
+  letter-spacing: 0;
+  line-height: 0.72;
+}
+
+.intro-title span {
+  font-size: clamp(24px, 4vw, 54px);
+  font-style: italic;
+  font-weight: 950;
+}
+
+.intro-title strong {
+  color: #fff;
+  font-size: clamp(68px, 14vw, 180px);
+  font-style: italic;
+  font-weight: 1000;
+  text-shadow: 7px 0 0 #d8061d;
+}
+
+.intro-title i {
+  display: block;
+  width: 72%;
+  height: 8px;
+  margin: 17px auto 0;
+  background: #ffe052;
+  transform: skewX(-28deg);
+}
+
+.intro-start {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  display: none;
+  color: #ffe052;
+  font-size: clamp(70px, 17vw, 220px);
+  font-style: italic;
+  font-weight: 1000;
+  line-height: 0.8;
+  letter-spacing: 0;
+  text-transform: uppercase;
+  text-shadow: 7px 0 0 #d8061d, 0 12px 0 rgba(0, 0, 0, 0.72);
+  transform: translate(-50%, -50%) rotate(-4deg);
+}
+
+.game-intro.finish .intro-title { display: none; }
+
+.game-intro.finish .intro-start {
+  display: block;
+  animation: introStartHit 620ms cubic-bezier(0.08, 0.92, 0.18, 1) both;
+}
+
+body.game-intro-active #hud,
+body.game-intro-active #minimap,
+body.game-intro-active #gameCode,
+body.game-intro-active #mobileControls,
+body.game-intro-active #notificationFeed {
+  opacity: 0;
+}
+
 .screen {
   position: fixed;
   inset: 0;
@@ -1529,4 +1680,39 @@ body.arrested #notificationFeed {
   0% { transform: scale(1); color: #ffffff; }
   45% { transform: scale(1.22); color: #ffe04d; }
   100% { transform: scale(1); color: #ffffff; }
+}
+
+@keyframes introReveal {
+  0% { background: #050607; }
+  100% { background: transparent; }
+}
+
+@keyframes introLocationIn {
+  0% { opacity: 0; transform: translateX(-46px) skewX(-8deg); }
+  100% { opacity: 1; transform: translateX(0) skewX(-8deg); }
+}
+
+@keyframes introLocationOut {
+  100% { opacity: 0; transform: translateX(-26px) skewX(-8deg); }
+}
+
+@keyframes introTitleHit {
+  0% { opacity: 0; transform: translate(-50%, -50%) rotate(-8deg) scale(2.1); filter: blur(6px); }
+  48% { opacity: 1; transform: translate(-50%, -50%) rotate(-2deg) scale(0.96); filter: blur(0); }
+  100% { opacity: 1; transform: translate(-50%, -50%) rotate(-3deg) scale(1); filter: blur(0); }
+}
+
+@keyframes introStartHit {
+  0% { opacity: 0; transform: translate(-50%, -50%) rotate(-7deg) scale(2.6); filter: blur(7px); }
+  42% { opacity: 1; transform: translate(-50%, -50%) rotate(-3deg) scale(0.9); filter: blur(0); }
+  72% { opacity: 1; transform: translate(-50%, -50%) rotate(-4deg) scale(1); }
+  100% { opacity: 0; transform: translate(-50%, -50%) rotate(-4deg) scale(1.15); }
+}
+
+@keyframes introBarTop {
+  100% { transform: translateY(-105%); }
+}
+
+@keyframes introBarBottom {
+  100% { transform: translateY(105%); }
 }
