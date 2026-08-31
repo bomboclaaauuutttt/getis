@@ -794,13 +794,13 @@ function updateAudio(dt) {
   const now = ctx.currentTime;
   const driving = running && !gameOver && gameMode === "driving";
   const speed = driving ? Math.abs(audioState.driveSpeed) : 0;
-  const speed01 = clamp(speed / 330, 0, 1);
+  const speed01 = clamp(speed / 560, 0, 1);
   const throttle01 = driving ? clamp(Math.abs(audioState.driveThrottle), 0, 1) : 0;
   const drift01 = driving ? clamp(audioState.driftIntensity, 0, 1) : 0;
   const copDistance = cops.reduce((best, cop) => Math.min(best, dist(player, cop)), Infinity);
   const siren01 = driving && cops.length > 0 ? clamp(1 - (copDistance - 150) / 760, 0.08, 0.75) : 0;
 
-  const gearBands = [0, 68, 132, 198, 266, 338, 430];
+  const gearBands = [0, 76, 148, 226, 314, 414, 528, 660, 850];
   audioState.engineShiftTimer = Math.max(0, audioState.engineShiftTimer - dt);
   if (!driving) {
     audioState.engineGear = 1;
@@ -1134,11 +1134,13 @@ function playerSurfaceTuning() {
   const onRoad = isRoad(player.x, player.z) || isParking(player.x, player.z);
   const boost = megaforceBoostActive() ? 1.5 : 1;
   const tune = onRoad
-    ? {
-        accel: 188,
+      ? {
+        accel: 150,
+        accelFalloffStart: 0.3,
+        highSpeedAccel: 0.17,
         brake: 460,
         reverseAccel: 105,
-        maxSpeed: 330,
+        maxSpeed: 560,
         reverseMax: 50,
         grip: 6.25,
         driftSlip: 36,
@@ -1149,11 +1151,13 @@ function playerSurfaceTuning() {
         steerSharpness: 6.8,
         steerBuild: 2.25,
       }
-    : {
-        accel: 76,
+      : {
+        accel: 68,
+        accelFalloffStart: 0.24,
+        highSpeedAccel: 0.2,
         brake: 360,
         reverseAccel: 75,
-        maxSpeed: 275,
+        maxSpeed: 340,
         reverseMax: 38,
         grip: 1.85,
         driftSlip: 58,
@@ -1792,6 +1796,8 @@ function driveVehicle(v, input, dt, tune) {
   const driftSlip = tune.driftSlip ?? 22;
   const driftThreshold = tune.driftThreshold ?? 74;
   const throttleGripLoss = tune.throttleGripLoss ?? 0.18;
+  const accelFalloffStart = tune.accelFalloffStart ?? 1;
+  const highSpeedAccel = tune.highSpeedAccel ?? 1;
 
   let fx = -Math.sin(v.angle);
   let fz = -Math.cos(v.angle);
@@ -1805,7 +1811,11 @@ function driveVehicle(v, input, dt, tune) {
   if (Math.abs(input.steer) < 0.04 && Math.abs(v.steer) < 0.015) v.steer = 0;
 
   if (input.throttle > 0) {
-    forwardSpeed += input.throttle * accel * dt;
+    const speedRatio = clamp(Math.max(0, forwardSpeed) / Math.max(1, maxSpeed), 0, 1);
+    const falloffRange = Math.max(0.01, 1 - accelFalloffStart);
+    const highSpeedLoad = smoothStep01((speedRatio - accelFalloffStart) / falloffRange);
+    const effectiveAccel = accel * lerp(1, highSpeedAccel, highSpeedLoad);
+    forwardSpeed += input.throttle * effectiveAccel * dt;
   } else if (input.throttle < 0) {
     if (forwardSpeed > 8) forwardSpeed -= brake * dt;
     else forwardSpeed += input.throttle * reverseAccel * dt;
