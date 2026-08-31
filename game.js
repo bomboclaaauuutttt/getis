@@ -5514,7 +5514,7 @@ function launchVehicle(v, dirX, dirZ, power) {
   v.rollVel = (Math.random() - 0.5) * 8 + dirX * 2;
   v.pitchVel = (Math.random() - 0.5) * 8 + dirZ * 2;
   v.spinVel = (Math.random() - 0.5) * 5;
-  v.wreckLife = 4.5;
+  v.wreckLife = 0;
   hardCrashFx(v.x, v.z, power);
 }
 
@@ -5771,42 +5771,68 @@ function updateTraffic(dt) {
 function updateVehicleRagdoll(v, dt) {
   if (!v.airborne && !v.wrecked) return false;
 
-  v.x += v.vx * dt;
-  v.z += v.vz * dt;
-  v.y = (v.y || 0) + (v.vy || 0) * dt;
-  v.vy = (v.vy || 0) - 120 * dt;
-  v.vx *= Math.pow(0.985, dt * 60);
-  v.vz *= Math.pow(0.985, dt * 60);
-  v.angle += (v.spinVel || 0) * dt;
-  v.roll = (v.roll || 0) + (v.rollVel || 0) * dt;
-  v.pitch = (v.pitch || 0) + (v.pitchVel || 0) * dt;
+  if (v.airborne) {
+    v.x += v.vx * dt;
+    v.z += v.vz * dt;
+    v.y = (v.y || 0) + (v.vy || 0) * dt;
+    v.vy = (v.vy || 0) - 120 * dt;
+    v.vx *= Math.pow(0.985, dt * 60);
+    v.vz *= Math.pow(0.985, dt * 60);
+    v.angle += (v.spinVel || 0) * dt;
+    v.roll = (v.roll || 0) + (v.rollVel || 0) * dt;
+    v.pitch = (v.pitch || 0) + (v.pitchVel || 0) * dt;
 
-  if (v.y <= 0) {
-    v.y = 0;
-    if (v.airborne && Math.abs(v.vy || 0) > 35) {
-      makeSmoke(v.x, v.z, 4.2, 0xc0bbb2, 0.5);
+    if ((v.vy || 0) < 8) {
+      const descent = clamp((8 - (v.vy || 0)) / 95, 0, 1);
+      const righting = 1 - Math.exp(-dt * (2.4 + descent * 5.8));
+      v.roll += angleDelta(v.roll || 0, 0) * righting;
+      v.pitch += angleDelta(v.pitch || 0, 0) * righting;
+      v.rollVel *= Math.pow(0.88 - descent * 0.2, dt * 60);
+      v.pitchVel *= Math.pow(0.88 - descent * 0.2, dt * 60);
     }
-    v.airborne = false;
-    v.vy = 0;
-    v.vx *= 0.82;
-    v.vz *= 0.82;
-    v.rollVel = (v.rollVel || 0) * 0.35;
-    v.pitchVel = (v.pitchVel || 0) * 0.35;
-    v.spinVel = (v.spinVel || 0) * 0.35;
-  }
 
-  v.wreckLife = (v.wreckLife ?? 3) - dt;
-  if (v.wreckLife <= 0 && !v.airborne) {
-    v.wrecked = false;
-    v.roll = lerp(v.roll || 0, 0, 0.08);
-    v.pitch = lerp(v.pitch || 0, 0, 0.08);
+    if (v.y <= 0) {
+      const landingForce = Math.abs(v.vy || 0);
+      v.y = 0;
+      if (landingForce > 35) {
+        makeSmoke(v.x, v.z, 4.2, 0xc0bbb2, 0.5);
+        makeDebrisBurst(v.x, v.z, 5, clamp(landingForce * 0.35, 20, 52), 0x77736b);
+        playNoiseHit(0.12, 0.09, 720);
+      }
+      const landingSpeed = Math.hypot(v.vx, v.vz);
+      if (landingSpeed > 14) {
+        const travelAngle = Math.atan2(-v.vx, -v.vz);
+        v.angle += angleDelta(v.angle, travelAngle) * 0.82;
+      }
+      v.airborne = false;
+      v.wrecked = true;
+      v.wreckLife = 0.72;
+      v.vy = 0;
+      v.vx *= 0.78;
+      v.vz *= 0.78;
+      v.roll = 0;
+      v.pitch = 0;
+      v.rollVel = 0;
+      v.pitchVel = 0;
+      v.spinVel = 0;
+      v.nextLaunchTime = performance.now() + 1400;
+    }
+  } else {
+    v.wreckLife = Math.max(0, (v.wreckLife ?? 0.72) - dt);
+    v.roll = lerp(v.roll || 0, 0, 1 - Math.exp(-dt * 16));
+    v.pitch = lerp(v.pitch || 0, 0, 1 - Math.exp(-dt * 16));
+    if (v.wreckLife <= 0) {
+      v.wrecked = false;
+      v.roll = 0;
+      v.pitch = 0;
+    }
   }
 
   const tiltLift = Math.max(
     Math.abs(Math.sin(v.roll || 0)) * 8,
     Math.abs(Math.sin(v.pitch || 0)) * 18
   );
-  const visualY = Math.max(v.y || 0, v.wrecked ? 3 + tiltLift : 0);
+  const visualY = Math.max(v.y || 0, tiltLift);
   v.group.position.set(v.x, visualY, v.z);
   v.group.rotation.set(v.pitch || 0, v.angle, v.roll || 0);
   return true;
@@ -6305,7 +6331,7 @@ function vehicleObbCollision(a, b) {
 }
 
 function collideVehicles(a, b) {
-  if ((a.airborne && (a.y || 0) > 3) || (b.airborne && (b.y || 0) > 3)) return false;
+  if (a.airborne || b.airborne) return false;
   const hit = vehicleObbCollision(a, b);
   if (!hit) return false;
   const nx = hit.nx;
