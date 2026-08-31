@@ -970,6 +970,8 @@ function applyCharacterStyleToPerson(root, style = characterStyle) {
     if (!slot || !materials[slot]) return;
     child.material = materials[slot];
     if (root.userData.firstPersonRoot) {
+      child.material.transparent = true;
+      child.material.opacity = 1;
       child.material.depthTest = false;
       child.material.depthWrite = false;
     }
@@ -2418,20 +2420,21 @@ function makeFirstPersonFist() {
   group.visible = false;
   const personMats = characterStyleMaterials(characterStyle);
 
-  const arm = setStyleSlot(new THREE.Mesh(new THREE.CylinderGeometry(7.2, 4.5, 132, 24), personMats.shirt), "shirt");
+  const arm = setStyleSlot(new THREE.Mesh(new THREE.CylinderGeometry(4.7, 4.9, 136, 32), personMats.shirt), "shirt");
   arm.rotation.x = Math.PI * 0.5;
-  arm.rotation.z = -0.025;
-  arm.position.set(0, 0, -74);
+  arm.rotation.z = -0.012;
+  arm.position.set(0, 0, -76);
   arm.castShadow = true;
   arm.receiveShadow = true;
 
-  const cuff = setStyleSlot(new THREE.Mesh(new THREE.TorusGeometry(5.1, 1.15, 10, 24), personMats.shirtLight), "shirtLight");
-  cuff.position.set(0, 0, -140);
+  const cuff = setStyleSlot(new THREE.Mesh(new THREE.TorusGeometry(5.15, 0.72, 12, 32), personMats.shirtLight), "shirtLight");
+  cuff.position.set(0, 0, -143.5);
   cuff.castShadow = true;
 
-  const fist = setStyleSlot(new THREE.Mesh(new THREE.SphereGeometry(6.8, 22, 16), personMats.skin), "skin");
-  fist.scale.set(0.94, 1.12, 1.12);
-  fist.position.set(0, 0, -146);
+  const fist = setStyleSlot(new THREE.Mesh(new THREE.CapsuleGeometry(6.2, 10, 12, 28), personMats.skin), "skin");
+  fist.rotation.x = Math.PI * 0.5;
+  fist.scale.set(1.08, 0.84, 1);
+  fist.position.set(0, 0, -151);
   fist.castShadow = true;
   fist.receiveShadow = true;
 
@@ -2440,6 +2443,7 @@ function makeFirstPersonFist() {
   can.rotation.set(-0.12, 0.08, -0.04);
   can.visible = false;
   can.userData.firstPersonOverlay = true;
+  can.userData.overlayRenderOrder = 904;
   attachMegaforceModel(can, 32);
   const liquid = makeMegisLiquidStream(0.62);
   liquid.position.set(0, 17, -1);
@@ -2448,7 +2452,10 @@ function makeFirstPersonFist() {
   can.add(liquid);
 
   group.add(arm, cuff, can, fist);
-  makeFirstPersonOverlay(group);
+  makeFirstPersonOverlay(arm, 900);
+  makeFirstPersonOverlay(cuff, 902);
+  makeFirstPersonOverlay(can, 904);
+  makeFirstPersonOverlay(fist, 906);
   group.userData.can = can;
   group.userData.liquid = liquid;
   group.userData.characterStyle = sanitizeCharacterStyle(characterStyle);
@@ -2520,13 +2527,15 @@ function updateMegisLiquidStream(group, visible, flow, seed = 0) {
   }
 }
 
-function makeFirstPersonOverlay(root) {
+function makeFirstPersonOverlay(root, renderOrder = 900) {
   root.traverse((child) => {
-    child.renderOrder = 900;
+    child.renderOrder = renderOrder;
     if (!child.material) return;
     const materials = Array.isArray(child.material) ? child.material : [child.material];
     const cloned = materials.map((material) => {
       const copy = material.clone();
+      copy.transparent = true;
+      copy.opacity = material.opacity ?? 1;
       copy.depthTest = false;
       copy.depthWrite = false;
       return copy;
@@ -2621,10 +2630,10 @@ function loadMegaforceTemplate(callback) {
 function attachMegaforceModel(parent, targetSize) {
   const fallback = addMegaforceFallback(parent);
   fallback.scale.setScalar(targetSize / 34);
-  if (parent.userData.firstPersonOverlay) makeFirstPersonOverlay(fallback);
+  if (parent.userData.firstPersonOverlay) makeFirstPersonOverlay(fallback, parent.userData.overlayRenderOrder ?? 900);
   loadMegaforceTemplate((source) => {
     const model = fitMegaforceModelToMount(source, targetSize);
-    if (parent.userData.firstPersonOverlay) makeFirstPersonOverlay(model);
+    if (parent.userData.firstPersonOverlay) makeFirstPersonOverlay(model, parent.userData.overlayRenderOrder ?? 900);
     fallback.visible = false;
     parent.add(model);
   });
@@ -2972,7 +2981,7 @@ function updateStorePunch(dt) {
   storeState.fist.rotation.z = lerp(storeState.fist.rotation.z, carryingDrink ? -0.04 + drinkLift * 0.2 : -0.08 + windup * 0.18 - strike * 0.18, settle);
   if (storeState.fist.userData.can) {
     if (!storeState.fist.userData.canOverlayApplied) {
-      makeFirstPersonOverlay(storeState.fist.userData.can);
+      makeFirstPersonOverlay(storeState.fist.userData.can, storeState.fist.userData.can.userData.overlayRenderOrder ?? 904);
       storeState.fist.userData.canOverlayApplied = true;
     }
     storeState.fist.userData.can.visible = carryingDrink;
