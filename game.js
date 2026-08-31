@@ -21,6 +21,7 @@ const mobileJumpButton = document.getElementById("mobileJumpButton");
 const mobileActionButton = document.getElementById("mobileActionButton");
 const mobilePunchButton = document.getElementById("mobilePunchButton");
 const mobileUseButton = document.getElementById("mobileUseButton");
+const mobilePauseButton = document.getElementById("mobilePauseButton");
 const menuEl = document.getElementById("menu");
 const customizeButton = document.getElementById("customizeButton");
 const customizeScreenEl = document.getElementById("customizeScreen");
@@ -57,6 +58,14 @@ const storeHealthFillEl = storeHealthEl.querySelector("b");
 const purchasePromptEl = document.getElementById("purchasePrompt");
 const purchasePromptKeyEl = purchasePromptEl.querySelector("span");
 const gameIntroEl = document.getElementById("gameIntro");
+const pauseMenuEl = document.getElementById("pauseMenu");
+const pauseModeHintEl = document.getElementById("pauseModeHint");
+const resumeButton = document.getElementById("resumeButton");
+const pauseMainMenuButton = document.getElementById("pauseMainMenuButton");
+const garageScreenEl = document.getElementById("garageScreen");
+const garageMoneyEl = document.getElementById("garageMoney");
+const garageStatusEl = document.getElementById("garageStatus");
+const leaveGarageButton = document.getElementById("leaveGarageButton");
 
 const minimap = document.createElement("canvas");
 const miniCtx = minimap.getContext("2d");
@@ -223,6 +232,12 @@ const VENDOR_NAME = "OuTii";
 const VENDOR_KNIFE_DAMAGE = 100;
 const VENDOR_KNIFE_COOLDOWN = 2;
 const OUTSIDE_CHARACTER_SCALE = 0.46;
+const GARAGE_ENTRANCE = Object.freeze({ x: 308, z: -177, radius: 40 });
+const GARAGE_UPGRADES = Object.freeze({
+  engine: { prices: [60, 140, 300], label: "Engine" },
+  transmission: { prices: [75, 170, 360], label: "Transmission" },
+  handling: { prices: [55, 125, 270], label: "Handling" },
+});
 
 const mats = {
   grass: new THREE.MeshLambertMaterial({ color: 0x668f59 }),
@@ -400,6 +415,12 @@ let lastWantedNoticeLevel = 0;
 let gameMode = "driving";
 let transitionLock = false;
 let speedBoostUntil = 0;
+let paused = false;
+const garageState = {
+  open: false,
+  lastExitAt: 0,
+  levels: { engine: 0, transmission: 0, handling: 0 },
+};
 let megaforceTemplate = null;
 let megaforceLoading = false;
 const megaforceModelCallbacks = [];
@@ -1455,6 +1476,17 @@ function playerSurfaceTuning() {
     tune.driftSlip *= lerp(1, 1.24, wetness);
     tune.throttleGripLoss *= lerp(1, 1.28, wetness);
   }
+  const engineLevel = garageState.levels.engine;
+  const transmissionLevel = garageState.levels.transmission;
+  const handlingLevel = garageState.levels.handling;
+  tune.accel *= 1 + engineLevel * 0.11;
+  tune.reverseAccel *= 1 + engineLevel * 0.06;
+  tune.maxSpeed *= (1 + engineLevel * 0.035) * (1 + transmissionLevel * 0.095);
+  tune.highSpeedAccel *= 1 + transmissionLevel * 0.14;
+  tune.grip *= 1 + handlingLevel * 0.085;
+  tune.brake *= 1 + handlingLevel * 0.1;
+  tune.turnRate *= 1 + handlingLevel * 0.045;
+  tune.steerSharpness *= 1 + handlingLevel * 0.055;
   tune.maxSpeed *= boost;
   tune.accel *= boost;
   tune.reverseAccel *= boost;
@@ -3315,7 +3347,7 @@ function updateStorePunch(dt) {
 }
 
 function startStorePunch(event) {
-  if (event.button !== 0 || gameMode !== "store" || transitionLock || storeState.dead) return;
+  if (event.button !== 0 || gameMode !== "store" || transitionLock || storeState.dead || paused || garageState.open) return;
   if (storeState.punchCooldown > 0 || storeState.drinking) return;
   if (!inputState.mobile && document.pointerLockElement !== canvas) requestStorePointerLock();
   storeState.punchCharging = true;
@@ -3324,7 +3356,7 @@ function startStorePunch(event) {
 }
 
 function startStoreDrink(event) {
-  if (event.button !== 2 || gameMode !== "store" || transitionLock || storeState.dead) return;
+  if (event.button !== 2 || gameMode !== "store" || transitionLock || storeState.dead || paused || garageState.open) return;
   event.preventDefault();
   if (!inputState.mobile && document.pointerLockElement !== canvas) requestStorePointerLock();
   if (!storeState.hasMegaforce) return;
@@ -3400,7 +3432,7 @@ function updateMegaforcePurchaseAnimation(dt) {
 }
 
 function tryBuyMegaforce() {
-  if (gameMode !== "store" || transitionLock || storeState.dead || storeState.drinking || storeState.purchaseTimer > 0) return;
+  if (gameMode !== "store" || transitionLock || storeState.dead || storeState.drinking || storeState.purchaseTimer > 0 || paused || garageState.open) return;
   if (storeState.vendorDead) {
     playUiError();
     showNotification(`${VENDOR_NAME} is not at the checkout`);
@@ -4740,7 +4772,7 @@ function updateWalking(dt) {
 }
 
 function requestStorePointerLock() {
-  if (gameMode !== "store" || transitionLock || inputState.mobile) return;
+  if (gameMode !== "store" || transitionLock || inputState.mobile || paused || garageState.open) return;
   if (document.pointerLockElement !== canvas && canvas.requestPointerLock) {
     canvas.requestPointerLock();
   }
@@ -4759,7 +4791,7 @@ function updatePointerLockHint() {
 }
 
 function handleStoreMouseLook(event) {
-  if (gameMode !== "store" || document.pointerLockElement !== canvas) return;
+  if (gameMode !== "store" || document.pointerLockElement !== canvas || paused || garageState.open) return;
   storeState.angle -= event.movementX * 0.0027;
   storeState.cameraYaw = storeState.angle;
   const pitchLimit = storeState.cameraMode === "first" ? 1.52 : 0.58;
@@ -4796,6 +4828,130 @@ function checkSMarketEntrance() {
   if (Math.hypot(player.x - SMARKET_ENTRANCE.x, player.z - SMARKET_ENTRANCE.z) < SMARKET_ENTRANCE.radius) {
     enterStoreMode();
   }
+}
+
+function updateGarageScreen(status = "") {
+  garageMoneyEl.textContent = `$${Math.floor(money)}`;
+  for (const [id, definition] of Object.entries(GARAGE_UPGRADES)) {
+    const level = garageState.levels[id] || 0;
+    const card = garageScreenEl.querySelector(`[data-upgrade="${id}"]`);
+    const button = garageScreenEl.querySelector(`[data-buy-upgrade="${id}"]`);
+    if (!card || !button) continue;
+    card.querySelectorAll(".garage-level i").forEach((bar, index) => bar.classList.toggle("active", index < level));
+    const maxed = level >= definition.prices.length;
+    button.disabled = maxed;
+    button.querySelector("span").textContent = maxed ? "Installed" : `Level ${level + 1}`;
+    button.querySelector("strong").textContent = maxed ? "MAX" : `$${definition.prices[level]}`;
+  }
+  garageStatusEl.textContent = status || "Drive upgrades apply to your current car.";
+}
+
+function openGarage() {
+  if (garageState.open || paused || transitionLock || !running || gameOver || gameMode !== "driving") return;
+  garageState.open = true;
+  player.vx = 0;
+  player.vz = 0;
+  keys.clear();
+  resetJoystick();
+  audioState.driveSpeed = 0;
+  audioState.driveThrottle = 0;
+  if (document.pointerLockElement === canvas) document.exitPointerLock();
+  garageScreenEl.classList.remove("hidden");
+  mobileControlsEl.classList.add("hidden");
+  updateGarageScreen("Vehicle secured. Choose a performance upgrade.");
+  playTone(180, 0.22, "sawtooth", 0.04);
+  playTone(360, 0.28, "triangle", 0.055, 0.09);
+}
+
+function closeGarage() {
+  if (!garageState.open) return;
+  garageState.open = false;
+  garageState.lastExitAt = performance.now();
+  garageScreenEl.classList.add("hidden");
+  hintEl.textContent = "Upgrades installed | Drive out of Southside Customs";
+  playConfirmSound();
+}
+
+function buyGarageUpgrade(id) {
+  if (!garageState.open || !GARAGE_UPGRADES[id]) return;
+  const definition = GARAGE_UPGRADES[id];
+  const level = garageState.levels[id] || 0;
+  if (level >= definition.prices.length) return;
+  const price = definition.prices[level];
+  if (money < price) {
+    updateGarageScreen(`Not enough cash. ${definition.label} level ${level + 1} costs $${price}.`);
+    playUiError();
+    return;
+  }
+  money -= price;
+  garageState.levels[id] = level + 1;
+  moneyEl.textContent = `$${Math.floor(money)}`;
+  updateGarageScreen(`${definition.label} level ${level + 1} installed.`);
+  playPurchaseSound();
+  playTone(520 + level * 120, 0.12, "square", 0.04, 0.08);
+  pulseMoneyDisplay();
+}
+
+function checkGarageEntrance() {
+  if (transitionLock || garageState.open || paused || gameMode !== "driving") return;
+  if (performance.now() - garageState.lastExitAt < 2600) return;
+  const distance = Math.hypot(player.x - GARAGE_ENTRANCE.x, player.z - GARAGE_ENTRANCE.z);
+  if (distance >= GARAGE_ENTRANCE.radius) return;
+  if (vehicleSpeed(player) > 82) {
+    hintEl.textContent = "Slow down to enter Southside Customs";
+    return;
+  }
+  openGarage();
+}
+
+function openPauseMenu() {
+  if (paused || garageState.open || !running || gameOver || gameIntroState.active || transitionLock) return;
+  paused = true;
+  keys.clear();
+  resetJoystick();
+  audioState.driveSpeed = 0;
+  audioState.driveThrottle = 0;
+  if (document.pointerLockElement === canvas) document.exitPointerLock();
+  pauseModeHintEl.textContent = multiplayer.mode === "singleplayer" ? "The city is waiting" : "Online world remains active";
+  pauseMenuEl.classList.remove("hidden");
+  mobileControlsEl.classList.add("hidden");
+  playTone(220, 0.1, "triangle", 0.035);
+}
+
+function closePauseMenu() {
+  if (!paused) return;
+  paused = false;
+  pauseMenuEl.classList.add("hidden");
+  playConfirmSound();
+}
+
+function returnToMainMenu() {
+  paused = false;
+  garageState.open = false;
+  running = false;
+  gameOver = false;
+  gameIntroState.active = false;
+  player.vx = 0;
+  player.vz = 0;
+  audioState.driveSpeed = 0;
+  audioState.driveThrottle = 0;
+  keys.clear();
+  resetJoystick();
+  if (document.pointerLockElement === canvas) document.exitPointerLock();
+  stopMultiplayer();
+  pauseMenuEl.classList.add("hidden");
+  garageScreenEl.classList.add("hidden");
+  gameOverEl.classList.add("hidden");
+  storeDeathScreenEl.classList.add("hidden");
+  gameIntroEl.classList.add("hidden");
+  gameIntroEl.setAttribute("aria-hidden", "true");
+  mobileControlsEl.classList.add("hidden");
+  weatherHudEl.classList.add("hidden");
+  document.body.classList.remove("arrested");
+  joinForm.classList.add("hidden");
+  setMenuStatus("");
+  menuEl.classList.remove("hidden");
+  playTone(190, 0.16, "triangle", 0.04);
 }
 
 function biomeForChunk(cx, cz) {
@@ -5173,6 +5329,85 @@ function addSmashZone(parent, x, z, w, d, rng, variant = "yard") {
   }
 }
 
+function addUpgradeGarage(parent) {
+  const x = 340;
+  const z = -244;
+  const yard = makePlane(258, 178, mats.concrete, 0.17);
+  yard.position.set(x, 0.17, z + 32);
+  yard.renderOrder = 1;
+  const driveway = makePlane(92, 128, mats.parking, 0.19);
+  driveway.position.set(x, 0.19, z + 116);
+  driveway.renderOrder = 2;
+  parent.add(yard, driveway);
+
+  const building = makeBox(214, 74, 106, mats.metal);
+  building.position.set(x, 37, z);
+  const lowerBand = makeBox(218, 14, 110, mats.pumpDark);
+  lowerBand.position.set(x, 7, z);
+  const roof = makeBox(228, 9, 120, mats.roofDark);
+  roof.position.set(x, 78, z);
+  const roofTrim = makeBox(226, 7, 6, mats.stationTrim);
+  roofTrim.position.set(x, 70, z + 56);
+  parent.add(building, lowerBand, roof, roofTrim);
+
+  const bayBack = makeBox(108, 48, 4, mats.pumpDark);
+  bayBack.position.set(x - 32, 27, z + 55);
+  const bayGlow = makeBox(100, 40, 2, makeGlowMaterial(0x39ff72, 0.24));
+  bayGlow.position.set(x - 32, 26, z + 57.2);
+  const bayTop = makeBox(116, 8, 9, mats.stationTrim);
+  bayTop.position.set(x - 32, 54, z + 57);
+  const bayLeft = makeBox(8, 55, 9, mats.stationTrim);
+  bayLeft.position.set(x - 90, 28, z + 57);
+  const bayRight = makeBox(8, 55, 9, mats.stationTrim);
+  bayRight.position.set(x + 26, 28, z + 57);
+  parent.add(bayBack, bayGlow, bayTop, bayLeft, bayRight);
+
+  for (let i = 0; i < 5; i++) {
+    const doorLine = makeBox(94, 1.4, 2.4, mats.metal);
+    doorLine.position.set(x - 32, 9 + i * 8, z + 58.5);
+    parent.add(doorLine);
+  }
+
+  const officeFrame = makeBox(68, 43, 6, mats.pumpDark);
+  officeFrame.position.set(x + 69, 28, z + 56);
+  const officeGlass = makeBox(58, 33, 2.5, mats.windowWarm);
+  officeGlass.position.set(x + 69, 29, z + 59.4);
+  const officeDivider = makeBox(4, 38, 3, mats.metal);
+  officeDivider.position.set(x + 69, 29, z + 61);
+  parent.add(officeFrame, officeGlass, officeDivider);
+
+  const signBack = makeBox(154, 28, 7, mats.pumpDark);
+  signBack.position.set(x, 63, z + 58);
+  const sign = new THREE.Mesh(new THREE.PlaneGeometry(144, 24), makeBuildingLabel("CUSTOMS", "#111719", "#39ff72"));
+  sign.position.set(x, 63, z + 62);
+  sign.rotation.y = Math.PI;
+  sign.renderOrder = 8;
+  parent.add(signBack, sign);
+
+  const servicePad = makePlane(104, 72, makeGlowMaterial(0x39ff72, 0.2), 0.25);
+  servicePad.position.set(GARAGE_ENTRANCE.x, 0.25, GARAGE_ENTRANCE.z - 8);
+  servicePad.renderOrder = 5;
+  const guideLeft = makeBox(5, 1, 78, mats.entranceGreenSolid);
+  guideLeft.position.set(GARAGE_ENTRANCE.x - 43, 0.8, GARAGE_ENTRANCE.z - 8);
+  const guideRight = makeBox(5, 1, 78, mats.entranceGreenSolid);
+  guideRight.position.set(GARAGE_ENTRANCE.x + 43, 0.8, GARAGE_ENTRANCE.z - 8);
+  parent.add(servicePad, guideLeft, guideRight);
+  glowingObjects.push(bayGlow, servicePad);
+
+  const pylon = new THREE.Mesh(new THREE.CylinderGeometry(3.2, 4.2, 62, 8), mats.pumpDark);
+  pylon.position.set(x + 124, 31, z + 104);
+  const pylonSign = makeBox(54, 34, 7, mats.stationTrim);
+  pylonSign.position.set(x + 124, 66, z + 104);
+  const pylonLabel = new THREE.Mesh(new THREE.PlaneGeometry(47, 27), makeBuildingLabel("CUSTOMS", "#d7192d", "#ffffff"));
+  pylonLabel.position.set(x + 124, 66, z + 108);
+  pylonLabel.rotation.y = Math.PI;
+  parent.add(pylon, pylonSign, pylonLabel);
+
+  addCurb(parent, x - 131, z + 31, 4, 178);
+  addCurb(parent, x + 131, z + 31, 4, 178);
+  addSolidRect(parent, x, z, 214, 106, 2);
+}
+
 function makeSpawnArea(parent) {
   const lot = makePlane(340, 250, mats.parking, 0.16);
   lot.position.set(0, 0.16, 48);
@@ -5243,6 +5478,7 @@ function makeSpawnArea(parent) {
   priceSign.position.set(198, 48, 122);
   parent.add(priceSignPole, priceSign);
 
+  addUpgradeGarage(parent);
   addSMarket(parent, -470, 42);
 }
 
@@ -7331,6 +7567,13 @@ function drawMinimap() {
     c.arc(mx(remote.x), mz(remote.z), 4, 0, Math.PI * 2);
     c.fill();
   }
+  if (Math.abs(GARAGE_ENTRANCE.x - centerX) < 430 && Math.abs(GARAGE_ENTRANCE.z - centerZ) < 430) {
+    c.fillStyle = "#39ff72";
+    c.fillRect(mx(GARAGE_ENTRANCE.x) - 5, mz(GARAGE_ENTRANCE.z) - 5, 10, 10);
+    c.strokeStyle = "#102417";
+    c.lineWidth = 2;
+    c.strokeRect(mx(GARAGE_ENTRANCE.x) - 5, mz(GARAGE_ENTRANCE.z) - 5, 10, 10);
+  }
   c.fillStyle = "#f01818";
   c.beginPath();
   c.arc(w / 2, h / 2, 5, 0, Math.PI * 2);
@@ -8417,7 +8660,7 @@ function resetJoystick() {
 }
 
 function updateMobileControlLayout() {
-  const active = inputState.mobile && running && !gameOver && !gameIntroState.active;
+  const active = inputState.mobile && running && !gameOver && !gameIntroState.active && !paused && !garageState.open;
   mobileControlsEl.classList.toggle("hidden", !active);
   if (!active) return;
 
@@ -8473,6 +8716,14 @@ function resetGame() {
   if (document.pointerLockElement === canvas) document.exitPointerLock();
   resetJoystick();
   gameMode = "driving";
+  paused = false;
+  garageState.open = false;
+  garageState.lastExitAt = 0;
+  garageState.levels.engine = 0;
+  garageState.levels.transmission = 0;
+  garageState.levels.handling = 0;
+  pauseMenuEl.classList.add("hidden");
+  garageScreenEl.classList.add("hidden");
   transitionLock = false;
   setTransition(false);
   world.visible = true;
@@ -8651,6 +8902,11 @@ function loseGame() {
 }
 
 function update(dt) {
+  if ((paused || garageState.open) && multiplayer.mode === "singleplayer") {
+    updateMobileControlLayout();
+    updateAudio(dt);
+    return;
+  }
   if (gameMode === "driving" || gameMode === "walking") updateChunks();
   if (gameMode !== "driving" && smashState.hits > 0) resetSmashCombo();
   if (running && gameMode !== "store" && worldHostControlsSimulation()) updateVendor(dt);
@@ -8659,6 +8915,7 @@ function update(dt) {
   } else if (running && !gameOver && gameMode === "driving") {
     updatePlayer(dt);
     checkSMarketEntrance();
+    checkGarageEntrance();
     if (worldHostControlsSimulation()) {
       updateTraffic(dt);
       updateCops(dt);
@@ -8735,6 +8992,17 @@ document.addEventListener("pointerover", (event) => {
 });
 window.addEventListener("keydown", (event) => {
   unlockAudio();
+  if (event.key === "Escape" && !event.repeat) {
+    if (garageState.open) closeGarage();
+    else if (paused) closePauseMenu();
+    else openPauseMenu();
+    event.preventDefault();
+    return;
+  }
+  if (paused || garageState.open) {
+    event.preventDefault();
+    return;
+  }
   if (event.key.toLowerCase() === "f" && !event.repeat) {
     if (gameMode === "store") toggleStoreCameraMode();
     else if (gameMode === "driving") exitVehicleToFoot();
@@ -8759,6 +9027,19 @@ computerButton.addEventListener("click", () => chooseDevice("computer"));
 customizeButton.addEventListener("click", openCharacterCustomisation);
 saveCustomizeButton.addEventListener("click", () => closeCharacterCustomisation(true));
 backCustomizeButton.addEventListener("click", () => closeCharacterCustomisation(false));
+resumeButton.addEventListener("click", closePauseMenu);
+pauseMainMenuButton.addEventListener("click", returnToMainMenu);
+leaveGarageButton.addEventListener("click", closeGarage);
+garageScreenEl.querySelectorAll("[data-buy-upgrade]").forEach((button) => {
+  button.addEventListener("click", () => buyGarageUpgrade(button.dataset.buyUpgrade));
+});
+mobilePauseButton.addEventListener("pointerdown", (event) => {
+  if (!inputState.mobile || !running || gameOver || transitionLock) return;
+  unlockAudio();
+  if (paused) closePauseMenu();
+  else openPauseMenu();
+  event.preventDefault();
+});
 joystickEl.addEventListener("pointerdown", (event) => {
   if (!inputState.mobile) return;
   inputState.joystickPointerId = event.pointerId;

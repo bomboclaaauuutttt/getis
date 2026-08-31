@@ -100,6 +100,7 @@
     </div>
 
     <div id="mobileControls" class="mobile-controls hidden">
+      <button id="mobilePauseButton" class="mobile-pause" type="button" aria-label="Pause game"><i></i><i></i></button>
       <div id="joystick" class="joystick" aria-label="Movement joystick">
         <span class="joystick-direction joystick-up"></span>
         <span class="joystick-direction joystick-right"></span>
@@ -112,6 +113,62 @@
         <button id="mobileJumpButton" class="mobile-action mobile-jump hidden" type="button">JUMP</button>
         <button id="mobilePunchButton" class="mobile-action mobile-punch hidden" type="button">PUNCH</button>
         <button id="mobileUseButton" class="mobile-action mobile-use hidden" type="button">USE</button>
+      </div>
+    </div>
+
+    <div id="pauseMenu" class="menu-screen pause-screen hidden" role="dialog" aria-modal="true" aria-labelledby="pauseTitle">
+      <div class="arrest-scanlines"></div>
+      <div class="pause-card">
+        <div class="menu-kicker">Game paused</div>
+        <h1 id="pauseTitle">Paused</h1>
+        <div class="menu-rule"></div>
+        <p id="pauseModeHint">The city is waiting</p>
+        <div class="pause-actions">
+          <button id="resumeButton">Resume</button>
+          <button id="pauseMainMenuButton" class="secondary-button">Main menu</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="garageScreen" class="garage-screen hidden" role="dialog" aria-modal="true" aria-labelledby="garageTitle">
+      <div class="garage-backdrop"></div>
+      <div class="garage-panel">
+        <header>
+          <div>
+            <small>Southside Customs</small>
+            <h1 id="garageTitle">Upgrade Garage</h1>
+          </div>
+          <strong id="garageMoney">$0</strong>
+        </header>
+        <div class="garage-car-stage" aria-hidden="true">
+          <div class="garage-car">
+            <i class="garage-cabin"></i>
+            <i class="garage-wheel garage-wheel-front"></i>
+            <i class="garage-wheel garage-wheel-rear"></i>
+          </div>
+          <span>Performance tuning</span>
+        </div>
+        <div class="garage-upgrades">
+          <article class="garage-upgrade" data-upgrade="engine">
+            <div><small>Power</small><h2>Engine</h2><p>Stronger acceleration and more speed.</p></div>
+            <div class="garage-level" aria-label="Engine level"><i></i><i></i><i></i></div>
+            <button type="button" data-buy-upgrade="engine"><span>Upgrade</span><strong>$60</strong></button>
+          </article>
+          <article class="garage-upgrade" data-upgrade="transmission">
+            <div><small>Speed</small><h2>Transmission</h2><p>Higher top speed and faster shifts.</p></div>
+            <div class="garage-level" aria-label="Transmission level"><i></i><i></i><i></i></div>
+            <button type="button" data-buy-upgrade="transmission"><span>Upgrade</span><strong>$75</strong></button>
+          </article>
+          <article class="garage-upgrade" data-upgrade="handling">
+            <div><small>Control</small><h2>Handling</h2><p>More grip, braking and steering response.</p></div>
+            <div class="garage-level" aria-label="Handling level"><i></i><i></i><i></i></div>
+            <button type="button" data-buy-upgrade="handling"><span>Upgrade</span><strong>$55</strong></button>
+          </article>
+        </div>
+        <footer>
+          <span id="garageStatus">Drive upgrades apply to your current car.</span>
+          <button id="leaveGarageButton" type="button" class="secondary-button">Leave garage</button>
+        </footer>
       </div>
     </div>
 

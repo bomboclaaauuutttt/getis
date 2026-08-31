@@ -883,6 +883,304 @@ body.game-intro-active #notificationFeed {
   display: none;
 }
 
+.mobile-pause {
+  position: fixed;
+  top: 14px;
+  right: 14px;
+  z-index: 9;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  width: 46px;
+  min-width: 46px;
+  height: 46px;
+  padding: 0;
+  border: 2px solid rgba(255, 255, 255, 0.72);
+  border-radius: 6px;
+  background: rgba(10, 13, 14, 0.74);
+  box-shadow: 0 5px 0 rgba(0, 0, 0, 0.55);
+}
+
+.mobile-pause i {
+  display: block;
+  width: 5px;
+  height: 17px;
+  background: #fff;
+}
+
+.pause-screen {
+  z-index: 24;
+  background: rgba(5, 7, 8, 0.78);
+  backdrop-filter: grayscale(0.4) blur(5px);
+}
+
+.pause-card {
+  position: relative;
+  width: min(620px, calc(100vw - 34px));
+  text-align: center;
+  transform: rotate(-1.5deg);
+  animation: menuCardIn 440ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.pause-card h1 {
+  margin: 0;
+  color: #fff;
+  font-size: clamp(64px, 12vw, 118px);
+  line-height: 0.88;
+  text-transform: uppercase;
+  text-shadow: 0 6px 0 #101010, 5px 0 0 rgba(213, 0, 25, 0.7);
+}
+
+.pause-card p {
+  margin: 0 0 24px;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 15px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.pause-actions {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+}
+
+.pause-actions button {
+  min-width: 190px;
+}
+
+.garage-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 23;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  box-sizing: border-box;
+  overflow: auto;
+}
+
+.garage-screen.hidden {
+  display: none;
+}
+
+.garage-backdrop {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(90deg, rgba(4, 8, 10, 0.94), rgba(10, 15, 16, 0.72) 52%, rgba(4, 8, 10, 0.94)),
+    repeating-linear-gradient(0deg, transparent 0, transparent 5px, rgba(255, 255, 255, 0.025) 5px, rgba(255, 255, 255, 0.025) 6px);
+  backdrop-filter: blur(5px) saturate(0.55);
+}
+
+.garage-panel {
+  position: relative;
+  width: min(980px, calc(100vw - 36px));
+  color: #fff;
+  background: rgba(15, 19, 20, 0.96);
+  border-top: 5px solid #39ff72;
+  box-shadow: 0 28px 80px rgba(0, 0, 0, 0.72);
+  animation: menuCardIn 460ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.garage-panel header,
+.garage-panel footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 22px;
+}
+
+.garage-panel header {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.garage-panel header small,
+.garage-upgrade small {
+  color: #39ff72;
+  font-size: 11px;
+  font-weight: 1000;
+  text-transform: uppercase;
+}
+
+.garage-panel h1 {
+  margin: 2px 0 0;
+  font-size: clamp(27px, 5vw, 48px);
+  line-height: 0.95;
+  text-transform: uppercase;
+}
+
+#garageMoney {
+  color: #ffdf54;
+  font-size: clamp(25px, 4vw, 38px);
+  text-shadow: 0 4px 0 rgba(0, 0, 0, 0.55);
+}
+
+.garage-car-stage {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-height: 150px;
+  overflow: hidden;
+  background: #23292a;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.garage-car-stage::before {
+  content: "";
+  position: absolute;
+  width: 430px;
+  height: 56px;
+  bottom: 17px;
+  background: rgba(0, 0, 0, 0.62);
+  border-radius: 50%;
+  filter: blur(8px);
+}
+
+.garage-car-stage > span {
+  position: absolute;
+  right: 20px;
+  bottom: 14px;
+  color: rgba(255, 255, 255, 0.48);
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.garage-car {
+  position: relative;
+  width: 300px;
+  height: 72px;
+  background: #d7192d;
+  clip-path: polygon(0 48%, 13% 20%, 66% 10%, 91% 35%, 100% 72%, 94% 89%, 5% 89%);
+  filter: drop-shadow(0 0 18px rgba(255, 42, 64, 0.25));
+}
+
+.garage-cabin {
+  position: absolute;
+  left: 91px;
+  top: 8px;
+  width: 107px;
+  height: 29px;
+  background: #10191d;
+  clip-path: polygon(17% 0, 78% 0, 100% 100%, 0 100%);
+}
+
+.garage-wheel {
+  position: absolute;
+  top: 50px;
+  width: 36px;
+  height: 36px;
+  border: 7px solid #090a0a;
+  border-radius: 50%;
+  box-sizing: border-box;
+  background: #777;
+}
+
+.garage-wheel-front { right: 37px; }
+.garage-wheel-rear { left: 37px; }
+
+.garage-upgrades {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.garage-upgrade {
+  display: grid;
+  grid-template-rows: 1fr auto auto;
+  gap: 14px;
+  min-width: 0;
+  padding: 19px;
+  border-right: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.garage-upgrade:last-child {
+  border-right: 0;
+}
+
+.garage-upgrade h2 {
+  margin: 2px 0 6px;
+  font-size: 23px;
+  text-transform: uppercase;
+}
+
+.garage-upgrade p {
+  min-height: 35px;
+  margin: 0;
+  color: rgba(255, 255, 255, 0.58);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.garage-level {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+
+.garage-level i {
+  height: 7px;
+  background: #343a3b;
+  transform: skewX(-18deg);
+}
+
+.garage-level i.active {
+  background: #39ff72;
+  box-shadow: 0 0 10px rgba(57, 255, 114, 0.45);
+}
+
+.garage-upgrade button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-width: 0;
+  width: 100%;
+  padding: 0 14px;
+}
+
+.garage-upgrade button strong {
+  color: #ffef8c;
+}
+
+.garage-upgrade button:disabled {
+  color: rgba(255, 255, 255, 0.48);
+  background: #343a3b;
+  box-shadow: 0 5px 0 #171a1a;
+  cursor: default;
+}
+
+.garage-panel footer {
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.garage-panel footer span {
+  color: rgba(255, 255, 255, 0.62);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+@media (max-width: 760px) {
+  .garage-screen { align-items: start; padding: 10px; }
+  .garage-panel { width: calc(100vw - 20px); animation: none; transform: none; }
+  .garage-panel header { position: relative; display: block; padding: 14px 90px 14px 16px; }
+  .garage-panel header > div { min-width: 0; }
+  .garage-panel h1 { font-size: 22px; white-space: nowrap; }
+  #garageMoney { position: absolute; top: 22px; right: 16px; font-size: 21px; }
+  .garage-car-stage { min-height: 112px; }
+  .garage-car { transform: scale(0.72); }
+  .garage-car-stage > span { display: none; }
+  .garage-upgrades { grid-template-columns: minmax(0, 1fr); min-width: 0; width: 100%; }
+  .garage-upgrade { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto; width: 100%; min-width: 0; padding: 13px 16px; box-sizing: border-box; border-right: 0; border-bottom: 1px solid rgba(255, 255, 255, 0.1); }
+  .garage-level { width: calc(100vw - 72px); max-width: 100%; }
+  .garage-upgrade button { min-width: 0; width: calc(100vw - 72px); max-width: 100%; box-sizing: border-box; }
+  .garage-panel footer { align-items: stretch; flex-direction: column; }
+  .garage-panel footer button { width: 100%; }
+  .pause-actions { flex-direction: column; align-items: center; }
+}
+
 .menu-flash {
   position: absolute;
   inset: 0;
@@ -1329,7 +1627,7 @@ body.game-intro-active #notificationFeed {
   line-height: 1.4;
 }
 
-button:not(.mobile-action):not(.swatch-button) {
+button:not(.mobile-action):not(.swatch-button):not(.mobile-pause) {
   min-width: 160px;
   height: 46px;
   border: 0;
