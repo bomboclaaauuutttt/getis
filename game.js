@@ -183,7 +183,7 @@ const VENDOR_MAX_HP = 300;
 const VENDOR_NAME = "OuTii";
 const VENDOR_KNIFE_DAMAGE = 100;
 const VENDOR_KNIFE_COOLDOWN = 2;
-const OUTSIDE_CHARACTER_SCALE = 0.62;
+const OUTSIDE_CHARACTER_SCALE = 0.46;
 
 const mats = {
   grass: new THREE.MeshLambertMaterial({ color: 0x668f59 }),
@@ -369,7 +369,7 @@ const storeState = {
   angle: Math.PI,
   cameraYaw: Math.PI,
   pitch: 0,
-  cameraMode: "third",
+  cameraMode: "first",
   turnVelocity: 0,
   walkCycle: 0,
   vy: 0,
@@ -2405,31 +2405,31 @@ function makeFirstPersonFist() {
   group.visible = false;
   const personMats = characterStyleMaterials(characterStyle);
 
-  const arm = setStyleSlot(new THREE.Mesh(new THREE.CylinderGeometry(7.2, 4.5, 150, 24), personMats.shirt), "shirt");
+  const arm = setStyleSlot(new THREE.Mesh(new THREE.CylinderGeometry(7.2, 4.5, 132, 24), personMats.shirt), "shirt");
   arm.rotation.x = Math.PI * 0.5;
   arm.rotation.z = -0.025;
-  arm.position.set(0, 0, -10);
+  arm.position.set(0, 0, -74);
   arm.castShadow = true;
   arm.receiveShadow = true;
 
   const cuff = setStyleSlot(new THREE.Mesh(new THREE.TorusGeometry(5.1, 1.15, 10, 24), personMats.shirtLight), "shirtLight");
-  cuff.position.set(0, 0, -85);
+  cuff.position.set(0, 0, -140);
   cuff.castShadow = true;
 
   const fist = setStyleSlot(new THREE.Mesh(new THREE.SphereGeometry(6.8, 22, 16), personMats.skin), "skin");
   fist.scale.set(0.94, 1.12, 1.12);
-  fist.position.set(0, 0, -91);
+  fist.position.set(0, 0, -146);
   fist.castShadow = true;
   fist.receiveShadow = true;
 
   const can = new THREE.Group();
-  can.position.set(-3.2, 6.5, -94);
+  can.position.set(-3.2, 6.5, -150);
   can.rotation.set(-0.18, 0.12, -0.08);
   can.visible = false;
   can.userData.firstPersonOverlay = true;
   attachMegaforceModel(can, 44);
   const liquid = makeMegisLiquidStream(0.72);
-  liquid.position.set(-1.8, 5.2, -87);
+  liquid.position.set(-1.8, 5.2, -156);
   liquid.rotation.set(0.7, 0.18, -0.18);
   liquid.visible = false;
 
@@ -2964,7 +2964,7 @@ function updateStorePunch(dt) {
     storeState.fist.userData.can.visible = carryingDrink;
     storeState.fist.userData.can.position.x = lerp(storeState.fist.userData.can.position.x, -3.2 - drinkLift * 1.8, settle);
     storeState.fist.userData.can.position.y = lerp(storeState.fist.userData.can.position.y, 6.5 + drinkLift * 8.5, settle);
-    storeState.fist.userData.can.position.z = lerp(storeState.fist.userData.can.position.z, -94 + drinkLift * 10, settle);
+    storeState.fist.userData.can.position.z = lerp(storeState.fist.userData.can.position.z, -150 + drinkLift * 10, settle);
     storeState.fist.userData.can.rotation.x = lerp(storeState.fist.userData.can.rotation.x, -0.18 + drinkLift * 0.82, settle);
     storeState.fist.userData.can.rotation.y = lerp(storeState.fist.userData.can.rotation.y, 0.12 + drinkLift * 0.12, settle);
     storeState.fist.userData.can.rotation.z = lerp(storeState.fist.userData.can.rotation.z, -0.08 + drinkLift * 0.3, settle);
@@ -3843,7 +3843,7 @@ function enterStoreMode() {
     storeState.angle = Math.PI;
     storeState.cameraYaw = storeState.angle;
     storeState.pitch = 0;
-    storeState.cameraMode = "third";
+    storeState.cameraMode = "first";
     storeState.turnVelocity = 0;
     storeState.walkCycle = 0;
     storeState.vy = 0;
@@ -3884,11 +3884,11 @@ function enterStoreMode() {
     storeState.character.position.set(storeState.x, 0, storeState.z);
     storeState.character.rotation.set(0, storeState.angle, 0);
     resetPersonPose(storeState.character);
-    storeState.character.visible = true;
-    if (storeState.fist) storeState.fist.visible = false;
+    storeState.character.visible = storeState.cameraMode !== "first";
+    if (storeState.fist) storeState.fist.visible = storeState.cameraMode === "first";
     cameraState.position.set(storeState.x, 84, storeState.z + 148);
     cameraState.target.set(storeState.x, 32, storeState.z - 36);
-    hintEl.textContent = inputState.mobile ? "Joystick walk + turn | Jump | green exit" : "Third person | Click to lock mouse | WASD move | Space jump | F camera";
+    hintEl.textContent = inputState.mobile ? "Joystick walk + turn | Jump | green exit" : "First person | Click to lock mouse | WASD move | Space jump | F camera";
     updateStoreHealthHud();
     arrestFx.style.opacity = "0";
     window.setTimeout(() => {
@@ -3955,16 +3955,25 @@ function enterDrivingMode() {
   }, 420);
 }
 
-function outsideExitSpotIsClear(x, z) {
-  const radius = 9;
+function outsideWorldPositionIsClear(x, z, radius = 8) {
   for (const collider of colliders) {
     if (collider.disabled) continue;
+    const broadRadius = Number.isFinite(collider.r)
+      ? collider.r
+      : Math.hypot(collider.w || 0, collider.d || 0) * 0.5;
+    if (Math.hypot(x - collider.x, z - collider.z) > broadRadius + radius + 4) continue;
     if (collider.type === "tree") {
-      if (Math.hypot(x - collider.x, z - collider.z) < radius + (collider.r || 12) + 2) return false;
+      if (Math.hypot(x - collider.x, z - collider.z) < radius + (collider.r || 12)) return false;
     } else if (Number.isFinite(collider.w) && Number.isFinite(collider.d)) {
       if (storeRectCollision(x, z, radius, collider)) return false;
     }
   }
+  return true;
+}
+
+function outsideExitSpotIsClear(x, z) {
+  const radius = 9;
+  if (!outsideWorldPositionIsClear(x, z, radius)) return false;
 
   for (const vehicle of [...cops, ...traffic]) {
     if (Math.hypot(x - vehicle.x, z - vehicle.z) < radius + (vehicle.radius || 21) + 5) return false;
@@ -3975,7 +3984,7 @@ function outsideExitSpotIsClear(x, z) {
 function safeOutsideExitSpot(anchor) {
   const right = { x: Math.cos(anchor.angle), z: -Math.sin(anchor.angle) };
   const forward = { x: -Math.sin(anchor.angle), z: -Math.cos(anchor.angle) };
-  const directions = [
+  const preferredDirections = [
     right,
     { x: -right.x, z: -right.z },
     { x: -forward.x, z: -forward.z },
@@ -3983,13 +3992,18 @@ function safeOutsideExitSpot(anchor) {
     { x: (right.x - forward.x) * 0.707, z: (right.z - forward.z) * 0.707 },
     { x: (-right.x - forward.x) * 0.707, z: (-right.z - forward.z) * 0.707 },
   ];
-  for (const distance of [44, 58, 74]) {
+  const radialDirections = Array.from({ length: 16 }, (_, index) => {
+    const angle = anchor.angle + index * Math.PI / 8;
+    return { x: Math.cos(angle), z: Math.sin(angle) };
+  });
+  const directions = [...preferredDirections, ...radialDirections];
+  for (const distance of [42, 56, 72, 92, 118, 148, 180]) {
     for (const direction of directions) {
       const spot = { x: anchor.x + direction.x * distance, z: anchor.z + direction.z * distance };
       if (outsideExitSpotIsClear(spot.x, spot.z)) return spot;
     }
   }
-  return { x: anchor.x + right.x * 74, z: anchor.z + right.z * 74 };
+  return { x: anchor.x, z: anchor.z };
 }
 
 function exitVehicleToFoot() {
@@ -4181,6 +4195,9 @@ function updateWalking(dt) {
     return;
   }
 
+  const previousX = outsideState.x;
+  const previousZ = outsideState.z;
+
   const moveInput = inputState.mobile
     ? inputState.throttle
     : (keys.has("w") || keys.has("arrowup") ? 1 : 0) + (keys.has("s") || keys.has("arrowdown") ? -1 : 0);
@@ -4206,13 +4223,16 @@ function updateWalking(dt) {
     outsideState.walkCycle = lerp(outsideState.walkCycle, Math.round(outsideState.walkCycle / Math.PI) * Math.PI, 1 - Math.exp(-dt * 5));
   }
 
-  if (outsideState.exitProtection <= 0) {
-    const radius = 8;
-    for (const rect of colliders) {
-      const hit = storeRectCollision(outsideState.x, outsideState.z, radius, rect);
-      if (!hit) continue;
-      outsideState.x += hit.nx * (hit.overlap + 0.6);
-      outsideState.z += hit.nz * (hit.overlap + 0.6);
+  if (outsideState.exitProtection <= 0 && !outsideWorldPositionIsClear(outsideState.x, outsideState.z, 8)) {
+    const candidateX = outsideState.x;
+    const candidateZ = outsideState.z;
+    const canSlideX = outsideWorldPositionIsClear(candidateX, previousZ, 8);
+    const canSlideZ = outsideWorldPositionIsClear(previousX, candidateZ, 8);
+    outsideState.x = canSlideX ? candidateX : previousX;
+    outsideState.z = canSlideZ ? candidateZ : previousZ;
+    if (!outsideWorldPositionIsClear(outsideState.x, outsideState.z, 8)) {
+      outsideState.x = previousX;
+      outsideState.z = previousZ;
     }
   }
 
@@ -7460,7 +7480,7 @@ function resetGame() {
   storeState.y = 0;
   storeState.vy = 0;
   storeState.grounded = true;
-  storeState.cameraMode = "third";
+  storeState.cameraMode = "first";
   storeState.cameraYaw = storeState.angle;
   storeState.hasMegaforce = false;
   storeState.drinking = false;
