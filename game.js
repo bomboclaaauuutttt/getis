@@ -145,7 +145,7 @@ const MAX_TRAFFIC = 11;
 const TRAFFIC_SPAWN_MIN = 980;
 const TRAFFIC_SPAWN_MAX = 1550;
 const TRAFFIC_DESPAWN_DISTANCE = 1900;
-const COP_DESPAWN_DISTANCE = 2100;
+const COP_DESPAWN_DISTANCE = 2300;
 const COP_ARREST_RADIUS = 76;
 const POLICE_KINDS = new Set(["cop", "swat", "interceptor"]);
 const POLICE_ROLES = Object.freeze({
@@ -157,14 +157,15 @@ const POLICE_ROLES = Object.freeze({
 });
 const WANTED_TIERS = Object.freeze([
   { maxUnits: 0, spawnInterval: 99, loseDelay: 0, escapeDistance: 0, prediction: 0, roadblocks: 0, helicopters: 0 },
-  { maxUnits: 2, spawnInterval: 8.5, loseDelay: 9, escapeDistance: 610, prediction: 0.2, roadblocks: 0, helicopters: 0, escalateAfter: 18 },
-  { maxUnits: 4, spawnInterval: 6.5, loseDelay: 14, escapeDistance: 700, prediction: 0.75, roadblocks: 1, helicopters: 0, escalateAfter: 24 },
-  { maxUnits: 6, spawnInterval: 5.2, loseDelay: 20, escapeDistance: 790, prediction: 1.15, roadblocks: 2, helicopters: 0, escalateAfter: 30 },
-  { maxUnits: 8, spawnInterval: 4.2, loseDelay: 27, escapeDistance: 890, prediction: 1.65, roadblocks: 3, helicopters: 0, escalateAfter: 38 },
-  { maxUnits: 11, spawnInterval: 3.4, loseDelay: 36, escapeDistance: 980, prediction: 2.15, roadblocks: 4, helicopters: 2, escalateAfter: Infinity },
+  { maxUnits: 4, spawnInterval: 4.8, loseDelay: 12, escapeDistance: 650, prediction: 0.35, roadblocks: 0, helicopters: 0, escalateAfter: 14 },
+  { maxUnits: 6, spawnInterval: 3.9, loseDelay: 17, escapeDistance: 740, prediction: 0.9, roadblocks: 1, helicopters: 0, escalateAfter: 19 },
+  { maxUnits: 8, spawnInterval: 3.3, loseDelay: 23, escapeDistance: 830, prediction: 1.3, roadblocks: 2, helicopters: 0, escalateAfter: 24 },
+  { maxUnits: 10, spawnInterval: 2.8, loseDelay: 31, escapeDistance: 930, prediction: 1.85, roadblocks: 3, helicopters: 0, escalateAfter: 30 },
+  { maxUnits: 13, spawnInterval: 2.25, loseDelay: 42, escapeDistance: 1040, prediction: 2.45, roadblocks: 4, helicopters: 2, escalateAfter: Infinity },
 ]);
-const POLICE_SPAWN_MIN = 720;
-const POLICE_SPAWN_MAX = 1460;
+const POLICE_SPAWN_MIN = 560;
+const POLICE_SPAWN_MAX = 1280;
+const POLICE_INITIAL_DISPATCH_DELAY = 1.6;
 const ROADBLOCK_LIFETIME = 38;
 const MIN_WANTED_LEVEL = 1;
 const PLAYER_MAX_HP = 300;
@@ -4884,7 +4885,7 @@ function choosePoliceRoadSpawn(role, tier, target, tries = 38) {
       ahead = 180 + Math.random() * 980;
       side = (Math.random() < 0.5 ? -1 : 1) * (420 + Math.random() * 620);
     } else {
-      const frontChance = policeState.level >= 2 ? 0.36 + policeState.level * 0.055 : 0.08;
+      const frontChance = policeState.level >= 2 ? 0.42 + policeState.level * 0.05 : 0.24;
       ahead = (Math.random() < frontChance ? 1 : -1) * (640 + Math.random() * 650);
       side = (Math.random() - 0.5) * (policeState.level >= 2 ? 900 : 380);
     }
@@ -5748,7 +5749,7 @@ function updateCops(dt) {
   chaseTime += dt;
   backupTime += dt;
   policeState.searchPhase += dt * 0.62;
-  if (chaseTime > 3 && policeState.dispatchPending) {
+  if (chaseTime > POLICE_INITIAL_DISPATCH_DELAY && policeState.dispatchPending) {
     policeState.level = Math.max(MIN_WANTED_LEVEL, policeState.level);
     policeState.dispatchPending = false;
     policeState.lastKnownX = focusX();
@@ -5796,8 +5797,8 @@ function updateCops(dt) {
   const activeTier = WANTED_TIERS[policeState.level];
   policeState.spawnTimer += dt;
   if (policeState.level > 0 && policeState.spawnTimer >= activeTier.spawnInterval && cops.length < activeTier.maxUnits) {
-    policeState.spawnTimer = 0;
-    spawnCop();
+    const spawned = spawnCop();
+    policeState.spawnTimer = spawned ? 0 : activeTier.spawnInterval * 0.7;
   }
   policeState.roadblockTimer += dt;
   if (policeState.hasVisual && activeTier.roadblocks > 0 && policeRoadblocks.length < activeTier.roadblocks && policeState.roadblockTimer > Math.max(7, 15 - policeState.level * 1.5)) {
@@ -5875,12 +5876,13 @@ function updateCops(dt) {
         throttle = 0.92;
       }
     }
-    const boost = cop.kind === "interceptor" ? 1.38 : cop.kind === "swat" ? 0.86 : cop.personality === "aggressive" ? 1.15 : cop.personality === "calm" ? 0.92 : 1;
+    const boost = cop.kind === "interceptor" ? 1.55 : cop.kind === "swat" ? 0.98 : cop.personality === "aggressive" ? 1.28 : cop.personality === "calm" ? 1.05 : 1.12;
+    const responseSpeed = 1 + policeState.level * 0.025;
     driveVehicle(cop, { steer: steering, throttle }, dt, {
-      accel: 138 * boost * (1 + policeState.level * 0.025),
+      accel: 150 * boost * (1 + policeState.level * 0.04),
       brake: 300 * boost,
       reverseAccel: 55,
-      maxSpeed: 242 * boost,
+      maxSpeed: 282 * boost * responseSpeed,
       reverseMax: 34,
       grip: cop.escapeTimer > 0 ? 3.55 : cop.personality === "aggressive" ? 4.9 : 5.8,
       coast: 95,
@@ -7367,7 +7369,7 @@ function resetGame() {
   gameOverEl.classList.add("hidden");
   arrestFx.style.opacity = "0";
   damageFxEl.style.opacity = "0";
-  hintEl.textContent = "Police arrives in 3 seconds";
+  hintEl.textContent = "Police dispatch incoming";
   updateWantedMeter();
   updateGameCodeHud();
 }
@@ -7402,7 +7404,7 @@ function update(dt) {
     }
     updateCollisions(dt, worldHostControlsSimulation());
     sendNetworkState(dt);
-    if (chaseTime > 3.2 && policeState.level > 0) hintEl.textContent += policeHudStatus();
+    if (chaseTime > POLICE_INITIAL_DISPATCH_DELAY + 0.2 && policeState.level > 0) hintEl.textContent += policeHudStatus();
   } else if (running && !gameOver && gameMode === "walking") {
     updateWalking(dt);
     if (worldHostControlsSimulation()) {
@@ -7413,7 +7415,7 @@ function update(dt) {
     }
     updateCollisions(dt, worldHostControlsSimulation());
     sendNetworkState(dt);
-    if (chaseTime > 3.2 && policeState.level > 0) hintEl.textContent = `On foot${policeHudStatus()}`;
+    if (chaseTime > POLICE_INITIAL_DISPATCH_DELAY + 0.2 && policeState.level > 0) hintEl.textContent = `On foot${policeHudStatus()}`;
   } else if (running && !gameOver && gameMode === "store") {
     moveStoreCharacter(dt);
     updateStorePunch(dt);
