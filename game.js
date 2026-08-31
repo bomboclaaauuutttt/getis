@@ -288,6 +288,8 @@ const speedLines = [];
 const debris = [];
 const tireParticles = [];
 const fallingTrees = [];
+const breakableProps = [];
+const flyingProps = [];
 const glowingObjects = [];
 
 const effectGeometry = {
@@ -4363,18 +4365,23 @@ function addFieldPatch(parent, x, z, w, d, rng) {
     bale.position.set(x + (rng() - 0.5) * w * 0.68, 6.7, z + (rng() - 0.5) * d * 0.64);
     bale.castShadow = true;
     parent.add(bale);
+    registerBreakableProp(parent, bale, "hay", 9, 6.7);
   }
 
   const fenceZ = z + d * 0.5 + 5;
   for (let fx = x - w * 0.42; fx <= x + w * 0.42; fx += 22) {
+    const section = new THREE.Group();
+    section.position.set(fx, 0, fenceZ);
     const post = makeBox(2.2, 10, 2.2, mats.fence);
-    post.position.set(fx, 5, fenceZ);
-    parent.add(post);
-  }
-  for (const fy of [4.2, 8]) {
-    const rail = makeBox(w * 0.86, 1.6, 1.8, mats.fence);
-    rail.position.set(x, fy, fenceZ);
-    parent.add(rail);
+    post.position.set(0, 5, 0);
+    section.add(post);
+    for (const fy of [4.2, 8]) {
+      const rail = makeBox(23, 1.6, 1.8, mats.fence);
+      rail.position.set(0, fy, 0);
+      section.add(rail);
+    }
+    parent.add(section);
+    registerBreakableProp(parent, section, "fence", 13, 0);
   }
 }
 
@@ -4418,16 +4425,20 @@ function addPlayground(parent, x, z, rng) {
     }
   }
 
+  const bench = new THREE.Group();
+  bench.position.set(x, 0, z + d * 0.5 + 13);
   const benchSeat = makeBox(30, 3, 8, mats.fence);
-  benchSeat.position.set(x, 7, z + d * 0.5 + 13);
+  benchSeat.position.set(0, 7, 0);
   const benchBack = makeBox(30, 11, 2.4, mats.fence);
-  benchBack.position.set(x, 13, z + d * 0.5 + 17);
-  parent.add(benchSeat, benchBack);
+  benchBack.position.set(0, 13, 4);
+  bench.add(benchSeat, benchBack);
   for (const bx of [-11, 11]) {
     const leg = makeBox(2.5, 7, 4, mats.metal);
-    leg.position.set(x + bx, 3.5, z + d * 0.5 + 13);
-    parent.add(leg);
+    leg.position.set(bx, 3.5, 0);
+    bench.add(leg);
   }
+  parent.add(bench);
+  registerBreakableProp(parent, bench, "bench", 18, 0);
 }
 
 function addBusStop(parent, x, z, axis) {
@@ -4436,14 +4447,16 @@ function addBusStop(parent, x, z, axis) {
   stop.rotation.y = axis === "z" ? Math.PI * 0.5 : 0;
 
   const pad = makePlane(58, 27, mats.concrete, 0.08);
-  pad.position.y = 0.08;
+  pad.position.set(x, 0.08, z);
+  pad.rotation.z = stop.rotation.y;
+  parent.add(pad);
   const roof = makeBox(54, 3.5, 24, mats.marketBlue);
   roof.position.set(0, 29, 0);
   const backFrame = makeBox(54, 24, 2.2, mats.metal);
   backFrame.position.set(0, 15, 10.5);
   const backGlass = makeBox(47, 19, 1.4, mats.window);
   backGlass.position.set(0, 15, 9.2);
-  stop.add(pad, roof, backFrame, backGlass);
+  stop.add(roof, backFrame, backGlass);
 
   for (const side of [-1, 1]) {
     const sideFrame = makeBox(2.2, 24, 21, mats.metal);
@@ -4465,6 +4478,7 @@ function addBusStop(parent, x, z, axis) {
   markerFace.position.set(35, 30, -1.2);
   stop.add(pole, marker, markerFace);
   parent.add(stop);
+  registerBreakableProp(parent, stop, "shelter", 30, 0);
 }
 
 function findRoadsideSpot(baseX, baseZ, rng, reserved, placed) {
@@ -4499,14 +4513,18 @@ function addAmbientLandscape(parent, baseX, baseZ, biome, rng, reserved, placed)
   if ((biome === "open" || biome === "playground") && rng() < 0.6) {
     const spot = freeSpot(12, 24);
     if (spot) {
+      const streetlight = new THREE.Group();
+      streetlight.position.set(spot.x, 0, spot.z);
       const pole = new THREE.Mesh(new THREE.CylinderGeometry(1.2, 1.6, 34, 8), mats.metal);
-      pole.position.set(spot.x, 17, spot.z);
+      pole.position.set(0, 17, 0);
       pole.castShadow = true;
       const arm = makeBox(12, 1.8, 1.8, mats.metal);
-      arm.position.set(spot.x + 5, 33, spot.z);
+      arm.position.set(5, 33, 0);
       const lamp = makeBox(8, 2.4, 5, mats.light);
-      lamp.position.set(spot.x + 10, 31.8, spot.z);
-      parent.add(pole, arm, lamp);
+      lamp.position.set(10, 31.8, 0);
+      streetlight.add(pole, arm, lamp);
+      parent.add(streetlight);
+      registerBreakableProp(parent, streetlight, "streetlight", 8, 0);
     }
   }
 
@@ -4693,6 +4711,20 @@ function disposeChunk(group) {
   world.remove(group);
 }
 
+function registerBreakableProp(parent, group, kind, radius, groundY = 0) {
+  group.userData.breakableKind = kind;
+  breakableProps.push({
+    group,
+    kind,
+    radius,
+    x: group.position.x,
+    z: group.position.z,
+    groundY,
+    broken: false,
+    chunkKey: parent.userData.chunkKey,
+  });
+}
+
 function updateChunks() {
   const pcx = Math.round(focusX() / CHUNK);
   const pcz = Math.round(focusZ() / CHUNK);
@@ -4710,6 +4742,12 @@ function updateChunks() {
     }
     for (let i = fallingTrees.length - 1; i >= 0; i--) {
       if (fallingTrees[i].tree.chunkKey === key) fallingTrees.splice(i, 1);
+    }
+    for (let i = flyingProps.length - 1; i >= 0; i--) {
+      if (flyingProps[i].chunkKey === key) flyingProps.splice(i, 1);
+    }
+    for (let i = breakableProps.length - 1; i >= 0; i--) {
+      if (breakableProps[i].chunkKey === key) breakableProps.splice(i, 1);
     }
     disposeChunk(chunk);
     chunks.delete(key);
@@ -4790,7 +4828,50 @@ function vehicleRectCollision(v, c) {
   return { nx, nz, overlap: smallestOverlap };
 }
 
+function launchBreakableProp(prop, v, speed) {
+  if (prop.broken) return;
+  prop.broken = true;
+  const forward = speed > 1 ? { x: v.vx / speed, z: v.vz / speed } : vehicleForward(v);
+  const dx = prop.x - v.x;
+  const dz = prop.z - v.z;
+  const distance = Math.hypot(dx, dz) || 1;
+  const awayX = dx / distance;
+  const awayZ = dz / distance;
+  const impulse = clamp(46 + speed * 0.72, 58, 230);
+  const isMetal = prop.kind === "streetlight" || prop.kind === "shelter";
+  const lift = prop.kind === "hay" ? 38 + speed * 0.24 : 28 + speed * 0.16;
+  prop.vx = forward.x * impulse * 0.72 + awayX * impulse * 0.28;
+  prop.vz = forward.z * impulse * 0.72 + awayZ * impulse * 0.28;
+  prop.vy = lift;
+  prop.rx = (Math.random() - 0.5) * (prop.kind === "hay" ? 11 : 8);
+  prop.ry = (Math.random() - 0.5) * 9;
+  prop.rz = (Math.random() - 0.5) * (prop.kind === "hay" ? 11 : 8);
+  prop.life = prop.kind === "hay" ? 5.5 : 6.5;
+  flyingProps.push(prop);
+
+  const color = prop.kind === "hay" ? 0xc7a84c : isMetal ? 0x78868d : prop.kind === "bench" ? 0x8f7956 : 0xb7aa86;
+  makeDebrisBurst(prop.x, prop.z, prop.kind === "hay" ? 12 : 9, 36 + speed * 0.16, color);
+  makeSmoke(prop.x, prop.z, prop.kind === "hay" ? 4.8 : 3.2, prop.kind === "hay" ? 0xc9b76d : 0x9b8a72, 0.48);
+  if (isMetal) makeImpactSparks(prop.x, prop.z, 70 + speed * 0.35);
+  playNoiseHit(prop.kind === "hay" ? 0.16 : 0.11, prop.kind === "hay" ? 0.1 : 0.13, prop.kind === "hay" ? 560 : isMetal ? 1850 : 1250);
+  playTone(prop.kind === "hay" ? 92 : 148, 0.09, "triangle", 0.035);
+  cameraState.shake = Math.max(cameraState.shake, 0.46 + clamp(speed / 300, 0, 0.42));
+}
+
+function collideBreakableProps(v) {
+  const speed = Math.hypot(v.vx, v.vz);
+  for (const prop of breakableProps) {
+    if (prop.broken || !prop.group.visible) continue;
+    if (Math.hypot(v.x - prop.x, v.z - prop.z) > prop.radius + 58) continue;
+    const point = closestPointOnVehicle(v, prop.x, prop.z);
+    if (Math.hypot(point.x - prop.x, point.z - prop.z) <= prop.radius) {
+      launchBreakableProp(prop, v, speed);
+    }
+  }
+}
+
 function collideWorld(v) {
+  if (v === player) collideBreakableProps(v);
   for (const c of colliders) {
     if (c.disabled) continue;
     if (Math.hypot(v.x - c.x, v.z - c.z) > (c.r || 55) + 55) continue;
@@ -5377,6 +5458,12 @@ function makeDebrisBurst(x, z, count, power, color = 0x2b2b2b) {
       startLife: 2.3,
     });
   }
+  while (debris.length > 160) {
+    const old = debris.shift();
+    scene.remove(old.mesh);
+    old.mesh.geometry.dispose();
+    old.mesh.material.dispose();
+  }
 }
 
 function hardCrashFx(x, z, power) {
@@ -5532,6 +5619,42 @@ function updateDriveEffects(dt) {
     }
 
     if (item.life <= 0) fallingTrees.splice(i, 1);
+  }
+
+  for (let i = flyingProps.length - 1; i >= 0; i--) {
+    const prop = flyingProps[i];
+    if (!prop.group.parent) {
+      flyingProps.splice(i, 1);
+      continue;
+    }
+    prop.life -= dt;
+    prop.vy -= 78 * dt;
+    prop.group.position.x += prop.vx * dt;
+    prop.group.position.y += prop.vy * dt;
+    prop.group.position.z += prop.vz * dt;
+    prop.group.rotation.x += prop.rx * dt;
+    prop.group.rotation.y += prop.ry * dt;
+    prop.group.rotation.z += prop.rz * dt;
+
+    if (prop.group.position.y < prop.groundY) {
+      prop.group.position.y = prop.groundY;
+      if (Math.abs(prop.vy) > 7) {
+        prop.vy *= prop.kind === "hay" ? -0.38 : -0.24;
+        playNoiseHit(0.045, prop.kind === "hay" ? 0.025 : 0.038, prop.kind === "hay" ? 430 : 920);
+      } else {
+        prop.vy = 0;
+      }
+      prop.vx *= Math.pow(prop.kind === "hay" ? 0.82 : 0.7, dt * 60);
+      prop.vz *= Math.pow(prop.kind === "hay" ? 0.82 : 0.7, dt * 60);
+      prop.rx *= Math.pow(0.72, dt * 60);
+      prop.ry *= Math.pow(0.72, dt * 60);
+      prop.rz *= Math.pow(0.72, dt * 60);
+    }
+
+    if (prop.life <= 0) {
+      prop.group.visible = false;
+      flyingProps.splice(i, 1);
+    }
   }
 }
 
@@ -7574,6 +7697,8 @@ function resetGame() {
   debris.length = 0;
   tireParticles.length = 0;
   fallingTrees.length = 0;
+  breakableProps.length = 0;
+  flyingProps.length = 0;
   updateChunks();
 
   money = 0;
