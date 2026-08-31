@@ -2423,17 +2423,18 @@ function makeFirstPersonFist() {
   fist.receiveShadow = true;
 
   const can = new THREE.Group();
-  can.position.set(-3.2, 6.5, -150);
-  can.rotation.set(-0.18, 0.12, -0.08);
+  can.position.set(-8.5, 9, -150);
+  can.rotation.set(-0.12, 0.08, -0.04);
   can.visible = false;
   can.userData.firstPersonOverlay = true;
-  attachMegaforceModel(can, 44);
-  const liquid = makeMegisLiquidStream(0.72);
-  liquid.position.set(-1.8, 5.2, -156);
-  liquid.rotation.set(0.7, 0.18, -0.18);
+  attachMegaforceModel(can, 32);
+  const liquid = makeMegisLiquidStream(0.62);
+  liquid.position.set(0, 17, -1);
+  liquid.rotation.set(0.5, 0.08, -0.08);
   liquid.visible = false;
+  can.add(liquid);
 
-  group.add(arm, cuff, fist, can, liquid);
+  group.add(arm, cuff, can, fist);
   makeFirstPersonOverlay(group);
   group.userData.can = can;
   group.userData.liquid = liquid;
@@ -2962,12 +2963,12 @@ function updateStorePunch(dt) {
       storeState.fist.userData.canOverlayApplied = true;
     }
     storeState.fist.userData.can.visible = carryingDrink;
-    storeState.fist.userData.can.position.x = lerp(storeState.fist.userData.can.position.x, -3.2 - drinkLift * 1.8, settle);
-    storeState.fist.userData.can.position.y = lerp(storeState.fist.userData.can.position.y, 6.5 + drinkLift * 8.5, settle);
+    storeState.fist.userData.can.position.x = lerp(storeState.fist.userData.can.position.x, -8.5 - drinkLift * 2.4, settle);
+    storeState.fist.userData.can.position.y = lerp(storeState.fist.userData.can.position.y, 9 + drinkLift * 9.5, settle);
     storeState.fist.userData.can.position.z = lerp(storeState.fist.userData.can.position.z, -150 + drinkLift * 10, settle);
-    storeState.fist.userData.can.rotation.x = lerp(storeState.fist.userData.can.rotation.x, -0.18 + drinkLift * 0.82, settle);
-    storeState.fist.userData.can.rotation.y = lerp(storeState.fist.userData.can.rotation.y, 0.12 + drinkLift * 0.12, settle);
-    storeState.fist.userData.can.rotation.z = lerp(storeState.fist.userData.can.rotation.z, -0.08 + drinkLift * 0.3, settle);
+    storeState.fist.userData.can.rotation.x = lerp(storeState.fist.userData.can.rotation.x, -0.12 + drinkLift * 1.05, settle);
+    storeState.fist.userData.can.rotation.y = lerp(storeState.fist.userData.can.rotation.y, 0.08 + drinkLift * 0.14, settle);
+    storeState.fist.userData.can.rotation.z = lerp(storeState.fist.userData.can.rotation.z, -0.04 + drinkLift * 0.34, settle);
   }
   updateMegisLiquidStream(storeState.fist.userData.liquid, storeState.drinking && drinkLift > 0.42, drinkLift, 1.2);
 
