@@ -102,6 +102,66 @@ body {
   text-shadow: 0 3px 0 rgba(0, 0, 0, 0.55);
 }
 
+.weather-hud {
+  position: fixed;
+  right: 26px;
+  top: 188px;
+  z-index: 6;
+  display: grid;
+  grid-template-columns: 9px auto;
+  align-items: center;
+  column-gap: 8px;
+  min-width: 92px;
+  padding: 7px 10px;
+  color: #fff;
+  background: rgba(9, 12, 13, 0.72);
+  border-left: 3px solid #6ed5ff;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.3);
+  pointer-events: none;
+  text-transform: uppercase;
+  transform: skewX(-6deg);
+}
+
+.weather-hud i {
+  grid-row: 1 / 3;
+  width: 8px;
+  height: 8px;
+  background: #ffe06a;
+  border-radius: 50%;
+  box-shadow: 0 0 9px currentColor;
+}
+
+.weather-hud span,
+.weather-hud strong {
+  display: block;
+  letter-spacing: 0;
+  transform: skewX(6deg);
+}
+
+.weather-hud span {
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 9px;
+  font-weight: 900;
+}
+
+.weather-hud strong {
+  font-size: 15px;
+  line-height: 1;
+}
+
+.weather-hud.rain i { color: #77d8ff; background: #77d8ff; }
+.weather-hud.storm i { color: #d6e6ff; background: #d6e6ff; }
+.weather-hud.cloudy i { color: #b9c3c8; background: #b9c3c8; }
+
+@media (max-width: 620px) {
+  .weather-hud {
+    right: 14px;
+    top: 166px;
+    min-width: 78px;
+    padding: 6px 8px;
+  }
+}
+
 .game-code span {
   color: rgba(255, 255, 255, 0.68);
   font-size: 11px;

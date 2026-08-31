@@ -46,6 +46,7 @@ const joinForm = document.getElementById("joinForm");
 const joinCodeInput = document.getElementById("joinCodeInput");
 const menuStatusEl = document.getElementById("menuStatus");
 const gameCodeEl = document.getElementById("gameCode");
+const weatherHudEl = document.getElementById("weatherHud");
 const restartButton = document.getElementById("restartButton");
 const minimapEl = document.getElementById("minimap");
 const transitionFadeEl = document.getElementById("transitionFade");
@@ -94,7 +95,36 @@ sun.shadow.camera.top = 520;
 sun.shadow.camera.bottom = -520;
 scene.add(sun);
 scene.add(sun.target);
-scene.add(new THREE.HemisphereLight(0xbfe7ff, 0x5f7a52, 1.7));
+const skyLight = new THREE.HemisphereLight(0xbfe7ff, 0x5f7a52, 1.7);
+scene.add(skyLight);
+
+const RAIN_DROP_COUNT = 520;
+const rainPositions = new Float32Array(RAIN_DROP_COUNT * 6);
+for (let i = 0; i < RAIN_DROP_COUNT; i++) {
+  const offset = i * 6;
+  const x = (Math.random() - 0.5) * 620;
+  const y = 15 + Math.random() * 260;
+  const z = (Math.random() - 0.5) * 620;
+  rainPositions[offset] = x;
+  rainPositions[offset + 1] = y;
+  rainPositions[offset + 2] = z;
+  rainPositions[offset + 3] = x + 2.4;
+  rainPositions[offset + 4] = y - 15;
+  rainPositions[offset + 5] = z + 1.2;
+}
+const rainGeometry = new THREE.BufferGeometry();
+rainGeometry.setAttribute("position", new THREE.BufferAttribute(rainPositions, 3));
+const rainMaterial = new THREE.LineBasicMaterial({
+  color: 0xb9e7ff,
+  transparent: true,
+  opacity: 0,
+  depthWrite: false,
+  blending: THREE.AdditiveBlending,
+});
+const rainStreaks = new THREE.LineSegments(rainGeometry, rainMaterial);
+rainStreaks.frustumCulled = false;
+rainStreaks.visible = false;
+scene.add(rainStreaks);
 
 const keys = new Set();
 const inputState = {
@@ -133,6 +163,10 @@ const audioState = {
   footstepSide: 0,
   nextDrinkGulp: 0,
   lastCrash: 0,
+  rainSource: null,
+  rainGain: null,
+  windSource: null,
+  windGain: null,
 };
 const AUDIO_MASTER_VOLUME = 0.98;
 const AUDIO_SFX_BOOST = 3.6;
@@ -460,6 +494,44 @@ const cameraState = {
   tilt: 0,
 };
 
+const WEATHER_PRESETS = Object.freeze({
+  clear: { label: "Clear", rain: 0, clouds: 0.05 },
+  cloudy: { label: "Cloudy", rain: 0, clouds: 0.62 },
+  rain: { label: "Rain", rain: 0.72, clouds: 0.86 },
+  storm: { label: "Storm", rain: 1, clouds: 1 },
+});
+const weatherState = {
+  timeOfDay: 17.25,
+  type: "clear",
+  rain: 0,
+  clouds: 0.05,
+  targetRain: 0,
+  targetClouds: 0.05,
+  changeTimer: 18,
+  lightningTimer: 4.5,
+  lightning: 0,
+};
+const weatherColors = {
+  day: new THREE.Color(0xa9c9e5),
+  night: new THREE.Color(0x07111f),
+  dawn: new THREE.Color(0xe99a74),
+  overcast: new THREE.Color(0x687782),
+  roadDry: new THREE.Color(0x3f3e38),
+  roadWet: new THREE.Color(0x22282b),
+  parkingDry: new THREE.Color(0x4b4942),
+  parkingWet: new THREE.Color(0x292d2e),
+  grassDry: new THREE.Color(0x668f59),
+  grassWet: new THREE.Color(0x3e6848),
+  moonSun: new THREE.Color(0x9db8db),
+  daylightSun: new THREE.Color(0xffe8ba),
+  moonSky: new THREE.Color(0x8da9c4),
+  daylightSky: new THREE.Color(0xbfe7ff),
+  lightning: new THREE.Color(0xe7f1ff),
+  nightGround: new THREE.Color(0x354252),
+  dayGround: new THREE.Color(0x5f7a52),
+  currentSky: new THREE.Color(),
+};
+
 const gameIntroState = {
   active: false,
   elapsed: 0,
@@ -679,6 +751,34 @@ function initAudio() {
   driftGain.connect(master);
   driftSource.start();
 
+  const rainSource = ctx.createBufferSource();
+  const rainFilter = ctx.createBiquadFilter();
+  const rainGain = ctx.createGain();
+  rainSource.buffer = noiseBuffer;
+  rainSource.loop = true;
+  rainFilter.type = "highpass";
+  rainFilter.frequency.value = 1050;
+  rainFilter.Q.value = 0.42;
+  rainGain.gain.value = 0;
+  rainSource.connect(rainFilter);
+  rainFilter.connect(rainGain);
+  rainGain.connect(master);
+  rainSource.start();
+
+  const windSource = ctx.createBufferSource();
+  const windFilter = ctx.createBiquadFilter();
+  const windGain = ctx.createGain();
+  windSource.buffer = noiseBuffer;
+  windSource.loop = true;
+  windFilter.type = "lowpass";
+  windFilter.frequency.value = 380;
+  windFilter.Q.value = 0.7;
+  windGain.gain.value = 0;
+  windSource.connect(windFilter);
+  windFilter.connect(windGain);
+  windGain.connect(master);
+  windSource.start();
+
   const sirenOsc = ctx.createOscillator();
   const sirenGain = ctx.createGain();
   sirenOsc.type = "triangle";
@@ -688,7 +788,27 @@ function initAudio() {
   sirenGain.connect(master);
   sirenOsc.start();
 
-  Object.assign(audioState, { ctx, master, limiter, engineOsc, engineHarmonic, engineHarmonicGain, engineGain, engineFilter, driftSource, driftGain, driftFilter, sirenOsc, sirenGain });
+  Object.assign(audioState, {
+    ctx,
+    master,
+    limiter,
+    engineOsc,
+    engineHarmonic,
+    engineHarmonicGain,
+    engineGain,
+    engineFilter,
+    driftSource,
+    driftGain,
+    driftFilter,
+    rainSource,
+    rainGain,
+    rainFilter,
+    windSource,
+    windGain,
+    windFilter,
+    sirenOsc,
+    sirenGain,
+  });
   return ctx;
 }
 
@@ -821,6 +941,12 @@ function playIntroHit(finalHit = false) {
   playTone(440, 0.11, "triangle", 0.04, 0.06);
 }
 
+function playThunderSound() {
+  playNoiseHit(0.8, 0.3, 260);
+  playTone(42, 0.75, "sawtooth", 0.16, 0.05);
+  playNoiseHit(0.42, 0.2, 620);
+}
+
 function updateAudio(dt) {
   if (!audioState.ctx) return;
   const ctx = audioState.ctx;
@@ -899,6 +1025,9 @@ function updateAudio(dt) {
   const sirenSweep = Math.sin(audioState.sirenPhase * Math.PI * 2) * 0.5 + 0.5;
   audioState.sirenOsc.frequency.setTargetAtTime(430 + sirenSweep * 360, now, 0.035);
   audioState.sirenGain.gain.setTargetAtTime(siren01 * 0.42, now, 0.12);
+  const weatherAudible = running && !gameOver ? (gameMode === "store" ? 0.16 : 1) : 0;
+  audioState.rainGain.gain.setTargetAtTime(weatherState.rain * 0.34 * weatherAudible, now, 0.18);
+  audioState.windGain.gain.setTargetAtTime((weatherState.clouds * 0.035 + weatherState.rain * 0.07) * weatherAudible, now, 0.3);
 
   if (running && !gameOver && gameMode === "store" && !storeState.dead && audioState.storeMoving && performance.now() > audioState.nextFootstep) {
     audioState.nextFootstep = performance.now() + 285 + Math.random() * 45;
@@ -945,6 +1074,117 @@ function focusX() {
 
 function focusZ() {
   return gameMode === "walking" ? outsideState.z : player.z;
+}
+
+function chooseNextWeather() {
+  const roll = Math.random();
+  const nextType = roll < 0.28 ? "clear" : roll < 0.52 ? "cloudy" : roll < 0.84 ? "rain" : "storm";
+  weatherState.type = nextType;
+  weatherState.targetRain = WEATHER_PRESETS[nextType].rain;
+  weatherState.targetClouds = WEATHER_PRESETS[nextType].clouds;
+  weatherState.changeTimer = 42 + Math.random() * 46;
+  weatherState.lightningTimer = nextType === "storm" ? 2 + Math.random() * 3 : 5;
+  showNotification(`Weather changing: ${WEATHER_PRESETS[nextType].label}`);
+}
+
+function advanceWeatherCycle(dt) {
+  weatherState.timeOfDay = (weatherState.timeOfDay + dt * (24 / 420)) % 24;
+  weatherState.changeTimer -= dt;
+  if (weatherState.changeTimer <= 0) chooseNextWeather();
+}
+
+function updateRainParticles(dt) {
+  const visibleRain = weatherState.rain > 0.025 && running && gameMode !== "store";
+  rainStreaks.visible = visibleRain;
+  if (!visibleRain) return;
+  const centerX = focusX();
+  const centerZ = focusZ();
+  const fallSpeed = 245 + weatherState.rain * 255;
+  const wind = 32 + weatherState.clouds * 38;
+  for (let i = 0; i < RAIN_DROP_COUNT; i++) {
+    const offset = i * 6;
+    let x = rainPositions[offset] + wind * dt;
+    let y = rainPositions[offset + 1] - fallSpeed * dt;
+    let z = rainPositions[offset + 2] + wind * 0.28 * dt;
+    if (y < 1 || Math.abs(x - centerX) > 350 || Math.abs(z - centerZ) > 350) {
+      x = centerX + (Math.random() - 0.5) * 620;
+      y = 170 + Math.random() * 150;
+      z = centerZ + (Math.random() - 0.5) * 620;
+    }
+    const streak = 11 + weatherState.rain * 12;
+    rainPositions[offset] = x;
+    rainPositions[offset + 1] = y;
+    rainPositions[offset + 2] = z;
+    rainPositions[offset + 3] = x + streak * 0.18;
+    rainPositions[offset + 4] = y - streak;
+    rainPositions[offset + 5] = z + streak * 0.07;
+  }
+  rainGeometry.attributes.position.needsUpdate = true;
+  rainMaterial.opacity = 0.2 + weatherState.rain * 0.58;
+}
+
+function updateWeatherHud(daylight) {
+  const hour = Math.floor(weatherState.timeOfDay);
+  const minute = Math.floor((weatherState.timeOfDay - hour) * 60);
+  const displayHour = String(hour).padStart(2, "0");
+  const displayMinute = String(minute).padStart(2, "0");
+  const preset = WEATHER_PRESETS[weatherState.type] || WEATHER_PRESETS.clear;
+  weatherHudEl.querySelector("span").textContent = preset.label;
+  weatherHudEl.querySelector("strong").textContent = `${displayHour}:${displayMinute}`;
+  weatherHudEl.className = `weather-hud ${weatherState.type}`;
+  weatherHudEl.classList.toggle("hidden", !running || gameIntroState.active);
+  weatherHudEl.style.borderLeftColor = daylight < 0.18 ? "#8aa9ff" : weatherState.rain > 0.1 ? "#77d8ff" : "#ffe06a";
+}
+
+function updateWeather(dt) {
+  if (running && worldHostControlsSimulation()) advanceWeatherCycle(dt);
+  const blend = 1 - Math.exp(-dt * 0.18);
+  weatherState.rain = lerp(weatherState.rain, weatherState.targetRain, blend);
+  weatherState.clouds = lerp(weatherState.clouds, weatherState.targetClouds, blend);
+
+  if (weatherState.type === "storm" && weatherState.rain > 0.55 && running) {
+    weatherState.lightningTimer -= dt;
+    if (weatherState.lightningTimer <= 0) {
+      weatherState.lightning = 1;
+      weatherState.lightningTimer = 3.5 + Math.random() * 7;
+      playThunderSound();
+      cameraState.shake = Math.max(cameraState.shake, 0.32);
+    }
+  }
+  weatherState.lightning = Math.max(0, weatherState.lightning - dt * 5.5);
+
+  const sunWave = Math.sin(((weatherState.timeOfDay - 6) / 24) * Math.PI * 2);
+  const daylight = smoothStep01((sunWave + 0.12) / 0.72);
+  const twilight = Math.exp(-Math.pow(sunWave / 0.23, 2)) * (1 - weatherState.clouds * 0.55);
+  const skyColor = weatherColors.currentSky.copy(weatherColors.night).lerp(weatherColors.day, daylight);
+  skyColor.lerp(weatherColors.dawn, twilight * 0.5);
+  skyColor.lerp(weatherColors.overcast, weatherState.clouds * 0.68);
+  if (weatherState.lightning > 0) skyColor.lerp(new THREE.Color(0xdceaff), weatherState.lightning * 0.88);
+
+  renderer.setClearColor(skyColor);
+  scene.fog.color.copy(skyColor);
+  scene.fog.near = lerp(460, 255, weatherState.rain * 0.75 + weatherState.clouds * 0.18);
+  scene.fog.far = lerp(1280, 720, weatherState.rain * 0.72 + weatherState.clouds * 0.16);
+  sun.color.copy(weatherColors.moonSun).lerp(weatherColors.daylightSun, daylight);
+  sun.intensity = 0.3 + daylight * 2.05 * (1 - weatherState.clouds * 0.52) + weatherState.lightning * 4.8;
+  skyLight.intensity = 0.72 + daylight * 0.98 * (1 - weatherState.clouds * 0.36) + weatherState.lightning * 1.8;
+  skyLight.color.copy(weatherColors.moonSky).lerp(weatherColors.daylightSky, daylight);
+  if (weatherState.lightning > 0) skyLight.color.lerp(weatherColors.lightning, weatherState.lightning * 0.72);
+  skyLight.groundColor.copy(weatherColors.nightGround).lerp(weatherColors.dayGround, daylight);
+  const sunAngle = (weatherState.timeOfDay / 24) * Math.PI * 2;
+  sun.position.set(
+    focusX() + Math.cos(sunAngle) * 470,
+    75 + daylight * 460,
+    focusZ() + Math.sin(sunAngle) * 360
+  );
+  sun.target.position.set(focusX(), 0, focusZ());
+
+  const wetness = clamp(weatherState.rain * 1.15, 0, 1);
+  mats.road.color.copy(weatherColors.roadDry).lerp(weatherColors.roadWet, wetness);
+  mats.parking.color.copy(weatherColors.parkingDry).lerp(weatherColors.parkingWet, wetness);
+  mats.grass.color.copy(weatherColors.grassDry).lerp(weatherColors.grassWet, wetness * 0.62);
+  updateRainParticles(dt);
+  updateWeatherHud(daylight);
 }
 
 function cleanHexColor(value, fallback) {
@@ -1207,6 +1447,13 @@ function playerSurfaceTuning() {
     tune.accel *= clamp(vehicleTune.accel / 92, 0.74, 1.28);
     tune.grip *= clamp(vehicleTune.grip / 5.6, 0.82, 1.18);
     tune.turnRate *= clamp(vehicleTune.turnRate / 1.8, 0.8, 1.2);
+  }
+  if (onRoad && weatherState.rain > 0.04) {
+    const wetness = clamp(weatherState.rain, 0, 1);
+    tune.grip *= lerp(1, 0.76, wetness);
+    tune.brake *= lerp(1, 0.88, wetness);
+    tune.driftSlip *= lerp(1, 1.24, wetness);
+    tune.throttleGripLoss *= lerp(1, 1.28, wetness);
   }
   tune.maxSpeed *= boost;
   tune.accel *= boost;
@@ -6107,6 +6354,11 @@ function updatePlayer(dt) {
     const intensity = clamp(motion.total / 135, 0.18, surface.onRoad ? 0.62 : 0.9);
     makeTireSpray(player, intensity, surface.onRoad);
   }
+  if (surface.onRoad && weatherState.rain > 0.12 && motion.total > 28 && Math.random() < weatherState.rain * 0.72) {
+    const rearX = player.x + Math.sin(player.angle) * 20;
+    const rearZ = player.z + Math.cos(player.angle) * 20;
+    makeSmoke(rearX, rearZ, 1.1 + weatherState.rain * 1.7, 0xb9d2d8, 0.2 + weatherState.rain * 0.12);
+  }
 
   if (!drifting && driftRewardState.active) {
     showDriftReward(audioState.driftIntensity || 0.35);
@@ -7424,6 +7676,15 @@ function worldNetworkState() {
     chaseTime,
     backupTime,
     idleHeat,
+    weather: {
+      timeOfDay: weatherState.timeOfDay,
+      type: weatherState.type,
+      rain: weatherState.rain,
+      clouds: weatherState.clouds,
+      targetRain: weatherState.targetRain,
+      targetClouds: weatherState.targetClouds,
+      changeTimer: weatherState.changeTimer,
+    },
     police: { ...policeState },
     cops: cops.map(vehicleNetworkState),
     helicopters: policeHelicopters.map((helicopter) => ({
@@ -7710,6 +7971,15 @@ function applyWorldState(state) {
   if (Number.isFinite(state.chaseTime)) chaseTime = state.chaseTime;
   if (Number.isFinite(state.backupTime)) backupTime = state.backupTime;
   if (Number.isFinite(state.idleHeat)) idleHeat = state.idleHeat;
+  if (state.weather) {
+    if (Number.isFinite(state.weather.timeOfDay)) weatherState.timeOfDay = state.weather.timeOfDay;
+    if (WEATHER_PRESETS[state.weather.type]) weatherState.type = state.weather.type;
+    if (Number.isFinite(state.weather.rain)) weatherState.rain = state.weather.rain;
+    if (Number.isFinite(state.weather.clouds)) weatherState.clouds = state.weather.clouds;
+    if (Number.isFinite(state.weather.targetRain)) weatherState.targetRain = state.weather.targetRain;
+    if (Number.isFinite(state.weather.targetClouds)) weatherState.targetClouds = state.weather.targetClouds;
+    if (Number.isFinite(state.weather.changeTimer)) weatherState.changeTimer = state.weather.changeTimer;
+  }
   if (state.police) {
     for (const key of Object.keys(policeState)) {
       if (typeof policeState[key] === "boolean") policeState[key] = !!state.police[key];
@@ -8306,6 +8576,19 @@ function resetGame() {
   driftRewardState.active = false;
   rewardLayerEl?.replaceChildren();
   speedBoostUntil = 0;
+  if (multiplayer.mode !== "client") {
+    Object.assign(weatherState, {
+      timeOfDay: 17.25,
+      type: "clear",
+      rain: 0,
+      clouds: WEATHER_PRESETS.clear.clouds,
+      targetRain: 0,
+      targetClouds: WEATHER_PRESETS.clear.clouds,
+      changeTimer: 18,
+      lightningTimer: 4.5,
+      lightning: 0,
+    });
+  }
   arrestTime = 0;
   chaseTime = 0;
   backupTime = 0;
@@ -8422,6 +8705,7 @@ function update(dt) {
     updateCamera(dt);
     drawMinimap();
   }
+  updateWeather(dt);
   updateAudio(dt);
 }
 
