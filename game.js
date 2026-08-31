@@ -32,6 +32,9 @@ const previewRightArmEl = document.getElementById("previewRightArm");
 const previewLeftLegEl = document.getElementById("previewLeftLeg");
 const previewRightLegEl = document.getElementById("previewRightLeg");
 const gameOverEl = document.getElementById("gameOver");
+const storeDeathScreenEl = document.getElementById("storeDeathScreen");
+const storeDeathAttackerEl = document.getElementById("storeDeathAttacker");
+const storeRespawnButton = document.getElementById("storeRespawnButton");
 const arrestFx = document.getElementById("arrestFx");
 const singleplayerButton = document.getElementById("singleplayerButton");
 const createGameButton = document.getElementById("createGameButton");
@@ -169,6 +172,7 @@ const VENDOR_MAX_HP = 300;
 const VENDOR_NAME = "OuTii";
 const VENDOR_KNIFE_DAMAGE = 100;
 const VENDOR_KNIFE_COOLDOWN = 2;
+const OUTSIDE_CHARACTER_SCALE = 0.62;
 
 const mats = {
   grass: new THREE.MeshLambertMaterial({ color: 0x668f59 }),
@@ -376,7 +380,11 @@ const storeState = {
   deathRoll: 0,
   deathPitch: 0,
   deathSpin: 0,
+  deathTimer: 0,
+  deathLanded: false,
+  deathAttacker: "",
   colliders: [],
+  impactFx: [],
   vendor: null,
   vendorHp: VENDOR_MAX_HP,
   vendorDead: false,
@@ -388,6 +396,8 @@ const storeState = {
   vendorDeathRoll: 0,
   vendorDeathPitch: 0,
   vendorDeathSpin: 0,
+  vendorDeathTimer: 0,
+  vendorDeathLanded: false,
   vendorAggroPeerId: "",
   vendorAggroTimer: 0,
   vendorAttackCooldown: 0,
@@ -2240,7 +2250,7 @@ function makeFirstPersonFist() {
 
 function createOutsideCharacter() {
   const character = makePerson(characterStyle);
-  character.scale.setScalar(1.08);
+  character.scale.setScalar(OUTSIDE_CHARACTER_SCALE);
   character.visible = false;
   scene.add(character);
   outsideState.character = character;
@@ -3036,6 +3046,77 @@ function applyStorePunchEvent(message) {
   }
 }
 
+function createStoreImpactFx(x, z, color = 0xd20720, strength = 1) {
+  if (!storeState.group) return;
+  const ringMaterial = new THREE.MeshBasicMaterial({
+    color,
+    transparent: true,
+    opacity: 0.86,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+  });
+  const ring = new THREE.Mesh(new THREE.RingGeometry(7, 12, 32), ringMaterial);
+  ring.rotation.x = -Math.PI * 0.5;
+  ring.position.set(x, 1.2, z);
+  storeState.group.add(ring);
+  storeState.impactFx.push({ mesh: ring, life: 0.72, maxLife: 0.72, ring: true, strength });
+
+  const shardCount = Math.round(10 + strength * 5);
+  for (let i = 0; i < shardCount; i++) {
+    const angle = (i / shardCount) * Math.PI * 2 + Math.random() * 0.34;
+    const speed = (42 + Math.random() * 62) * strength;
+    const material = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.92 });
+    const shard = new THREE.Mesh(new THREE.BoxGeometry(2.2, 2.2, 7 + Math.random() * 6), material);
+    shard.position.set(x, 5 + Math.random() * 12, z);
+    shard.rotation.set(Math.random() * Math.PI, angle, Math.random() * Math.PI);
+    storeState.group.add(shard);
+    storeState.impactFx.push({
+      mesh: shard,
+      life: 0.7 + Math.random() * 0.42,
+      maxLife: 1.12,
+      vx: Math.sin(angle) * speed,
+      vy: 46 + Math.random() * 78,
+      vz: Math.cos(angle) * speed,
+      spin: (Math.random() - 0.5) * 13,
+    });
+  }
+}
+
+function updateStoreImpactFx(dt) {
+  for (let i = storeState.impactFx.length - 1; i >= 0; i--) {
+    const effect = storeState.impactFx[i];
+    effect.life -= dt;
+    if (effect.ring) {
+      const progress = 1 - effect.life / effect.maxLife;
+      const scale = 1 + progress * 8 * effect.strength;
+      effect.mesh.scale.setScalar(scale);
+      effect.mesh.material.opacity = Math.max(0, (1 - progress) * 0.82);
+    } else {
+      effect.vy -= 230 * dt;
+      effect.mesh.position.x += effect.vx * dt;
+      effect.mesh.position.y = Math.max(1, effect.mesh.position.y + effect.vy * dt);
+      effect.mesh.position.z += effect.vz * dt;
+      effect.mesh.rotation.x += effect.spin * dt;
+      effect.mesh.rotation.z += effect.spin * 0.72 * dt;
+      effect.mesh.material.opacity = Math.max(0, effect.life / effect.maxLife);
+    }
+    if (effect.life > 0) continue;
+    storeState.group.remove(effect.mesh);
+    effect.mesh.geometry.dispose();
+    effect.mesh.material.dispose();
+    storeState.impactFx.splice(i, 1);
+  }
+}
+
+function clearStoreImpactFx() {
+  for (const effect of storeState.impactFx) {
+    storeState.group?.remove(effect.mesh);
+    effect.mesh.geometry.dispose();
+    effect.mesh.material.dispose();
+  }
+  storeState.impactFx.length = 0;
+}
+
 function applyStoreDamage(damage, attacker, message = {}) {
   if (storeState.dead) return;
   storeState.hp = clamp(storeState.hp - damage, 0, PLAYER_MAX_HP);
@@ -3061,19 +3142,29 @@ function killStorePlayer(attacker, message = {}) {
   const awayX = storeState.x - (message.x || storeState.x - Math.sin(storeState.angle) * 20);
   const awayZ = storeState.z - (message.z || storeState.z - Math.cos(storeState.angle) * 20);
   const awayLen = Math.max(Math.hypot(awayX, awayZ), 0.001);
-  storeState.deathVx = (awayX / awayLen) * 135;
-  storeState.deathVz = (awayZ / awayLen) * 135;
-  storeState.deathVy = 95;
+  storeState.deathVx = (awayX / awayLen) * 168;
+  storeState.deathVz = (awayZ / awayLen) * 168;
+  storeState.deathVy = 122;
   storeState.deathY = 0;
   storeState.deathRoll = 0;
   storeState.deathPitch = 0;
-  storeState.deathSpin = 3.8;
+  storeState.deathSpin = 5.2;
+  storeState.deathTimer = 0;
+  storeState.deathLanded = false;
+  storeState.deathAttacker = attacker || "Unknown";
   storeState.character.visible = true;
+  createStoreImpactFx(storeState.x, storeState.z, 0xd20720, 1.15);
+  cameraState.shake = Math.max(cameraState.shake, 4.2);
+  playTone(92, 0.42, "sawtooth", 0.11);
+  playTone(48, 0.7, "triangle", 0.12, 0.08);
+  storeDeathAttackerEl.textContent = `${storeState.deathAttacker} took you down`;
+  storeDeathScreenEl.classList.remove("hidden");
   showNotification(`${playerName} got knocked out by ${attacker}`, true);
 }
 
 function updateStoreDeath(dt) {
   if (!storeState.dead || !storeState.character) return;
+  storeState.deathTimer += dt;
   storeState.deathVy -= 360 * dt;
   storeState.deathY += storeState.deathVy * dt;
   storeState.x += storeState.deathVx * dt;
@@ -3083,11 +3174,25 @@ function updateStoreDeath(dt) {
   storeState.deathRoll += storeState.deathSpin * dt;
   storeState.deathPitch = lerp(storeState.deathPitch, Math.PI * 0.5, 1 - Math.exp(-dt * 6));
 
+  const flail = Math.exp(-storeState.deathTimer * 1.8);
+  const character = storeState.character;
+  character.userData.leftArm.rotation.set(-1.45 * flail, 0, -1.1 * flail);
+  character.userData.rightArm.rotation.set(1.18 * flail, 0, 1.28 * flail);
+  character.userData.leftLeg.rotation.x = 0.82 * flail;
+  character.userData.rightLeg.rotation.x = -0.72 * flail;
+  character.userData.head.rotation.z = Math.sin(storeState.deathTimer * 12) * 0.32 * flail;
+
   if (storeState.deathY <= 0) {
     storeState.deathY = 0;
     storeState.deathVy = 0;
     storeState.deathSpin = lerp(storeState.deathSpin, 0, 1 - Math.exp(-dt * 7));
     storeState.deathRoll = lerp(storeState.deathRoll, 0.18, 1 - Math.exp(-dt * 5));
+    if (!storeState.deathLanded && storeState.deathTimer > 0.12) {
+      storeState.deathLanded = true;
+      createStoreImpactFx(storeState.x, storeState.z, 0xf0f0e8, 0.72);
+      storeState.damageShake = Math.max(storeState.damageShake, 5.5);
+      playTone(58, 0.22, "square", 0.1);
+    }
   }
 
   storeState.x = clamp(storeState.x, 5554, 6446);
@@ -3095,6 +3200,59 @@ function updateStoreDeath(dt) {
   storeState.character.visible = true;
   storeState.character.position.set(storeState.x, storeState.deathY, storeState.z);
   storeState.character.rotation.set(storeState.deathPitch, storeState.angle, storeState.deathRoll);
+}
+
+function resetPersonPose(character) {
+  if (!character) return;
+  for (const part of ["leftArm", "rightArm", "leftLeg", "rightLeg", "head"]) {
+    if (character.userData[part]) character.userData[part].rotation.set(0, 0, 0);
+  }
+}
+
+function respawnStorePlayer() {
+  if (gameMode !== "store" || !storeState.dead || transitionLock) return;
+  transitionLock = true;
+  setTransition(true);
+  storeDeathScreenEl.classList.add("hidden");
+  playTone(260, 0.14, "triangle", 0.075);
+  playTone(520, 0.24, "triangle", 0.065, 0.09);
+  window.setTimeout(() => {
+    storeState.hp = PLAYER_MAX_HP;
+    storeState.dead = false;
+    storeState.x = 6000;
+    storeState.y = 0;
+    storeState.z = 220;
+    storeState.angle = Math.PI;
+    storeState.cameraYaw = storeState.angle;
+    storeState.pitch = 0;
+    storeState.vy = 0;
+    storeState.grounded = true;
+    storeState.deathY = 0;
+    storeState.deathVy = 0;
+    storeState.deathVx = 0;
+    storeState.deathVz = 0;
+    storeState.deathRoll = 0;
+    storeState.deathPitch = 0;
+    storeState.deathSpin = 0;
+    storeState.deathTimer = 0;
+    storeState.deathLanded = false;
+    storeState.deathAttacker = "";
+    storeState.damageTimer = 0;
+    storeState.damageShake = 0;
+    storeState.character.position.set(storeState.x, 0, storeState.z);
+    storeState.character.rotation.set(0, storeState.angle, 0);
+    storeState.character.visible = true;
+    resetPersonPose(storeState.character);
+    cameraState.position.set(storeState.x, 84, storeState.z + 148);
+    cameraState.target.set(storeState.x, 32, storeState.z - 36);
+    damageFxEl.style.opacity = "0";
+    updateStoreHealthHud();
+    showNotification(`${playerName} respawned`, true);
+    window.setTimeout(() => {
+      setTransition(false);
+      transitionLock = false;
+    }, 260);
+  }, 360);
 }
 
 function updateStoreHealthHud() {
@@ -3138,6 +3296,8 @@ function resetVendorAtCheckout() {
   storeState.vendorDeathRoll = 0;
   storeState.vendorDeathPitch = 0;
   storeState.vendorDeathSpin = 0;
+  storeState.vendorDeathTimer = 0;
+  storeState.vendorDeathLanded = false;
   storeState.vendorAggroPeerId = "";
   storeState.vendorAggroTimer = 0;
   storeState.vendorAttackCooldown = 0;
@@ -3146,6 +3306,7 @@ function resetVendorAtCheckout() {
   storeState.vendor.visible = true;
   storeState.vendor.position.set(6004, 0, -274);
   storeState.vendor.rotation.set(0, 0, 0);
+  resetPersonPose(storeState.vendor);
   if (storeState.vendorKnife) storeState.vendorKnife.visible = false;
   if (storeState.vendor.userData.rightArm) storeState.vendor.userData.rightArm.rotation.x = 0;
   if (storeState.vendor.userData.leftArm) storeState.vendor.userData.leftArm.rotation.x = 0;
@@ -3171,17 +3332,23 @@ function killVendor(attacker, message = {}) {
   const awayX = storeState.vendor.position.x - (message.x || storeState.x);
   const awayZ = storeState.vendor.position.z - (message.z || storeState.z);
   const awayLen = Math.max(Math.hypot(awayX, awayZ), 0.001);
-  storeState.vendorDeathVx = (awayX / awayLen) * 82;
-  storeState.vendorDeathVz = (awayZ / awayLen) * 82;
-  storeState.vendorDeathVy = 74;
+  storeState.vendorDeathVx = (awayX / awayLen) * 138;
+  storeState.vendorDeathVz = (awayZ / awayLen) * 138;
+  storeState.vendorDeathVy = 128;
   storeState.vendorDeathY = 0;
   storeState.vendorDeathRoll = 0;
   storeState.vendorDeathPitch = 0;
-  storeState.vendorDeathSpin = 3.1;
+  storeState.vendorDeathSpin = 5.8;
+  storeState.vendorDeathTimer = 0;
+  storeState.vendorDeathLanded = false;
   storeState.vendorAggroPeerId = "";
   storeState.vendorAggroTimer = 0;
   storeState.vendorAttackTimer = 0;
-  if (storeState.vendorKnife) storeState.vendorKnife.visible = false;
+  if (storeState.vendorKnife) storeState.vendorKnife.visible = true;
+  createStoreImpactFx(storeState.vendor.position.x, storeState.vendor.position.z, 0x27e86a, 1.25);
+  storeState.damageShake = Math.max(storeState.damageShake, 3.8);
+  playTone(118, 0.28, "sawtooth", 0.1);
+  playTone(62, 0.52, "triangle", 0.11, 0.06);
   updateVendorNameTag();
   showNotification(`${attacker} knocked out ${VENDOR_NAME} - she returns in 10s`, true);
 }
@@ -3286,6 +3453,7 @@ function updateVendor(dt) {
   }
 
   storeState.vendorRespawnTimer = Math.max(0, storeState.vendorRespawnTimer - dt);
+  storeState.vendorDeathTimer += dt;
   storeState.vendorDeathVy -= 330 * dt;
   storeState.vendorDeathY += storeState.vendorDeathVy * dt;
   storeState.vendor.position.x += storeState.vendorDeathVx * dt;
@@ -3294,10 +3462,24 @@ function updateVendor(dt) {
   storeState.vendorDeathVz *= Math.exp(-dt * 2.8);
   storeState.vendorDeathRoll += storeState.vendorDeathSpin * dt;
   storeState.vendorDeathPitch = lerp(storeState.vendorDeathPitch, Math.PI * 0.5, 1 - Math.exp(-dt * 6));
+  const deathFlail = Math.exp(-storeState.vendorDeathTimer * 1.45);
+  const vendor = storeState.vendor;
+  vendor.userData.leftArm.rotation.set(-1.7 * deathFlail, 0, -1.28 * deathFlail);
+  vendor.userData.rightArm.rotation.set(1.52 * deathFlail, 0, 1.36 * deathFlail);
+  vendor.userData.leftLeg.rotation.x = 1.05 * deathFlail;
+  vendor.userData.rightLeg.rotation.x = -0.92 * deathFlail;
+  vendor.userData.head.rotation.z = Math.sin(storeState.vendorDeathTimer * 15) * 0.42 * deathFlail;
+  if (storeState.vendorKnife) storeState.vendorKnife.visible = storeState.vendorDeathTimer < 0.38;
   if (storeState.vendorDeathY <= 0) {
     storeState.vendorDeathY = 0;
     storeState.vendorDeathVy = 0;
     storeState.vendorDeathSpin = lerp(storeState.vendorDeathSpin, 0, 1 - Math.exp(-dt * 7));
+    if (!storeState.vendorDeathLanded && storeState.vendorDeathTimer > 0.12) {
+      storeState.vendorDeathLanded = true;
+      createStoreImpactFx(storeState.vendor.position.x, storeState.vendor.position.z, 0xf4e9c8, 0.9);
+      storeState.damageShake = Math.max(storeState.damageShake, 5.2);
+      playTone(54, 0.25, "square", 0.11);
+    }
   }
   storeState.vendor.position.y = storeState.vendorDeathY;
   storeState.vendor.rotation.set(storeState.vendorDeathPitch, storeState.vendor.rotation.y, storeState.vendorDeathRoll);
@@ -3357,10 +3539,16 @@ function animateRemoteStoreCharacter(remote, dt, moving) {
 
 function updateStoreCamera(dt) {
   if (storeState.dead) {
-    const desired = new THREE.Vector3(storeState.x - 34, 98, storeState.z + 124);
-    const target = new THREE.Vector3(storeState.x, 12, storeState.z);
-    cameraState.position.lerp(desired, 1 - Math.exp(-dt * 5.2));
-    cameraState.target.lerp(target, 1 - Math.exp(-dt * 6.5));
+    const orbit = storeState.deathTimer * 0.62 + 0.3;
+    const distance = 126 - Math.min(storeState.deathTimer * 8, 24);
+    const desired = new THREE.Vector3(
+      storeState.x + Math.sin(orbit) * distance,
+      72 + Math.min(storeState.deathTimer * 11, 24),
+      storeState.z + Math.cos(orbit) * distance
+    );
+    const target = new THREE.Vector3(storeState.x, 15, storeState.z);
+    cameraState.position.lerp(desired, 1 - Math.exp(-dt * 4.4));
+    cameraState.target.lerp(target, 1 - Math.exp(-dt * 7.2));
     camera.position.copy(cameraState.position);
     if (storeState.damageShake > 0) {
       const hitShake = storeState.damageShake;
@@ -3369,7 +3557,7 @@ function updateStoreCamera(dt) {
       camera.position.y += Math.cos(pulse * 1.2) * hitShake * 0.45;
     }
     camera.lookAt(cameraState.target);
-    camera.fov = lerp(camera.fov, 58, 1 - Math.exp(-dt * 5));
+    camera.fov = lerp(camera.fov, 50, 1 - Math.exp(-dt * 4.2));
     camera.updateProjectionMatrix();
     return;
   }
@@ -3489,9 +3677,15 @@ function enterStoreMode() {
     storeState.deathRoll = 0;
     storeState.deathPitch = 0;
     storeState.deathSpin = 0;
+    storeState.deathTimer = 0;
+    storeState.deathLanded = false;
+    storeState.deathAttacker = "";
+    storeDeathScreenEl.classList.add("hidden");
+    clearStoreImpactFx();
     damageFxEl.style.opacity = "0";
     storeState.character.position.set(storeState.x, 0, storeState.z);
     storeState.character.rotation.set(0, storeState.angle, 0);
+    resetPersonPose(storeState.character);
     storeState.character.visible = true;
     if (storeState.fist) storeState.fist.visible = false;
     cameraState.position.set(storeState.x, 84, storeState.z + 148);
@@ -3547,6 +3741,8 @@ function enterDrivingMode() {
     storeState.damageTimer = 0;
     storeState.damageShake = 0;
     damageFxEl.style.opacity = "0";
+    storeDeathScreenEl.classList.add("hidden");
+    clearStoreImpactFx();
     updateStoreHealthHud();
     if (storeState.fist) storeState.fist.visible = false;
     storeState.character.visible = true;
@@ -3562,7 +3758,7 @@ function enterDrivingMode() {
 }
 
 function outsideExitSpotIsClear(x, z) {
-  const radius = 14;
+  const radius = 9;
   for (const collider of colliders) {
     if (collider.disabled) continue;
     if (collider.type === "tree") {
@@ -3578,9 +3774,9 @@ function outsideExitSpotIsClear(x, z) {
   return true;
 }
 
-function safeOutsideExitSpot() {
-  const right = vehicleRight(player);
-  const forward = vehicleForward(player);
+function safeOutsideExitSpot(anchor) {
+  const right = { x: Math.cos(anchor.angle), z: -Math.sin(anchor.angle) };
+  const forward = { x: -Math.sin(anchor.angle), z: -Math.cos(anchor.angle) };
   const directions = [
     right,
     { x: -right.x, z: -right.z },
@@ -3591,11 +3787,11 @@ function safeOutsideExitSpot() {
   ];
   for (const distance of [44, 58, 74]) {
     for (const direction of directions) {
-      const spot = { x: player.x + direction.x * distance, z: player.z + direction.z * distance };
+      const spot = { x: anchor.x + direction.x * distance, z: anchor.z + direction.z * distance };
       if (outsideExitSpotIsClear(spot.x, spot.z)) return spot;
     }
   }
-  return { x: player.x + right.x * 74, z: player.z + right.z * 74 };
+  return { x: anchor.x + right.x * 74, z: anchor.z + right.z * 74 };
 }
 
 function exitVehicleToFoot() {
@@ -3607,6 +3803,11 @@ function exitVehicleToFoot() {
   }
   transitionLock = true;
   setTransition(true);
+  const exitAnchor = {
+    x: Number.isFinite(player.x) ? player.x : lastPlayerX,
+    z: Number.isFinite(player.z) ? player.z : lastPlayerZ,
+    angle: Number.isFinite(player.angle) ? player.angle : 0,
+  };
   player.y = 0;
   player.vy = 0;
   player.airborne = false;
@@ -3622,8 +3823,25 @@ function exitVehicleToFoot() {
   player.steerCharge = 0;
   syncVehicle(player);
 
-  const exitSpot = safeOutsideExitSpot();
+  const exitSpot = safeOutsideExitSpot(exitAnchor);
   window.setTimeout(() => {
+    player.x = exitAnchor.x;
+    player.z = exitAnchor.z;
+    player.angle = exitAnchor.angle;
+    player.y = 0;
+    player.vx = 0;
+    player.vz = 0;
+    player.vy = 0;
+    player.roll = 0;
+    player.pitch = 0;
+    player.rollVel = 0;
+    player.pitchVel = 0;
+    player.spinVel = 0;
+    player.airborne = false;
+    player.wrecked = false;
+    syncVehicle(player);
+    player.group.position.set(exitAnchor.x, 0, exitAnchor.z);
+    player.group.rotation.set(0, exitAnchor.angle, 0);
     gameMode = "walking";
     outsideState.x = exitSpot.x;
     outsideState.z = exitSpot.z;
@@ -3634,13 +3852,14 @@ function exitVehicleToFoot() {
     outsideState.exitProtection = 0.6;
     if (!outsideState.character) createOutsideCharacter();
     applyCharacterStyleToPerson(outsideState.character, characterStyle);
+    outsideState.character.scale.setScalar(OUTSIDE_CHARACTER_SCALE);
     outsideState.character.visible = true;
     outsideState.character.position.set(outsideState.x, 0, outsideState.z);
     outsideState.character.rotation.set(0, outsideState.angle, 0);
     const cameraForwardX = -Math.sin(outsideState.angle);
     const cameraForwardZ = -Math.cos(outsideState.angle);
-    cameraState.position.set(outsideState.x - cameraForwardX * 180, 118, outsideState.z - cameraForwardZ * 180);
-    cameraState.target.set(outsideState.x + cameraForwardX * 45, 28, outsideState.z + cameraForwardZ * 45);
+    cameraState.position.set(outsideState.x - cameraForwardX * 138, 88, outsideState.z - cameraForwardZ * 138);
+    cameraState.target.set(outsideState.x + cameraForwardX * 34, 15, outsideState.z + cameraForwardZ * 34);
     cameraState.shake = 0;
     cameraState.tilt = 0;
     camera.position.copy(cameraState.position);
@@ -3790,7 +4009,7 @@ function updateWalking(dt) {
   }
 
   if (outsideState.exitProtection <= 0) {
-    const radius = 13;
+    const radius = 8;
     for (const rect of colliders) {
       const hit = storeRectCollision(outsideState.x, outsideState.z, radius, rect);
       if (!hit) continue;
@@ -5854,13 +6073,13 @@ function policeHudStatus() {
 
 function updateCollisions(dt, fullWorldCollisions = true) {
   if (fullWorldCollisions) {
-    const vehicles = [player, ...cops, ...traffic];
+    const vehicles = gameMode === "walking" ? [...cops, ...traffic] : [player, ...cops, ...traffic];
     for (let i = 0; i < vehicles.length; i++) {
       for (let j = i + 1; j < vehicles.length; j++) {
         collideVehicles(vehicles[i], vehicles[j]);
       }
     }
-  } else {
+  } else if (gameMode !== "walking") {
     for (const cop of cops) collideVehicles(player, cop);
     for (const car of traffic) collideVehicles(player, car);
   }
@@ -5932,14 +6151,14 @@ function updateOutsideCamera(dt) {
   const forwardX = -Math.sin(outsideState.angle);
   const forwardZ = -Math.cos(outsideState.angle);
   const desired = new THREE.Vector3(
-    outsideState.x - forwardX * 180,
-    118,
-    outsideState.z - forwardZ * 180
+    outsideState.x - forwardX * 138,
+    88,
+    outsideState.z - forwardZ * 138
   );
   const target = new THREE.Vector3(
-    outsideState.x + forwardX * 45,
-    28,
-    outsideState.z + forwardZ * 45
+    outsideState.x + forwardX * 34,
+    15,
+    outsideState.z + forwardZ * 34
   );
   cameraState.position.lerp(desired, 1 - Math.exp(-dt * 5.5));
   cameraState.target.lerp(target, 1 - Math.exp(-dt * 7));
@@ -6239,6 +6458,7 @@ function localNetworkState() {
     storeDeathY: storeState.deathY,
     storeDeathRoll: storeState.deathRoll,
     storeDeathPitch: storeState.deathPitch,
+    storeDeathTimer: storeState.deathTimer,
     money: Math.floor(money),
     wanted: wantedLevel(),
     gameOver,
@@ -6311,9 +6531,13 @@ function worldNetworkState() {
       rotationY: storeState.vendor.rotation.y,
       rotationZ: storeState.vendor.rotation.z,
       rightArmRotationX: storeState.vendor.userData.rightArm?.rotation.x || 0,
+      rightArmRotationZ: storeState.vendor.userData.rightArm?.rotation.z || 0,
       leftArmRotationX: storeState.vendor.userData.leftArm?.rotation.x || 0,
+      leftArmRotationZ: storeState.vendor.userData.leftArm?.rotation.z || 0,
       leftLegRotationX: storeState.vendor.userData.leftLeg?.rotation.x || 0,
       rightLegRotationX: storeState.vendor.userData.rightLeg?.rotation.x || 0,
+      headRotationZ: storeState.vendor.userData.head?.rotation.z || 0,
+      deathTimer: storeState.vendorDeathTimer,
       knifeVisible: !!storeState.vendorKnife?.visible,
       aggroPeerId: storeState.vendorAggroPeerId,
       aggroTimer: storeState.vendorAggroTimer,
@@ -6375,6 +6599,7 @@ function applyRemoteState(peerId, state) {
     deathY: Number.isFinite(state.storeDeathY) ? state.storeDeathY : 0,
     deathRoll: Number.isFinite(state.storeDeathRoll) ? state.storeDeathRoll : 0,
     deathPitch: Number.isFinite(state.storeDeathPitch) ? state.storeDeathPitch : 0,
+    deathTimer: Number.isFinite(state.storeDeathTimer) ? state.storeDeathTimer : 0,
   };
   remote.outsideTarget = {
     gameMode: state.gameMode || "driving",
@@ -6395,7 +6620,7 @@ function applyRemoteState(peerId, state) {
   setStoreNameTag(remote);
   if (!remote.outsideCharacter) {
     remote.outsideCharacter = makePerson(remoteCharacterStyle);
-    remote.outsideCharacter.scale.setScalar(1.08);
+    remote.outsideCharacter.scale.setScalar(OUTSIDE_CHARACTER_SCALE);
     remote.outsideCharacter.position.set(remote.outsideTarget.x, 0, remote.outsideTarget.z);
     remote.outsideCharacter.rotation.y = remote.outsideTarget.angle;
     remote.outsideCharacter.visible = false;
@@ -6529,6 +6754,7 @@ function applyWorldState(state) {
   syncNetworkRoadblocks(Array.isArray(state.roadblocks) ? state.roadblocks : []);
   const vendor = state.storeVendor;
   if (vendor && storeState.vendor) {
+    const vendorJustDied = !storeState.vendorDead && !!vendor.dead;
     storeState.vendorHp = Number.isFinite(vendor.hp) ? vendor.hp : VENDOR_MAX_HP;
     storeState.vendorDead = !!vendor.dead;
     storeState.vendorRespawnTimer = Number.isFinite(vendor.respawnTimer) ? vendor.respawnTimer : 0;
@@ -6539,9 +6765,13 @@ function applyWorldState(state) {
     );
     storeState.vendor.rotation.set(vendor.rotationX || 0, vendor.rotationY || 0, vendor.rotationZ || 0);
     if (storeState.vendor.userData.rightArm) storeState.vendor.userData.rightArm.rotation.x = vendor.rightArmRotationX || 0;
+    if (storeState.vendor.userData.rightArm) storeState.vendor.userData.rightArm.rotation.z = vendor.rightArmRotationZ || 0;
     if (storeState.vendor.userData.leftArm) storeState.vendor.userData.leftArm.rotation.x = vendor.leftArmRotationX || 0;
+    if (storeState.vendor.userData.leftArm) storeState.vendor.userData.leftArm.rotation.z = vendor.leftArmRotationZ || 0;
     if (storeState.vendor.userData.leftLeg) storeState.vendor.userData.leftLeg.rotation.x = vendor.leftLegRotationX || 0;
     if (storeState.vendor.userData.rightLeg) storeState.vendor.userData.rightLeg.rotation.x = vendor.rightLegRotationX || 0;
+    if (storeState.vendor.userData.head) storeState.vendor.userData.head.rotation.z = vendor.headRotationZ || 0;
+    storeState.vendorDeathTimer = Number.isFinite(vendor.deathTimer) ? vendor.deathTimer : 0;
     if (storeState.vendorKnife) storeState.vendorKnife.visible = !!vendor.knifeVisible && !storeState.vendorDead;
     storeState.vendorAggroPeerId = typeof vendor.aggroPeerId === "string" ? vendor.aggroPeerId : "";
     storeState.vendorAggroTimer = Number.isFinite(vendor.aggroTimer) ? vendor.aggroTimer : 0;
@@ -6549,6 +6779,10 @@ function applyWorldState(state) {
     storeState.vendorAttackTimer = Number.isFinite(vendor.attackTimer) ? vendor.attackTimer : 0;
     storeState.vendor.visible = true;
     updateVendorNameTag();
+    if (vendorJustDied && gameMode === "store") {
+      createStoreImpactFx(storeState.vendor.position.x, storeState.vendor.position.z, 0x27e86a, 1.25);
+      storeState.damageShake = Math.max(storeState.damageShake, 3.8);
+    }
   }
 }
 
@@ -6650,6 +6884,12 @@ function updateRemotePlayers(dt) {
           remote.storeCharacter.rotation.x = lerp(remote.storeCharacter.rotation.x, storeTarget.deathPitch || Math.PI * 0.5, follow);
           remote.storeCharacter.rotation.y += angleDelta(remote.storeCharacter.rotation.y, storeTarget.angle || Math.PI) * follow;
           remote.storeCharacter.rotation.z = lerp(remote.storeCharacter.rotation.z, storeTarget.deathRoll || 0, follow);
+          const flail = Math.exp(-(storeTarget.deathTimer || 0) * 1.8);
+          remote.storeCharacter.userData.leftArm.rotation.set(-1.45 * flail, 0, -1.1 * flail);
+          remote.storeCharacter.userData.rightArm.rotation.set(1.18 * flail, 0, 1.28 * flail);
+          remote.storeCharacter.userData.leftLeg.rotation.x = 0.82 * flail;
+          remote.storeCharacter.userData.rightLeg.rotation.x = -0.72 * flail;
+          remote.storeCharacter.userData.head.rotation.z = Math.sin((storeTarget.deathTimer || 0) * 12) * 0.32 * flail;
         } else {
           remote.storeCharacter.rotation.x = lerp(remote.storeCharacter.rotation.x, 0, follow);
           remote.storeCharacter.rotation.y += angleDelta(remote.storeCharacter.rotation.y, storeTarget.angle || Math.PI) * follow;
@@ -7007,6 +7247,9 @@ function resetGame() {
   storeState.hp = PLAYER_MAX_HP;
   storeState.dead = false;
   storeState.deathY = 0;
+  storeState.deathTimer = 0;
+  storeState.deathLanded = false;
+  storeState.deathAttacker = "";
   storeState.y = 0;
   storeState.vy = 0;
   storeState.grounded = true;
@@ -7020,7 +7263,12 @@ function resetGame() {
   storeState.purchaseDuration = 0;
   removeStorePurchaseFx();
   purchasePromptEl.classList.add("hidden");
-  if (storeState.character) storeState.character.rotation.set(0, storeState.angle, 0);
+  storeDeathScreenEl.classList.add("hidden");
+  clearStoreImpactFx();
+  if (storeState.character) {
+    storeState.character.rotation.set(0, storeState.angle, 0);
+    resetPersonPose(storeState.character);
+  }
   updateStoreHealthHud();
 
   player.x = 0;
@@ -7180,6 +7428,7 @@ function update(dt) {
   updateRemotePlayers(dt);
   updateDriveEffects(dt);
   updateGlows(dt);
+  updateStoreImpactFx(dt);
   if (gameMode === "store") {
     updateStoreCamera(dt);
   } else if (gameMode === "walking") {
@@ -7348,6 +7597,7 @@ joinForm.addEventListener("submit", (event) => {
   joinGame(joinCodeInput.value);
 });
 restartButton.addEventListener("click", resetGame);
+storeRespawnButton.addEventListener("click", respawnStorePlayer);
 
 resize();
 buildCharacterCustomisation();
