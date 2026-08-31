@@ -110,6 +110,8 @@ const audioState = {
   ctx: null,
   master: null,
   engineOsc: null,
+  engineHarmonic: null,
+  engineHarmonicGain: null,
   engineGain: null,
   driftSource: null,
   driftGain: null,
@@ -602,17 +604,26 @@ function initAudio() {
   limiter.connect(ctx.destination);
 
   const engineOsc = ctx.createOscillator();
+  const engineHarmonic = ctx.createOscillator();
+  const engineHarmonicGain = ctx.createGain();
   const engineGain = ctx.createGain();
   const engineFilter = ctx.createBiquadFilter();
-  engineOsc.type = "sawtooth";
-  engineOsc.frequency.value = 48;
+  engineOsc.type = "triangle";
+  engineOsc.frequency.value = 44;
+  engineHarmonic.type = "sine";
+  engineHarmonic.frequency.value = 88;
+  engineHarmonicGain.gain.value = 0.22;
   engineFilter.type = "lowpass";
-  engineFilter.frequency.value = 520;
+  engineFilter.frequency.value = 420;
+  engineFilter.Q.value = 0.7;
   engineGain.gain.value = 0;
   engineOsc.connect(engineFilter);
+  engineHarmonic.connect(engineHarmonicGain);
+  engineHarmonicGain.connect(engineFilter);
   engineFilter.connect(engineGain);
   engineGain.connect(master);
   engineOsc.start();
+  engineHarmonic.start();
 
   const noiseBuffer = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate);
   const noise = noiseBuffer.getChannelData(0);
@@ -640,7 +651,7 @@ function initAudio() {
   sirenGain.connect(master);
   sirenOsc.start();
 
-  Object.assign(audioState, { ctx, master, limiter, engineOsc, engineGain, engineFilter, driftSource, driftGain, driftFilter, sirenOsc, sirenGain });
+  Object.assign(audioState, { ctx, master, limiter, engineOsc, engineHarmonic, engineHarmonicGain, engineGain, engineFilter, driftSource, driftGain, driftFilter, sirenOsc, sirenGain });
   return ctx;
 }
 
@@ -823,12 +834,14 @@ function updateAudio(dt) {
 
   const gearPitchDrop = 1 - (audioState.engineGear - 1) * 0.045;
   const rpm = clamp(audioState.engineRpm, 0, 1);
-  const engineFreq = (46 + rpm * 104) * gearPitchDrop;
+  const engineFreq = (42 + rpm * 94) * gearPitchDrop;
   const clutchVolume = audioState.engineShiftTimer > 0 ? 0.72 : 1;
-  const engineGain = driving ? (0.18 + throttle01 * 0.16 + rpm * 0.09 + drift01 * 0.04) * clutchVolume : 0;
+  const engineGain = driving ? (0.055 + throttle01 * 0.06 + rpm * 0.035 + drift01 * 0.012) * clutchVolume : 0;
   audioState.engineOsc.frequency.setTargetAtTime(engineFreq, now, 0.055);
+  audioState.engineHarmonic.frequency.setTargetAtTime(engineFreq * 2.02, now, 0.065);
+  audioState.engineHarmonicGain.gain.setTargetAtTime(0.14 + throttle01 * 0.1, now, 0.1);
   audioState.engineGain.gain.setTargetAtTime(engineGain, now, 0.12);
-  audioState.engineFilter.frequency.setTargetAtTime(520 + rpm * 1250 + throttle01 * 340, now, 0.09);
+  audioState.engineFilter.frequency.setTargetAtTime(390 + rpm * 760 + throttle01 * 180, now, 0.11);
   audioState.driftGain.gain.setTargetAtTime(drift01 * 0.58, now, 0.055);
   audioState.driftFilter.frequency.setTargetAtTime(720 + speed01 * 1550, now, 0.08);
 
