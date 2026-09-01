@@ -62,6 +62,16 @@ const minimapEl = document.getElementById("minimap");
 const spawnNavigatorEl = document.getElementById("spawnNavigator");
 const spawnDistanceEl = document.getElementById("spawnDistance");
 const spawnArrowEl = spawnNavigatorEl.querySelector("i b");
+const worldMapScreenEl = document.getElementById("worldMapScreen");
+const worldMapViewportEl = document.getElementById("worldMapViewport");
+const worldMapCanvas = document.getElementById("worldMapCanvas");
+const worldMapCtx = worldMapCanvas.getContext("2d");
+const worldMapExploredEl = document.getElementById("worldMapExplored");
+const worldMapCloseButton = document.getElementById("worldMapClose");
+const worldMapZoomInButton = document.getElementById("worldMapZoomIn");
+const worldMapZoomOutButton = document.getElementById("worldMapZoomOut");
+const worldMapRecenterButton = document.getElementById("worldMapRecenter");
+const mobileMapButton = document.getElementById("mobileMapButton");
 const transitionFadeEl = document.getElementById("transitionFade");
 const damageFxEl = document.getElementById("damageFx");
 const storeHealthEl = document.getElementById("storeHealth");
@@ -302,6 +312,11 @@ const OUTSIDE_CHARACTER_SCALE = 0.46;
 const OUTSIDE_WALK_SPEED = 58;
 const OUTSIDE_CHARACTER_YAW_OFFSET = Math.PI;
 const SPAWN_POINT = Object.freeze({ x: 0, z: 48 });
+const WORLD_MAP_STORAGE_KEY = "policeGetawayExploredMapV1";
+const EXPLORATION_CELL = 120;
+const EXPLORATION_RADIUS = 360;
+const WORLD_MAP_MIN_ZOOM = 0.035;
+const WORLD_MAP_MAX_ZOOM = 0.68;
 const GARAGE_ENTRANCE = Object.freeze({ x: 308, z: -177, radius: 40 });
 const MISSION_BOARD = Object.freeze({ x: 145, z: -46, radius: 46 });
 const MISSION_DELIVERY = Object.freeze({ x: 308, z: -118, radius: 52 });
@@ -475,6 +490,21 @@ const missionState = {
   targetAngle: 0,
   stolenTrafficClass: "",
   completed: 0,
+};
+const worldMapState = {
+  open: false,
+  centerX: SPAWN_POINT.x,
+  centerZ: SPAWN_POINT.z,
+  zoom: 0.32,
+  width: 0,
+  height: 0,
+  explored: loadExploredMap(),
+  dirty: false,
+  exploreTimer: 0,
+  saveTimer: 0,
+  pointerId: null,
+  pointerX: 0,
+  pointerY: 0,
 };
 let arrestTime = 0;
 const arrestCutsceneState = {
@@ -828,6 +858,12 @@ function resize() {
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
   resizeGarageVehiclePreview();
+  if (worldMapState.open) {
+    requestAnimationFrame(() => {
+      resizeWorldMapCanvas();
+      renderWorldMap();
+    });
+  }
 }
 
 function resizeGarageVehiclePreview() {
@@ -3549,7 +3585,7 @@ function updateStorePunch(dt) {
 }
 
 function startStorePunch(event) {
-  if (event.button !== 0 || gameMode !== "store" || transitionLock || storeState.dead || paused || garageState.open) return;
+  if (event.button !== 0 || gameMode !== "store" || transitionLock || storeState.dead || paused || worldMapState.open || garageState.open) return;
   if (storeState.punchCooldown > 0 || storeState.drinking || storeState.purchaseTimer > 0) return;
   if (!inputState.mobile && document.pointerLockElement !== canvas) requestStorePointerLock();
   storeState.punchCharging = true;
@@ -3558,7 +3594,7 @@ function startStorePunch(event) {
 }
 
 function startStoreDrink(event) {
-  if (event.button !== 2 || gameMode !== "store" || transitionLock || storeState.dead || paused || garageState.open) return;
+  if (event.button !== 2 || gameMode !== "store" || transitionLock || storeState.dead || paused || worldMapState.open || garageState.open) return;
   event.preventDefault();
   if (!inputState.mobile && document.pointerLockElement !== canvas) requestStorePointerLock();
   if (!storeState.hasMegaforce) return;
@@ -5302,7 +5338,7 @@ function checkGarageEntrance() {
 }
 
 function openPauseMenu() {
-  if (paused || garageState.open || !running || gameOver || gameIntroState.active || transitionLock) return;
+  if (paused || worldMapState.open || garageState.open || !running || gameOver || gameIntroState.active || transitionLock) return;
   paused = true;
   keys.clear();
   resetJoystick();
@@ -5323,6 +5359,8 @@ function closePauseMenu() {
 }
 
 function returnToMainMenu() {
+  if (worldMapState.open) closeWorldMap();
+  saveExploredMap();
   resetMissionSystem();
   paused = false;
   garageState.open = false;
@@ -8015,6 +8053,330 @@ function updateOutsideCamera(dt) {
   sun.target.position.set(outsideState.x, 0, outsideState.z);
 }
 
+function loadExploredMap() {
+  try {
+    const stored = JSON.parse(localStorage.getItem(WORLD_MAP_STORAGE_KEY) || "[]");
+    if (!Array.isArray(stored)) return new Set();
+    return new Set(stored.filter((key) => /^-?\d+,-?\d+$/.test(key)).slice(-9000));
+  } catch {
+    return new Set();
+  }
+}
+
+function exploredCellKey(cellX, cellZ) {
+  return `${cellX},${cellZ}`;
+}
+
+function isWorldExplored(x, z) {
+  return worldMapState.explored.has(exploredCellKey(
+    Math.floor(x / EXPLORATION_CELL),
+    Math.floor(z / EXPLORATION_CELL)
+  ));
+}
+
+function saveExploredMap() {
+  if (!worldMapState.dirty) return;
+  try {
+    const cells = [...worldMapState.explored];
+    localStorage.setItem(WORLD_MAP_STORAGE_KEY, JSON.stringify(cells.slice(-9000)));
+    worldMapState.dirty = false;
+  } catch {}
+}
+
+function revealExploredArea(x, z, radius = EXPLORATION_RADIUS) {
+  const minCellX = Math.floor((x - radius) / EXPLORATION_CELL);
+  const maxCellX = Math.floor((x + radius) / EXPLORATION_CELL);
+  const minCellZ = Math.floor((z - radius) / EXPLORATION_CELL);
+  const maxCellZ = Math.floor((z + radius) / EXPLORATION_CELL);
+  const paddedRadius = radius + EXPLORATION_CELL * 0.58;
+  let changed = false;
+  for (let cellX = minCellX; cellX <= maxCellX; cellX++) {
+    for (let cellZ = minCellZ; cellZ <= maxCellZ; cellZ++) {
+      const centerX = (cellX + 0.5) * EXPLORATION_CELL;
+      const centerZ = (cellZ + 0.5) * EXPLORATION_CELL;
+      if (Math.hypot(centerX - x, centerZ - z) > paddedRadius) continue;
+      const key = exploredCellKey(cellX, cellZ);
+      if (worldMapState.explored.has(key)) continue;
+      worldMapState.explored.add(key);
+      changed = true;
+    }
+  }
+  if (changed) {
+    worldMapState.dirty = true;
+    worldMapExploredEl.textContent = `${worldMapState.explored.size} explored sectors`;
+    if (worldMapState.open) renderWorldMap();
+  }
+}
+
+function updateWorldMapExploration(dt) {
+  if (!running || gameOver || (gameMode !== "driving" && gameMode !== "walking")) return;
+  worldMapState.exploreTimer -= dt;
+  worldMapState.saveTimer -= dt;
+  if (worldMapState.exploreTimer <= 0) {
+    worldMapState.exploreTimer = 0.32;
+    const position = missionPlayerPosition();
+    revealExploredArea(position.x, position.z);
+  }
+  if (worldMapState.saveTimer <= 0) {
+    worldMapState.saveTimer = 4;
+    saveExploredMap();
+  }
+}
+
+function worldMapPlayerPosition() {
+  if (gameMode === "store") return { x: SMARKET_ENTRANCE.x, z: SMARKET_ENTRANCE.z };
+  return missionPlayerPosition();
+}
+
+function resizeWorldMapCanvas() {
+  const width = Math.max(1, Math.floor(worldMapViewportEl.clientWidth));
+  const height = Math.max(1, Math.floor(worldMapViewportEl.clientHeight));
+  const pixelRatio = Math.min(window.devicePixelRatio || 1, 1.5);
+  if (worldMapState.width === width && worldMapState.height === height
+    && worldMapCanvas.width === Math.floor(width * pixelRatio)) return false;
+  worldMapState.width = width;
+  worldMapState.height = height;
+  worldMapCanvas.width = Math.floor(width * pixelRatio);
+  worldMapCanvas.height = Math.floor(height * pixelRatio);
+  worldMapCtx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+  return true;
+}
+
+function worldMapScreenPoint(x, z) {
+  return {
+    x: worldMapState.width * 0.5 + (x - worldMapState.centerX) * worldMapState.zoom,
+    y: worldMapState.height * 0.5 + (z - worldMapState.centerZ) * worldMapState.zoom,
+  };
+}
+
+function worldMapCoordinates(screenX, screenY) {
+  return {
+    x: worldMapState.centerX + (screenX - worldMapState.width * 0.5) / worldMapState.zoom,
+    z: worldMapState.centerZ + (screenY - worldMapState.height * 0.5) / worldMapState.zoom,
+  };
+}
+
+function worldMapBiomeColor(x, z) {
+  const biome = biomeForChunk(Math.floor(x / CHUNK), Math.floor(z / CHUNK));
+  return {
+    denseForest: "#173526",
+    sparseForest: "#244832",
+    field: "#62633c",
+    playground: "#315244",
+    smashyard: "#4d4b39",
+    open: "#35583d",
+  }[biome] || "#35583d";
+}
+
+function drawWorldMapTerrain(ctx, bounds) {
+  const minCellX = Math.floor(bounds.minX / EXPLORATION_CELL) - 1;
+  const maxCellX = Math.floor(bounds.maxX / EXPLORATION_CELL) + 1;
+  const minCellZ = Math.floor(bounds.minZ / EXPLORATION_CELL) - 1;
+  const maxCellZ = Math.floor(bounds.maxZ / EXPLORATION_CELL) + 1;
+  for (let cellX = minCellX; cellX <= maxCellX; cellX++) {
+    for (let cellZ = minCellZ; cellZ <= maxCellZ; cellZ++) {
+      if (!worldMapState.explored.has(exploredCellKey(cellX, cellZ))) continue;
+      const worldX = cellX * EXPLORATION_CELL;
+      const worldZ = cellZ * EXPLORATION_CELL;
+      const point = worldMapScreenPoint(worldX, worldZ);
+      const size = EXPLORATION_CELL * worldMapState.zoom + 1.2;
+      ctx.fillStyle = worldMapBiomeColor(worldX + EXPLORATION_CELL * 0.5, worldZ + EXPLORATION_CELL * 0.5);
+      ctx.fillRect(point.x - 0.6, point.y - 0.6, size, size);
+      const grain = hash(cellX, cellZ, 1701) % 3;
+      if (grain) {
+        ctx.fillStyle = `rgba(255,255,255,${grain * 0.012})`;
+        ctx.fillRect(point.x, point.y, size, size);
+      }
+    }
+  }
+}
+
+function traceExploredRoad(ctx, axis, id, start, end, step) {
+  let drawing = false;
+  ctx.beginPath();
+  for (let value = start; value <= end + step; value += step) {
+    const limited = Math.min(value, end);
+    const x = axis === "z" ? roadCenterX(id, limited) : limited;
+    const z = axis === "z" ? limited : roadCenterZ(id, limited);
+    const explored = isWorldExplored(x, z);
+    const point = worldMapScreenPoint(x, z);
+    if (!explored) {
+      drawing = false;
+    } else if (!drawing) {
+      ctx.moveTo(point.x, point.y);
+      drawing = true;
+    } else {
+      ctx.lineTo(point.x, point.y);
+    }
+    if (limited === end) break;
+  }
+  ctx.stroke();
+}
+
+function drawWorldMapRoads(ctx, bounds, centerLines = false) {
+  const zoom = worldMapState.zoom;
+  const step = clamp(8 / zoom, 24, 145);
+  ctx.save();
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.strokeStyle = centerLines ? "rgba(248,232,107,0.72)" : "#252a28";
+  ctx.lineWidth = centerLines ? clamp(1.2 * zoom * 8, 1, 3.2) : clamp(ROAD * zoom, 3.2, 58);
+  if (centerLines) ctx.setLineDash([clamp(16 * zoom, 3, 10), clamp(18 * zoom, 4, 12)]);
+
+  const mainMin = Math.floor((bounds.minX - 140) / ROAD_SPACING) - 1;
+  const mainMax = Math.ceil((bounds.maxX + 140) / ROAD_SPACING) + 1;
+  for (let id = mainMin; id <= mainMax; id++) {
+    if (mainRoadExists(id)) traceExploredRoad(ctx, "z", id, bounds.minZ - 150, bounds.maxZ + 150, step);
+  }
+  const sideMin = Math.floor((bounds.minZ - 140) / SIDE_ROAD_SPACING) - 1;
+  const sideMax = Math.ceil((bounds.maxZ + 140) / SIDE_ROAD_SPACING) + 1;
+  for (let id = sideMin; id <= sideMax; id++) {
+    if (sideRoadExists(id)) traceExploredRoad(ctx, "x", id, bounds.minX - 150, bounds.maxX + 150, step);
+  }
+  ctx.restore();
+}
+
+function worldMapPointsOfInterest() {
+  return [
+    { label: "SPAWN", x: SPAWN_POINT.x, z: SPAWN_POINT.z, color: "#39ff72" },
+    { label: "S-MARKET", x: SMARKET_ENTRANCE.x, z: SMARKET_ENTRANCE.z, color: "#39c5ff" },
+    { label: "GARAGE", x: GARAGE_ENTRANCE.x, z: GARAGE_ENTRANCE.z, color: "#ff4b5f" },
+    { label: "JOBS", x: MISSION_BOARD.x, z: MISSION_BOARD.z, color: "#ffd83d" },
+    { label: "GAS", x: 338, z: 50, color: "#f0f0e8" },
+  ];
+}
+
+function drawWorldMapMarker(ctx, marker) {
+  if (!isWorldExplored(marker.x, marker.z)) return;
+  const point = worldMapScreenPoint(marker.x, marker.z);
+  if (point.x < 8 || point.x > worldMapState.width - 8 || point.y < 12 || point.y > worldMapState.height - 12) return;
+  ctx.save();
+  ctx.fillStyle = marker.color;
+  ctx.shadowColor = marker.color;
+  ctx.shadowBlur = 10;
+  ctx.beginPath();
+  ctx.arc(point.x, point.y, 6, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.font = "900 11px Arial";
+  const textWidth = ctx.measureText(marker.label).width;
+  const labelX = point.x + textWidth + 28 > worldMapState.width
+    ? point.x - textWidth - 19
+    : point.x + 9;
+  ctx.fillStyle = "rgba(5,9,10,0.88)";
+  ctx.fillRect(labelX, point.y - 10, textWidth + 10, 19);
+  ctx.fillStyle = "#ffffff";
+  ctx.textAlign = "left";
+  ctx.textBaseline = "middle";
+  ctx.fillText(marker.label, labelX + 5, point.y);
+  ctx.restore();
+}
+
+function drawWorldMapPlayer(ctx) {
+  const position = worldMapPlayerPosition();
+  const point = worldMapScreenPoint(position.x, position.z);
+  const heading = gameMode === "walking" ? outsideState.angle : gameMode === "store" ? storeState.angle : player.angle;
+  if (point.x < -30 || point.x > worldMapState.width + 30 || point.y < -30 || point.y > worldMapState.height + 30) return;
+  ctx.save();
+  ctx.translate(point.x, point.y);
+  ctx.rotate(-heading);
+  ctx.fillStyle = "#f31d2f";
+  ctx.strokeStyle = "#ffffff";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(0, -12);
+  ctx.lineTo(8, 9);
+  ctx.lineTo(0, 5);
+  ctx.lineTo(-8, 9);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  ctx.restore();
+}
+
+function renderWorldMap() {
+  if (!worldMapState.open) return;
+  resizeWorldMapCanvas();
+  const ctx = worldMapCtx;
+  const width = worldMapState.width;
+  const height = worldMapState.height;
+  const halfWorldWidth = width / (2 * worldMapState.zoom);
+  const halfWorldHeight = height / (2 * worldMapState.zoom);
+  const bounds = {
+    minX: worldMapState.centerX - halfWorldWidth,
+    maxX: worldMapState.centerX + halfWorldWidth,
+    minZ: worldMapState.centerZ - halfWorldHeight,
+    maxZ: worldMapState.centerZ + halfWorldHeight,
+  };
+  ctx.clearRect(0, 0, width, height);
+  ctx.fillStyle = "#05090a";
+  ctx.fillRect(0, 0, width, height);
+  drawWorldMapTerrain(ctx, bounds);
+  drawWorldMapRoads(ctx, bounds, false);
+  if (worldMapState.zoom >= 0.075) drawWorldMapRoads(ctx, bounds, true);
+  for (const marker of worldMapPointsOfInterest()) drawWorldMapMarker(ctx, marker);
+  if (missionState.active && missionState.objectiveGroup?.visible) {
+    drawWorldMapMarker(ctx, {
+      label: "OBJECTIVE",
+      x: missionState.targetX,
+      z: missionState.targetZ,
+      color: "#ffd83d",
+    });
+  }
+  for (const remote of remotePlayers.values()) {
+    if (!isWorldExplored(remote.x, remote.z)) continue;
+    drawWorldMapMarker(ctx, { label: remote.name || "PLAYER", x: remote.x, z: remote.z, color: "#18d2ff" });
+  }
+  drawWorldMapPlayer(ctx);
+  worldMapExploredEl.textContent = `${worldMapState.explored.size} explored sectors`;
+}
+
+function recenterWorldMap() {
+  const position = worldMapPlayerPosition();
+  worldMapState.centerX = position.x;
+  worldMapState.centerZ = position.z;
+  renderWorldMap();
+}
+
+function setWorldMapZoom(nextZoom, anchorX = worldMapState.width * 0.5, anchorY = worldMapState.height * 0.5) {
+  const before = worldMapCoordinates(anchorX, anchorY);
+  worldMapState.zoom = clamp(nextZoom, WORLD_MAP_MIN_ZOOM, WORLD_MAP_MAX_ZOOM);
+  worldMapState.centerX = before.x - (anchorX - worldMapState.width * 0.5) / worldMapState.zoom;
+  worldMapState.centerZ = before.z - (anchorY - worldMapState.height * 0.5) / worldMapState.zoom;
+  renderWorldMap();
+}
+
+function openWorldMap() {
+  if (worldMapState.open || !running || gameOver || gameIntroState.active || paused || garageState.open || missionState.menuOpen) return;
+  if (gameMode !== "driving" && gameMode !== "walking" && gameMode !== "store") return;
+  worldMapState.open = true;
+  keys.clear();
+  resetJoystick();
+  player.vx *= 0.12;
+  player.vz *= 0.12;
+  audioState.driveThrottle = 0;
+  if (document.pointerLockElement === canvas) document.exitPointerLock();
+  worldMapScreenEl.classList.remove("hidden");
+  mobileControlsEl.classList.add("hidden");
+  const position = worldMapPlayerPosition();
+  worldMapState.centerX = position.x;
+  worldMapState.centerZ = position.z;
+  playTone(260, 0.08, "triangle", 0.035);
+  requestAnimationFrame(() => {
+    resizeWorldMapCanvas();
+    renderWorldMap();
+  });
+}
+
+function closeWorldMap() {
+  if (!worldMapState.open) return;
+  worldMapState.open = false;
+  worldMapState.pointerId = null;
+  worldMapViewportEl.classList.remove("dragging");
+  worldMapScreenEl.classList.add("hidden");
+  playConfirmSound();
+}
+
 function formatSpawnDistance(distance) {
   if (distance >= 1000) return `${(distance / 1000).toFixed(1)} km`;
   return `${Math.max(10, Math.round(distance / 10) * 10)} m`;
@@ -8024,6 +8386,7 @@ function updateSpawnNavigator() {
   const visible = running
     && !gameOver
     && !gameIntroState.active
+    && !worldMapState.open
     && (gameMode === "driving" || gameMode === "walking");
   if (!visible) {
     spawnNavigatorEl.classList.add("hidden");
@@ -9785,7 +10148,7 @@ function resetJoystick() {
 }
 
 function updateMobileControlLayout() {
-  const active = inputState.mobile && running && !gameOver && !gameIntroState.active && !paused && !garageState.open && !missionState.menuOpen;
+  const active = inputState.mobile && running && !gameOver && !gameIntroState.active && !paused && !worldMapState.open && !garageState.open && !missionState.menuOpen;
   mobileControlsEl.classList.toggle("hidden", !active);
   if (!active) return;
 
@@ -9841,6 +10204,7 @@ function updateJoystickFromPointer(event) {
 }
 
 function resetGame() {
+  if (worldMapState.open) closeWorldMap();
   if (document.pointerLockElement === canvas) document.exitPointerLock();
   resetJoystick();
   resetMissionSystem();
@@ -9902,6 +10266,7 @@ function resetGame() {
   player.pitch = 0;
   player.nextCrashFx = 0;
   syncVehicle(player);
+  revealExploredArea(player.x, player.z);
 
   for (const cop of cops) scene.remove(cop.group);
   for (const helicopter of policeHelicopters) scene.remove(helicopter.group);
@@ -10188,7 +10553,8 @@ function loseGame() {
 }
 
 function update(dt) {
-  if ((paused || garageState.open) && multiplayer.mode === "singleplayer") {
+  updateWorldMapExploration(dt);
+  if ((paused || worldMapState.open || garageState.open) && multiplayer.mode === "singleplayer") {
     updateMobileControlLayout();
     updateAudio(dt);
     return;
@@ -10199,7 +10565,7 @@ function update(dt) {
   if (gameIntroState.active) {
     updateGameIntro(dt);
   } else if (running && !gameOver && gameMode === "driving") {
-    if (!missionState.menuOpen) {
+    if (!missionState.menuOpen && !worldMapState.open) {
       updatePlayer(dt);
       checkSMarketEntrance();
       checkGarageEntrance();
@@ -10219,7 +10585,7 @@ function update(dt) {
     updateCollisions(dt, worldHostControlsSimulation());
     if (chaseTime > POLICE_INITIAL_DISPATCH_DELAY + 0.2 && policeState.level > 0) hintEl.textContent += policeHudStatus();
   } else if (running && !gameOver && gameMode === "walking") {
-    if (!missionState.menuOpen) {
+    if (!missionState.menuOpen && !worldMapState.open) {
       updateWalking(dt);
       checkSMarketEntrance();
     }
@@ -10231,7 +10597,7 @@ function update(dt) {
     }
     updateCollisions(dt, worldHostControlsSimulation());
     if (chaseTime > POLICE_INITIAL_DISPATCH_DELAY + 0.2 && policeState.level > 0) hintEl.textContent = `On foot${policeHudStatus()}`;
-  } else if (running && !gameOver && gameMode === "store") {
+  } else if (running && !gameOver && gameMode === "store" && !worldMapState.open) {
     moveStoreCharacter(dt);
     updateStorePunch(dt);
     updateStoreShop(dt);
@@ -10292,15 +10658,22 @@ document.addEventListener("pointerover", (event) => {
 });
 window.addEventListener("keydown", (event) => {
   unlockAudio();
+  if (event.key.toLowerCase() === "m" && !event.repeat) {
+    if (worldMapState.open) closeWorldMap();
+    else openWorldMap();
+    event.preventDefault();
+    return;
+  }
   if (event.key === "Escape" && !event.repeat) {
-    if (missionState.menuOpen) setMissionMenu(false);
+    if (worldMapState.open) closeWorldMap();
+    else if (missionState.menuOpen) setMissionMenu(false);
     else if (garageState.open) closeGarage();
     else if (paused) closePauseMenu();
     else openPauseMenu();
     event.preventDefault();
     return;
   }
-  if (paused || garageState.open || missionState.menuOpen) {
+  if (paused || worldMapState.open || garageState.open || missionState.menuOpen) {
     event.preventDefault();
     return;
   }
@@ -10346,6 +10719,54 @@ mobilePauseButton.addEventListener("pointerdown", (event) => {
   else openPauseMenu();
   event.preventDefault();
 });
+mobileMapButton.addEventListener("pointerdown", (event) => {
+  if (!inputState.mobile || !running || gameOver || transitionLock) return;
+  unlockAudio();
+  openWorldMap();
+  event.preventDefault();
+});
+worldMapCloseButton.addEventListener("click", closeWorldMap);
+worldMapZoomInButton.addEventListener("click", () => setWorldMapZoom(worldMapState.zoom * 1.28));
+worldMapZoomOutButton.addEventListener("click", () => setWorldMapZoom(worldMapState.zoom / 1.28));
+worldMapRecenterButton.addEventListener("click", recenterWorldMap);
+worldMapViewportEl.addEventListener("wheel", (event) => {
+  if (!worldMapState.open) return;
+  const rect = worldMapViewportEl.getBoundingClientRect();
+  const zoomFactor = Math.exp(-event.deltaY * 0.00125);
+  setWorldMapZoom(
+    worldMapState.zoom * zoomFactor,
+    event.clientX - rect.left,
+    event.clientY - rect.top
+  );
+  event.preventDefault();
+}, { passive: false });
+worldMapViewportEl.addEventListener("pointerdown", (event) => {
+  if (!worldMapState.open || event.button !== 0) return;
+  worldMapState.pointerId = event.pointerId;
+  worldMapState.pointerX = event.clientX;
+  worldMapState.pointerY = event.clientY;
+  worldMapViewportEl.classList.add("dragging");
+  worldMapViewportEl.setPointerCapture(event.pointerId);
+  event.preventDefault();
+});
+worldMapViewportEl.addEventListener("pointermove", (event) => {
+  if (!worldMapState.open || worldMapState.pointerId !== event.pointerId) return;
+  const dx = event.clientX - worldMapState.pointerX;
+  const dy = event.clientY - worldMapState.pointerY;
+  worldMapState.pointerX = event.clientX;
+  worldMapState.pointerY = event.clientY;
+  worldMapState.centerX -= dx / worldMapState.zoom;
+  worldMapState.centerZ -= dy / worldMapState.zoom;
+  renderWorldMap();
+  event.preventDefault();
+});
+const releaseWorldMapPointer = (event) => {
+  if (worldMapState.pointerId !== event.pointerId) return;
+  worldMapState.pointerId = null;
+  worldMapViewportEl.classList.remove("dragging");
+};
+worldMapViewportEl.addEventListener("pointerup", releaseWorldMapPointer);
+worldMapViewportEl.addEventListener("pointercancel", releaseWorldMapPointer);
 joystickEl.addEventListener("pointerdown", (event) => {
   if (!inputState.mobile) return;
   inputState.joystickPointerId = event.pointerId;
@@ -10459,11 +10880,16 @@ joinForm.addEventListener("submit", (event) => {
 });
 restartButton.addEventListener("click", resetGame);
 storeRespawnButton.addEventListener("click", respawnStorePlayer);
+window.addEventListener("beforeunload", saveExploredMap);
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) saveExploredMap();
+});
 
 resize();
 buildCharacterCustomisation();
 createSMarketInterior();
 createOutsideCharacter();
+revealExploredArea(SPAWN_POINT.x, SPAWN_POINT.z);
 updateChunks();
 updateCamera(0.016);
 if (new URLSearchParams(window.location.search).has("play")) {

@@ -192,6 +192,7 @@
 
     <div id="mobileControls" class="mobile-controls hidden">
       <button id="mobilePauseButton" class="mobile-pause" type="button" aria-label="Pause game"><i></i><i></i></button>
+      <button id="mobileMapButton" class="mobile-map" type="button" aria-label="Open map" title="Map"><i></i><i></i><i></i></button>
       <div id="joystick" class="joystick" aria-label="Movement joystick">
         <span class="joystick-direction joystick-up"></span>
         <span class="joystick-direction joystick-right"></span>
@@ -219,6 +220,34 @@
           <button id="pauseMainMenuButton" class="secondary-button">Main menu</button>
         </div>
       </div>
+    </div>
+
+    <div id="worldMapScreen" class="world-map-screen hidden" role="dialog" aria-modal="true" aria-labelledby="worldMapTitle">
+      <header>
+        <div>
+          <small>Southside County</small>
+          <h1 id="worldMapTitle">World Map</h1>
+        </div>
+        <div class="world-map-tools">
+          <button id="worldMapZoomOut" class="icon-button" type="button" aria-label="Zoom out" title="Zoom out">-</button>
+          <button id="worldMapRecenter" class="icon-button" type="button" aria-label="Center on player" title="Center on player">&#9678;</button>
+          <button id="worldMapZoomIn" class="icon-button" type="button" aria-label="Zoom in" title="Zoom in">+</button>
+          <button id="worldMapClose" class="icon-button" type="button" aria-label="Close map" title="Close map">X</button>
+        </div>
+      </header>
+      <div id="worldMapViewport" class="world-map-viewport">
+        <canvas id="worldMapCanvas"></canvas>
+        <span class="world-map-north">N</span>
+      </div>
+      <footer>
+        <strong id="worldMapExplored">0 explored sectors</strong>
+        <div class="world-map-legend" aria-hidden="true">
+          <span><i class="spawn"></i>Spawn</span>
+          <span><i class="market"></i>S-Market</span>
+          <span><i class="garage"></i>Garage</span>
+          <span><i class="jobs"></i>Jobs</span>
+        </div>
+      </footer>
     </div>
 
     <div id="garageScreen" class="garage-screen hidden" role="dialog" aria-modal="true" aria-labelledby="garageTitle">
