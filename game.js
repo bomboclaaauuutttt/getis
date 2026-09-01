@@ -239,6 +239,8 @@ const VENDOR_NAME = "OuTii";
 const VENDOR_KNIFE_DAMAGE = 100;
 const VENDOR_KNIFE_COOLDOWN = 2;
 const OUTSIDE_CHARACTER_SCALE = 0.46;
+const OUTSIDE_WALK_SPEED = 58;
+const OUTSIDE_CHARACTER_YAW_OFFSET = Math.PI;
 const GARAGE_ENTRANCE = Object.freeze({ x: 308, z: -177, radius: 40 });
 const GARAGE_STORAGE_KEY = "policeGetawayGarageUpgradesV2";
 const GARAGE_UPGRADES = Object.freeze({
@@ -4580,7 +4582,7 @@ function exitVehicleToFoot() {
     outsideState.character.scale.setScalar(OUTSIDE_CHARACTER_SCALE);
     outsideState.character.visible = true;
     outsideState.character.position.set(outsideState.x, 0, outsideState.z);
-    outsideState.character.rotation.set(0, outsideState.angle, 0);
+    outsideState.character.rotation.set(0, outsideState.angle + OUTSIDE_CHARACTER_YAW_OFFSET, 0);
     const cameraForwardX = -Math.sin(outsideState.angle);
     const cameraForwardZ = -Math.cos(outsideState.angle);
     cameraState.position.set(outsideState.x - cameraForwardX * 138, 88, outsideState.z - cameraForwardZ * 138);
@@ -4733,7 +4735,7 @@ function updateOutsideCharacterAnimation(dt, moving) {
   const jackPulse = outsideState.carjackTarget ? Math.sin(performance.now() * 0.022) : 0;
   const ease = 1 - Math.exp(-dt * 12);
   character.position.set(outsideState.x, moving ? Math.abs(Math.sin(t)) * 1.9 : 0, outsideState.z);
-  character.rotation.y = outsideState.angle;
+  character.rotation.y = outsideState.angle + OUTSIDE_CHARACTER_YAW_OFFSET;
   character.rotation.z = lerp(character.rotation.z, outsideState.carjackTarget ? jackPulse * 0.055 : -side * 0.9, ease);
   character.rotation.x = lerp(character.rotation.x, moving ? Math.abs(Math.sin(t)) * 0.025 : 0, ease);
   character.userData.leftArm.rotation.x = lerp(character.userData.leftArm.rotation.x, outsideState.carjackTarget ? -0.92 + jackPulse * 0.58 : swing * 0.98, ease);
@@ -4790,9 +4792,9 @@ function updateWalking(dt) {
     const moveZ = (fz * moveInput + rz * strafeInput) * scale;
     const moveYaw = Math.atan2(-moveX, -moveZ);
     outsideState.angle += angleDelta(outsideState.angle, moveYaw) * (1 - Math.exp(-dt * 8));
-    outsideState.x += moveX * 118 * dt;
-    outsideState.z += moveZ * 118 * dt;
-    outsideState.walkCycle += moveLen * scale * dt * 8.3;
+    outsideState.x += moveX * OUTSIDE_WALK_SPEED * dt;
+    outsideState.z += moveZ * OUTSIDE_WALK_SPEED * dt;
+    outsideState.walkCycle += moveLen * scale * dt * 7.1;
   } else {
     outsideState.walkCycle = lerp(outsideState.walkCycle, Math.round(outsideState.walkCycle / Math.PI) * Math.PI, 1 - Math.exp(-dt * 5));
   }
@@ -6067,10 +6069,10 @@ function isHiddenSpawnPoint(x, z, minDistance) {
   if (distance < minDistance) return false;
 
   const forward = gameMode === "walking"
-    ? { x: Math.sin(outsideState.angle), z: Math.cos(outsideState.angle) }
+    ? { x: -Math.sin(outsideState.angle), z: -Math.cos(outsideState.angle) }
     : vehicleForward(player);
   const right = gameMode === "walking"
-    ? { x: -Math.cos(outsideState.angle), z: Math.sin(outsideState.angle) }
+    ? { x: Math.cos(outsideState.angle), z: -Math.sin(outsideState.angle) }
     : vehicleRight(player);
   const ahead = dx * forward.x + dz * forward.z;
   const side = dx * right.x + dz * right.z;
@@ -8265,7 +8267,7 @@ function applyRemoteState(peerId, state) {
     remote.outsideCharacter = makePerson(remoteCharacterStyle);
     remote.outsideCharacter.scale.setScalar(OUTSIDE_CHARACTER_SCALE);
     remote.outsideCharacter.position.set(remote.outsideTarget.x, 0, remote.outsideTarget.z);
-    remote.outsideCharacter.rotation.y = remote.outsideTarget.angle;
+    remote.outsideCharacter.rotation.y = remote.outsideTarget.angle + OUTSIDE_CHARACTER_YAW_OFFSET;
     remote.outsideCharacter.visible = false;
     const outsideTag = new THREE.Sprite(new THREE.SpriteMaterial({
       map: makeNameTagTexture(remote.playerName, remoteColor),
@@ -8514,7 +8516,8 @@ function updateRemotePlayers(dt) {
         const previousZ = remote.outsideCharacter.position.z;
         remote.outsideCharacter.position.x = lerp(previousX, outsideTarget.x || 0, follow);
         remote.outsideCharacter.position.z = lerp(previousZ, outsideTarget.z || 0, follow);
-        remote.outsideCharacter.rotation.y += angleDelta(remote.outsideCharacter.rotation.y, outsideTarget.angle || 0) * follow;
+        const outsideRenderAngle = (outsideTarget.angle || 0) + OUTSIDE_CHARACTER_YAW_OFFSET;
+        remote.outsideCharacter.rotation.y += angleDelta(remote.outsideCharacter.rotation.y, outsideRenderAngle) * follow;
         animateRemoteOutsideCharacter(
           remote,
           dt,
