@@ -59,6 +59,9 @@ const gameCodeEl = document.getElementById("gameCode");
 const weatherHudEl = document.getElementById("weatherHud");
 const restartButton = document.getElementById("restartButton");
 const minimapEl = document.getElementById("minimap");
+const spawnNavigatorEl = document.getElementById("spawnNavigator");
+const spawnDistanceEl = document.getElementById("spawnDistance");
+const spawnArrowEl = spawnNavigatorEl.querySelector("i b");
 const transitionFadeEl = document.getElementById("transitionFade");
 const damageFxEl = document.getElementById("damageFx");
 const storeHealthEl = document.getElementById("storeHealth");
@@ -298,6 +301,7 @@ const VENDOR_KNIFE_COOLDOWN = 2;
 const OUTSIDE_CHARACTER_SCALE = 0.46;
 const OUTSIDE_WALK_SPEED = 58;
 const OUTSIDE_CHARACTER_YAW_OFFSET = Math.PI;
+const SPAWN_POINT = Object.freeze({ x: 0, z: 48 });
 const GARAGE_ENTRANCE = Object.freeze({ x: 308, z: -177, radius: 40 });
 const MISSION_BOARD = Object.freeze({ x: 145, z: -46, radius: 46 });
 const MISSION_DELIVERY = Object.freeze({ x: 308, z: -118, radius: 52 });
@@ -8011,6 +8015,38 @@ function updateOutsideCamera(dt) {
   sun.target.position.set(outsideState.x, 0, outsideState.z);
 }
 
+function formatSpawnDistance(distance) {
+  if (distance >= 1000) return `${(distance / 1000).toFixed(1)} km`;
+  return `${Math.max(10, Math.round(distance / 10) * 10)} m`;
+}
+
+function updateSpawnNavigator() {
+  const visible = running
+    && !gameOver
+    && !gameIntroState.active
+    && (gameMode === "driving" || gameMode === "walking");
+  if (!visible) {
+    spawnNavigatorEl.classList.add("hidden");
+    return;
+  }
+
+  const position = missionPlayerPosition();
+  const dx = SPAWN_POINT.x - position.x;
+  const dz = SPAWN_POINT.z - position.z;
+  const distance = Math.hypot(dx, dz);
+  if (distance < 380) {
+    spawnNavigatorEl.classList.add("hidden");
+    return;
+  }
+
+  const heading = gameMode === "walking" ? outsideState.angle : player.angle;
+  const targetHeading = angleFromForward(dx, dz);
+  const relativeDegrees = angleDelta(heading, targetHeading) * 180 / Math.PI;
+  spawnArrowEl.style.transform = `rotate(${relativeDegrees}deg)`;
+  spawnDistanceEl.textContent = formatSpawnDistance(distance);
+  spawnNavigatorEl.classList.remove("hidden");
+}
+
 function drawMinimap() {
   const c = miniCtx;
   const w = minimap.width;
@@ -8072,6 +8108,39 @@ function drawMinimap() {
       }
     }
     c.stroke();
+  }
+
+  const spawnDx = (SPAWN_POINT.x - centerX) * scale;
+  const spawnDz = (SPAWN_POINT.z - centerZ) * scale;
+  const spawnMapDistance = Math.hypot(spawnDx, spawnDz);
+  if (spawnMapDistance > 10) {
+    const edgeRadius = w * 0.39;
+    const edgeScale = spawnMapDistance > edgeRadius ? edgeRadius / spawnMapDistance : 1;
+    const spawnMapX = w / 2 + spawnDx * edgeScale;
+    const spawnMapZ = h / 2 + spawnDz * edgeScale;
+    if (spawnMapDistance > edgeRadius) {
+      c.save();
+      c.setLineDash([5, 5]);
+      c.strokeStyle = "rgba(57, 255, 114, 0.7)";
+      c.lineWidth = 2;
+      c.beginPath();
+      c.moveTo(w / 2, h / 2);
+      c.lineTo(spawnMapX, spawnMapZ);
+      c.stroke();
+      c.restore();
+    }
+    c.fillStyle = "#39ff72";
+    c.strokeStyle = "#102417";
+    c.lineWidth = 2;
+    c.beginPath();
+    c.arc(spawnMapX, spawnMapZ, 8, 0, Math.PI * 2);
+    c.fill();
+    c.stroke();
+    c.fillStyle = "#102417";
+    c.font = "900 10px Arial";
+    c.textAlign = "center";
+    c.textBaseline = "middle";
+    c.fillText("S", spawnMapX, spawnMapZ + 0.5);
   }
 
   c.fillStyle = "#e2a047";
@@ -10173,6 +10242,7 @@ function update(dt) {
   sendNetworkState(dt);
   updateWantedMeter();
   updateMobileControlLayout();
+  updateSpawnNavigator();
   updatePoliceLights(dt);
   updateRemotePlayers(dt);
   updateDriveEffects(dt);

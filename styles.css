@@ -887,6 +887,89 @@ body {
   pointer-events: none;
 }
 
+.spawn-navigator {
+  position: fixed;
+  right: 18px;
+  top: 240px;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  box-sizing: border-box;
+  min-width: 154px;
+  padding: 8px 11px 8px 8px;
+  color: #fff;
+  background: rgba(8, 13, 12, 0.84);
+  border-left: 4px solid #39ff72;
+  box-shadow: 0 9px 24px rgba(0, 0, 0, 0.38), 0 0 20px rgba(57, 255, 114, 0.12);
+  pointer-events: none;
+  transform: skewX(-5deg);
+}
+
+.spawn-navigator > i,
+.spawn-navigator > div {
+  transform: skewX(5deg);
+}
+
+.spawn-navigator > i {
+  position: relative;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  background: rgba(57, 255, 114, 0.12);
+  border: 1px solid rgba(57, 255, 114, 0.46);
+  border-radius: 50%;
+}
+
+.spawn-navigator > i > b {
+  width: 0;
+  height: 0;
+  border-left: 7px solid transparent;
+  border-right: 7px solid transparent;
+  border-bottom: 17px solid #39ff72;
+  filter: drop-shadow(0 0 5px rgba(57, 255, 114, 0.7));
+  transform-origin: 50% 58%;
+  transition: transform 120ms linear;
+}
+
+.spawn-navigator small,
+.spawn-navigator strong {
+  display: block;
+  text-transform: uppercase;
+}
+
+.spawn-navigator small {
+  color: #73ff9d;
+  font-size: 9px;
+  font-weight: 1000;
+}
+
+.spawn-navigator strong {
+  margin-top: 2px;
+  font-size: 16px;
+  line-height: 1;
+}
+
+@media (max-width: 620px) {
+  .spawn-navigator {
+    right: 10px;
+    top: 211px;
+    min-width: 138px;
+    padding: 7px 9px 7px 7px;
+  }
+
+  .spawn-navigator > i {
+    width: 30px;
+    height: 30px;
+  }
+
+  .spawn-navigator strong {
+    font-size: 14px;
+  }
+}
+
 #arrestFx {
   position: fixed;
   inset: 0;
