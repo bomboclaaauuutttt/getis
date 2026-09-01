@@ -1049,6 +1049,21 @@ body.game-intro-active #notificationFeed {
   text-transform: uppercase;
 }
 
+.garage-car-preview {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  overflow: hidden;
+  transform-origin: center;
+  transition: filter 220ms ease, transform 220ms ease;
+}
+
+#garageVehicleCanvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
 .garage-car {
   position: relative;
   width: 300px;
@@ -2650,20 +2665,10 @@ body.arrested #notificationFeed {
   font-size: 12px;
 }
 
-.garage-car {
-  z-index: 2;
-  width: 360px;
-  height: 92px;
-  transition: filter 220ms ease, transform 220ms ease;
-}
-
-.garage-car.tier-2 { filter: drop-shadow(0 0 24px rgba(57, 255, 114, 0.3)); }
-.garage-car.tier-3 { transform: scale(1.04); filter: drop-shadow(0 0 30px rgba(57, 255, 114, 0.42)); }
-.garage-car.tier-4 { transform: scale(1.08); filter: drop-shadow(0 0 36px rgba(255, 223, 84, 0.5)); }
-.garage-car.tier-5 {
-  transform: scale(1.11);
-  filter: drop-shadow(0 0 18px rgba(57, 255, 114, 0.7)) drop-shadow(0 0 42px rgba(37, 133, 255, 0.58));
-}
+.garage-car-preview.tier-2 { filter: drop-shadow(0 0 18px rgba(57, 255, 114, 0.22)); }
+.garage-car-preview.tier-3 { filter: drop-shadow(0 0 25px rgba(57, 255, 114, 0.34)); }
+.garage-car-preview.tier-4 { filter: drop-shadow(0 0 30px rgba(255, 223, 84, 0.4)); }
+.garage-car-preview.tier-5 { filter: drop-shadow(0 0 34px rgba(57, 255, 114, 0.5)); }
 
 .garage-spoiler {
   position: absolute;
@@ -2792,7 +2797,7 @@ body.arrested #notificationFeed {
   background: #ff1d2d;
 }
 
-.garage-car.install-pulse {
+.garage-car-preview.install-pulse {
   animation: garageCarInstall 620ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
@@ -2881,19 +2886,6 @@ body.arrested #notificationFeed {
 
   .garage-car-stage {
     min-height: 150px;
-  }
-
-  .garage-car {
-    width: 290px;
-    height: 74px;
-    transform: scale(0.82);
-  }
-
-  .garage-car.tier-2,
-  .garage-car.tier-3,
-  .garage-car.tier-4,
-  .garage-car.tier-5 {
-    transform: scale(0.86);
   }
 
   .garage-stats {

@@ -72,6 +72,7 @@ const garageMoneyEl = document.getElementById("garageMoney");
 const garageStatusEl = document.getElementById("garageStatus");
 const leaveGarageButton = document.getElementById("leaveGarageButton");
 const garageCarPreviewEl = document.getElementById("garageCarPreview");
+const garageVehicleCanvas = document.getElementById("garageVehicleCanvas");
 const garageBuildLevelEl = document.getElementById("garageBuildLevel");
 
 const minimap = document.createElement("canvas");
@@ -100,6 +101,43 @@ const camera = new THREE.PerspectiveCamera(48, 1, 0.1, 1850);
 scene.add(camera);
 const world = new THREE.Group();
 scene.add(world);
+
+const garagePreviewRenderer = new THREE.WebGLRenderer({
+  canvas: garageVehicleCanvas,
+  antialias: true,
+  alpha: true,
+});
+garagePreviewRenderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
+garagePreviewRenderer.setClearColor(0x000000, 0);
+const garagePreviewScene = new THREE.Scene();
+const garagePreviewCamera = new THREE.PerspectiveCamera(38, 1, 0.1, 700);
+garagePreviewCamera.position.set(116, 62, 138);
+garagePreviewCamera.lookAt(0, 18, 0);
+const garagePreviewTurntable = new THREE.Group();
+garagePreviewScene.add(garagePreviewTurntable);
+garagePreviewScene.add(new THREE.HemisphereLight(0xd8efff, 0x18201e, 2.3));
+const garagePreviewKeyLight = new THREE.DirectionalLight(0xffffff, 3.4);
+garagePreviewKeyLight.position.set(-90, 150, 110);
+garagePreviewScene.add(garagePreviewKeyLight);
+const garagePreviewRimLight = new THREE.DirectionalLight(0x39ff72, 2.1);
+garagePreviewRimLight.position.set(110, 70, -90);
+garagePreviewScene.add(garagePreviewRimLight);
+const garagePreviewPlatform = new THREE.Mesh(
+  new THREE.CylinderGeometry(84, 89, 5, 64),
+  new THREE.MeshStandardMaterial({ color: 0x101617, roughness: 0.52, metalness: 0.72 })
+);
+garagePreviewPlatform.position.y = -3;
+garagePreviewScene.add(garagePreviewPlatform);
+const garagePreviewRing = new THREE.Mesh(
+  new THREE.TorusGeometry(75, 1.25, 8, 72),
+  new THREE.MeshBasicMaterial({ color: 0x39ff72, transparent: true, opacity: 0.8 })
+);
+garagePreviewRing.rotation.x = Math.PI / 2;
+garagePreviewRing.position.y = -0.35;
+garagePreviewScene.add(garagePreviewRing);
+let garagePreviewVehicle = null;
+let garagePreviewWidth = 0;
+let garagePreviewHeight = 0;
 
 const sun = new THREE.DirectionalLight(0xfff0bc, 2.35);
 sun.position.set(-260, 520, 180);
@@ -729,6 +767,18 @@ function resize() {
   renderer.setSize(w, h, false);
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
+  resizeGarageVehiclePreview();
+}
+
+function resizeGarageVehiclePreview() {
+  const width = Math.max(1, Math.round(garageVehicleCanvas.clientWidth));
+  const height = Math.max(1, Math.round(garageVehicleCanvas.clientHeight));
+  if (width === garagePreviewWidth && height === garagePreviewHeight) return;
+  garagePreviewWidth = width;
+  garagePreviewHeight = height;
+  garagePreviewRenderer.setSize(width, height, false);
+  garagePreviewCamera.aspect = width / height;
+  garagePreviewCamera.updateProjectionMatrix();
 }
 
 function clamp(v, a, b) {
@@ -4886,6 +4936,50 @@ function formatGarageCash(value) {
   return `$${Math.floor(value).toLocaleString("en-US")}`;
 }
 
+function refreshGarageVehiclePreview() {
+  if (garagePreviewVehicle) {
+    garagePreviewTurntable.remove(garagePreviewVehicle);
+    garagePreviewVehicle = null;
+  }
+
+  const vehicleClone = player.group.clone(true);
+  vehicleClone.position.set(0, 0, 0);
+  vehicleClone.rotation.set(0, 0, 0);
+  vehicleClone.scale.set(1, 1, 1);
+  vehicleClone.visible = true;
+  vehicleClone.traverse((part) => {
+    part.visible = true;
+    if (part.isLight) part.visible = false;
+    if (part.isMesh) {
+      part.castShadow = false;
+      part.receiveShadow = false;
+    }
+  });
+
+  const bounds = new THREE.Box3().setFromObject(vehicleClone);
+  if (bounds.isEmpty()) return;
+  const size = bounds.getSize(new THREE.Vector3());
+  const center = bounds.getCenter(new THREE.Vector3());
+  vehicleClone.position.set(-center.x, -bounds.min.y, -center.z);
+
+  const previewRoot = new THREE.Group();
+  previewRoot.add(vehicleClone);
+  previewRoot.scale.setScalar(86 / Math.max(size.x, size.z, 1));
+  garagePreviewVehicle = previewRoot;
+  garagePreviewTurntable.clear();
+  garagePreviewTurntable.add(previewRoot);
+  garagePreviewTurntable.rotation.y = -0.72;
+  resizeGarageVehiclePreview();
+}
+
+function renderGarageVehiclePreview(dt) {
+  if (!garageState.open) return;
+  resizeGarageVehiclePreview();
+  garagePreviewTurntable.rotation.y += dt * 0.34;
+  garagePreviewRing.rotation.z -= dt * 0.18;
+  garagePreviewRenderer.render(garagePreviewScene, garagePreviewCamera);
+}
+
 function updateGarageScreen(status = "") {
   garageMoneyEl.textContent = formatGarageCash(money);
   for (const [id, definition] of Object.entries(GARAGE_UPGRADES)) {
@@ -4917,7 +5011,7 @@ function updateGarageScreen(status = "") {
   }
   const totalLevels = Object.values(levels).reduce((sum, level) => sum + level, 0);
   const tier = totalLevels >= 60 ? 5 : totalLevels >= 46 ? 4 : totalLevels >= 28 ? 3 : totalLevels >= 12 ? 2 : 1;
-  garageCarPreviewEl.className = `garage-car tier-${tier}`;
+  garageCarPreviewEl.className = `garage-car-preview tier-${tier}`;
   garageBuildLevelEl.textContent = tier === 5 ? "Legend build" : tier === 4 ? "Outlaw build" : tier === 3 ? "Race build" : tier === 2 ? "Street tuned" : "Street stock";
   garageStatusEl.textContent = status || "Every installed part changes the current car.";
 }
@@ -4935,6 +5029,8 @@ function openGarage() {
   garageScreenEl.classList.remove("hidden");
   mobileControlsEl.classList.add("hidden");
   updateGarageScreen("Vehicle secured. Choose a performance upgrade.");
+  refreshGarageVehiclePreview();
+  requestAnimationFrame(resizeGarageVehiclePreview);
   playTone(180, 0.22, "sawtooth", 0.04);
   playTone(360, 0.28, "triangle", 0.055, 0.09);
 }
@@ -9302,6 +9398,7 @@ function loop() {
   const dt = Math.min(clock.getDelta(), 0.033);
   update(dt);
   renderer.render(scene, camera);
+  renderGarageVehiclePreview(dt);
   requestAnimationFrame(loop);
 }
 
