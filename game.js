@@ -81,6 +81,18 @@ const leaveGarageButton = document.getElementById("leaveGarageButton");
 const garageCarPreviewEl = document.getElementById("garageCarPreview");
 const garageVehicleCanvas = document.getElementById("garageVehicleCanvas");
 const garageBuildLevelEl = document.getElementById("garageBuildLevel");
+const missionHudEl = document.getElementById("missionHud");
+const missionTypeEl = document.getElementById("missionType");
+const missionTitleEl = document.getElementById("missionTitle");
+const missionObjectiveEl = document.getElementById("missionObjective");
+const missionProgressEl = document.getElementById("missionProgress");
+const missionCounterEl = document.getElementById("missionCounter");
+const missionTimerEl = document.getElementById("missionTimer");
+const missionPromptEl = document.getElementById("missionPrompt");
+const missionPromptKeyEl = document.getElementById("missionPromptKey");
+const missionMenuEl = document.getElementById("missionMenu");
+const closeMissionMenuButton = document.getElementById("closeMissionMenu");
+const closeMissionMenuMobileButton = document.getElementById("closeMissionMenuMobile");
 
 const minimap = document.createElement("canvas");
 const miniCtx = minimap.getContext("2d");
@@ -287,6 +299,15 @@ const OUTSIDE_CHARACTER_SCALE = 0.46;
 const OUTSIDE_WALK_SPEED = 58;
 const OUTSIDE_CHARACTER_YAW_OFFSET = Math.PI;
 const GARAGE_ENTRANCE = Object.freeze({ x: 308, z: -177, radius: 40 });
+const MISSION_BOARD = Object.freeze({ x: 145, z: -46, radius: 46 });
+const MISSION_DELIVERY = Object.freeze({ x: 308, z: -118, radius: 52 });
+const MISSION_DEFINITIONS = Object.freeze({
+  checkpoint: { title: "Checkpoint Rush", type: "Street race", duration: 95, goal: 8, reward: 4500 },
+  smash: { title: "Smash Rush", type: "Destruction", duration: 62, goal: 18, reward: 5200 },
+  drift: { title: "Drift Heat", type: "Driving skill", duration: 58, goal: 540, reward: 6000 },
+  hotride: { title: "Hot Ride", type: "Vehicle theft", duration: 105, goal: 2, reward: 7500 },
+  survival: { title: "Maximum Heat", type: "High risk", duration: 50, goal: 50, reward: 9000 },
+});
 const GARAGE_STORAGE_KEY = "policeGetawayGarageUpgradesV2";
 const GARAGE_UPGRADES = Object.freeze({
   engine: { prices: [3500, 9000, 22000, 52000, 120000], label: "Engine" },
@@ -433,6 +454,23 @@ const driftRewardState = {
   pending: 0,
   displayTimer: 0,
   active: false,
+};
+const missionState = {
+  active: "",
+  menuOpen: false,
+  timeLeft: 0,
+  duration: 0,
+  progress: 0,
+  goal: 0,
+  stage: "",
+  checkpoints: [],
+  checkpointIndex: 0,
+  objectiveGroup: null,
+  targetX: 0,
+  targetZ: 0,
+  targetAngle: 0,
+  stolenTrafficClass: "",
+  completed: 0,
 };
 let arrestTime = 0;
 const arrestCutsceneState = {
@@ -4890,6 +4928,7 @@ function enterVehicleFromFoot(vehicle = player) {
     const index = traffic.indexOf(vehicle);
     announceCarjackedTraffic(vehicle, index);
     if (index >= 0) traffic.splice(index, 1);
+    recordMissionCarjack(vehicle);
     adoptCarjackedVehicle(vehicle);
   }
   player.x = vehicle.x;
@@ -5280,6 +5319,7 @@ function closePauseMenu() {
 }
 
 function returnToMainMenu() {
+  resetMissionSystem();
   paused = false;
   garageState.open = false;
   running = false;
@@ -5803,6 +5843,51 @@ function addUpgradeGarage(parent) {
   addSolidRect(parent, x, z, 214, 106, 2);
 }
 
+function addMissionTerminal(parent) {
+  const root = new THREE.Group();
+  root.position.set(MISSION_BOARD.x, 0, MISSION_BOARD.z);
+
+  const base = new THREE.Mesh(new THREE.CylinderGeometry(17, 21, 5, 8), mats.pumpDark);
+  base.position.y = 2.5;
+  const column = makeBox(12, 49, 10, mats.pumpDark);
+  column.position.set(0, 28, 0);
+  const screenBack = makeBox(64, 37, 8, mats.stationTrim);
+  screenBack.position.set(0, 54, 0);
+  const screenFront = new THREE.Mesh(
+    new THREE.PlaneGeometry(57, 30),
+    makeBuildingLabel("JOBS", "#171c1d", "#ffd83d")
+  );
+  screenFront.position.set(0, 54, 4.2);
+  screenFront.renderOrder = 9;
+  const screenRear = screenFront.clone();
+  screenRear.material = screenFront.material.clone();
+  screenRear.position.z = -4.2;
+  screenRear.rotation.y = Math.PI;
+
+  const beacon = new THREE.Mesh(new THREE.CylinderGeometry(6, 6, 5, 12), mats.light);
+  beacon.position.set(0, 77, 0);
+  const ring = new THREE.Mesh(
+    new THREE.TorusGeometry(29, 2.8, 10, 36),
+    makeGlowMaterial(0xffd83d, 0.68)
+  );
+  ring.rotation.x = Math.PI / 2;
+  ring.position.y = 0.7;
+  ring.userData.pulseOpacity = true;
+  const floorGlow = new THREE.Mesh(
+    new THREE.CircleGeometry(27, 32),
+    makeGlowMaterial(0xffd83d, 0.2)
+  );
+  floorGlow.rotation.x = -Math.PI / 2;
+  floorGlow.position.y = 0.34;
+  floorGlow.userData.pulseOpacity = true;
+  const light = new THREE.PointLight(0xffd83d, 1.3, 135, 2);
+  light.position.set(0, 48, 12);
+
+  root.add(base, column, screenBack, screenFront, screenRear, beacon, ring, floorGlow, light);
+  parent.add(root);
+  glowingObjects.push(ring, floorGlow, beacon);
+}
+
 function makeSpawnArea(parent) {
   const lot = makePlane(340, 250, mats.parking, 0.16);
   lot.position.set(0, 0.16, 48);
@@ -5875,6 +5960,7 @@ function makeSpawnArea(parent) {
 
   addUpgradeGarage(parent);
   addSMarket(parent, -470, 42);
+  addMissionTerminal(parent);
 }
 
 function generateChunk(cx, cz) {
@@ -6988,6 +7074,7 @@ function updatePlayer(dt) {
     audioState.driftIntensity = intensity;
     const driftReward = driftAmount * dt * (surface.onRoad ? 0.42 : 0.24);
     money += driftReward;
+    recordMissionDrift(driftReward);
     driftRewardState.pending += driftReward;
     driftRewardState.active = true;
     if (driftRewardState.displayTimer <= 0) showDriftReward(intensity);
@@ -8018,6 +8105,22 @@ function drawMinimap() {
     c.lineWidth = 2;
     c.strokeRect(mx(GARAGE_ENTRANCE.x) - 5, mz(GARAGE_ENTRANCE.z) - 5, 10, 10);
   }
+  if (!missionState.active && Math.abs(MISSION_BOARD.x - centerX) < 430 && Math.abs(MISSION_BOARD.z - centerZ) < 430) {
+    c.fillStyle = "#ffd83d";
+    c.fillRect(mx(MISSION_BOARD.x) - 4, mz(MISSION_BOARD.z) - 4, 8, 8);
+    c.strokeStyle = "#171c1d";
+    c.lineWidth = 2;
+    c.strokeRect(mx(MISSION_BOARD.x) - 4, mz(MISSION_BOARD.z) - 4, 8, 8);
+  }
+  if (missionState.active && missionState.objectiveGroup?.visible) {
+    c.beginPath();
+    c.arc(mx(missionState.targetX), mz(missionState.targetZ), 6, 0, Math.PI * 2);
+    c.fillStyle = missionState.active === "hotride" ? "#39ff72" : "#ffd83d";
+    c.fill();
+    c.strokeStyle = "#101313";
+    c.lineWidth = 2;
+    c.stroke();
+  }
   c.fillStyle = "#f01818";
   c.beginPath();
   c.arc(w / 2, h / 2, 5, 0, Math.PI * 2);
@@ -8186,6 +8289,7 @@ function awardSmash(kind) {
   const comboPitch = Math.min(980, 330 + smashState.hits * 42);
   playTone(comboPitch, 0.075, "triangle", 0.055);
   if (smashState.hits % 4 === 0) playTone(comboPitch * 1.35, 0.11, "sine", 0.05, 0.045);
+  recordMissionSmash();
 }
 
 function updateSmashCombo(dt, speed) {
@@ -8208,6 +8312,333 @@ function showDriftReward(intensity = 0.5) {
   pulseMoneyDisplay();
   playTone(470 + intensity * 260, 0.08, "sine", 0.038);
   playTone(690 + intensity * 310, 0.09, "triangle", 0.028, 0.045);
+}
+
+function formatMissionTime(seconds) {
+  const safe = Math.max(0, Math.ceil(seconds));
+  return `${String(Math.floor(safe / 60)).padStart(2, "0")}:${String(safe % 60).padStart(2, "0")}`;
+}
+
+function missionPlayerPosition() {
+  return gameMode === "walking"
+    ? { x: outsideState.x, z: outsideState.z }
+    : { x: player.x, z: player.z };
+}
+
+function nearMissionBoard() {
+  if (!running || gameOver || transitionLock || gameIntroState.active || garageState.open || paused) return false;
+  if (gameMode !== "driving" && gameMode !== "walking") return false;
+  return dist(missionPlayerPosition(), MISSION_BOARD) < MISSION_BOARD.radius;
+}
+
+function setMissionMenu(open) {
+  missionState.menuOpen = Boolean(open);
+  missionMenuEl.classList.toggle("hidden", !missionState.menuOpen);
+  missionPromptEl.classList.add("hidden");
+  keys.clear();
+  resetJoystick();
+  if (missionState.menuOpen) {
+    if (document.pointerLockElement === canvas) document.exitPointerLock();
+    player.vx *= 0.15;
+    player.vz *= 0.15;
+    audioState.driveThrottle = 0;
+    playTone(260, 0.08, "square", 0.055);
+    playTone(520, 0.12, "triangle", 0.045, 0.055);
+  }
+}
+
+function handleMissionAction() {
+  if (missionState.active || !nearMissionBoard()) return false;
+  setMissionMenu(true);
+  return true;
+}
+
+function createCheckpointRoute() {
+  const direction = -1;
+  const startZ = Math.min(player.z, -80);
+  const route = [];
+  for (let i = 0; i < MISSION_DEFINITIONS.checkpoint.goal; i++) {
+    const z = startZ + direction * (280 + i * 340);
+    route.push({
+      x: roadCenterX(0, z),
+      z,
+      angle: trafficAngle("z", direction, roadCenterX(0, z), z, 0),
+    });
+  }
+  return route;
+}
+
+function ensureMissionObjectiveGroup() {
+  if (missionState.objectiveGroup) return missionState.objectiveGroup;
+  const root = new THREE.Group();
+  root.visible = false;
+
+  const markerMaterial = makeGlowMaterial(0xffd83d, 0.72);
+  const solidMaterial = new THREE.MeshBasicMaterial({ color: 0xffd83d });
+  const left = makeBox(5, 54, 5, markerMaterial);
+  const right = makeBox(5, 54, 5, markerMaterial.clone());
+  left.position.set(-32, 27, 0);
+  right.position.set(32, 27, 0);
+  const beam = makeBox(69, 5, 5, solidMaterial);
+  beam.position.set(0, 53, 0);
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(30, 2.5, 10, 42), markerMaterial.clone());
+  ring.rotation.x = Math.PI / 2;
+  ring.position.y = 1.4;
+  const arrow = new THREE.Mesh(new THREE.ConeGeometry(8, 17, 4), solidMaterial.clone());
+  arrow.rotation.z = Math.PI;
+  arrow.position.y = 77;
+  const light = new THREE.PointLight(0xffd83d, 1.5, 160, 2);
+  light.position.y = 35;
+  root.add(left, right, beam, ring, arrow, light);
+  root.userData.markerParts = [left, right, beam, ring, arrow];
+  root.userData.light = light;
+  root.userData.ring = ring;
+  root.userData.arrow = arrow;
+  world.add(root);
+  missionState.objectiveGroup = root;
+  return root;
+}
+
+function setMissionObjective(x, z, angle = 0, color = 0xffd83d) {
+  const marker = ensureMissionObjectiveGroup();
+  marker.visible = true;
+  marker.position.set(x, 0, z);
+  marker.rotation.y = angle;
+  missionState.targetX = x;
+  missionState.targetZ = z;
+  missionState.targetAngle = angle;
+  for (const part of marker.userData.markerParts) part.material.color.setHex(color);
+  marker.userData.light.color.setHex(color);
+}
+
+function hideMissionObjective() {
+  if (missionState.objectiveGroup) missionState.objectiveGroup.visible = false;
+  missionState.targetX = 0;
+  missionState.targetZ = 0;
+}
+
+function triggerMissionHeat() {
+  policeState.level = Math.max(policeState.level, 4);
+  policeState.dispatchPending = true;
+  policeState.spawnTimer = 0;
+  policeState.escalationTimer = 0;
+  policeState.unseenTimer = 0;
+  chaseTime = Math.max(chaseTime, POLICE_INITIAL_DISPATCH_DELAY + 0.25);
+  if (multiplayer.mode === "client") {
+    sendToConnection(multiplayer.hostConnection, { type: "event", event: "mission-heat", level: 4 });
+  }
+}
+
+function startMission(id) {
+  const definition = MISSION_DEFINITIONS[id];
+  if (!definition || missionState.active || !running || gameOver) return;
+  setMissionMenu(false);
+  missionState.active = id;
+  missionState.timeLeft = definition.duration;
+  missionState.duration = definition.duration;
+  missionState.progress = 0;
+  missionState.goal = definition.goal;
+  missionState.stage = "active";
+  missionState.checkpoints = [];
+  missionState.checkpointIndex = 0;
+  missionState.stolenTrafficClass = "";
+  missionHudEl.classList.remove("hidden");
+
+  if (id === "checkpoint") {
+    missionState.checkpoints = createCheckpointRoute();
+    const first = missionState.checkpoints[0];
+    setMissionObjective(first.x, first.z, first.angle, 0xffd83d);
+  } else if (id === "hotride") {
+    missionState.stage = "steal";
+    hideMissionObjective();
+    if (gameMode === "driving") exitVehicleToFoot();
+  } else if (id === "survival") {
+    triggerMissionHeat();
+    hideMissionObjective();
+  } else {
+    hideMissionObjective();
+  }
+
+  playTone(330, 0.08, "square", 0.065);
+  playTone(660, 0.14, "triangle", 0.06, 0.065);
+  showNotification(`JOB STARTED: ${definition.title}`, true);
+  refreshMissionHud();
+}
+
+function missionRarityBonus(trafficClass) {
+  if (trafficClass === "supercar") return 3500;
+  if (trafficClass === "sports") return 1800;
+  if (trafficClass === "suv" || trafficClass === "pickup") return 900;
+  if (trafficClass === "van") return 600;
+  return 300;
+}
+
+function announceMissionComplete(definition, payout) {
+  const message = {
+    type: "event",
+    event: "mission-complete",
+    name: playerName,
+    mission: definition.title,
+    payout,
+  };
+  if (multiplayer.mode === "host") broadcastNetworkMessage(message);
+  else if (multiplayer.mode === "client") sendToConnection(multiplayer.hostConnection, message);
+}
+
+function completeMission() {
+  if (!missionState.active) return;
+  const id = missionState.active;
+  const definition = MISSION_DEFINITIONS[id];
+  let bonus = id === "checkpoint" ? Math.floor(missionState.timeLeft * 38) : 0;
+  if (id === "smash") bonus = Math.min(2200, Math.round(smashState.multiplier * 350));
+  if (id === "hotride") bonus = missionRarityBonus(missionState.stolenTrafficClass);
+  if (id === "survival") bonus = 1500;
+  const payout = definition.reward + bonus;
+  money += payout;
+  moneyEl.textContent = "$" + Math.floor(money);
+  missionState.completed += 1;
+  missionState.active = "";
+  missionHudEl.classList.add("hidden");
+  hideMissionObjective();
+  pulseMoneyDisplay();
+  spawnRewardPopup(`JOB COMPLETE  +$${payout}`, "mission");
+  showNotification(`${definition.title} complete | +$${payout}`, true);
+  playTone(440, 0.12, "triangle", 0.08);
+  playTone(660, 0.15, "triangle", 0.075, 0.09);
+  playTone(880, 0.22, "sine", 0.07, 0.2);
+  announceMissionComplete(definition, payout);
+}
+
+function failMission(reason = "Time ran out") {
+  if (!missionState.active) return;
+  const definition = MISSION_DEFINITIONS[missionState.active];
+  missionState.active = "";
+  missionHudEl.classList.add("hidden");
+  hideMissionObjective();
+  showNotification(`${definition.title} failed | ${reason}`, true);
+  playTone(150, 0.3, "sawtooth", 0.06);
+  playTone(92, 0.42, "sine", 0.055, 0.16);
+}
+
+function resetMissionSystem() {
+  missionState.active = "";
+  missionState.menuOpen = false;
+  missionState.timeLeft = 0;
+  missionState.progress = 0;
+  missionState.goal = 0;
+  missionState.stage = "";
+  missionState.checkpoints = [];
+  missionState.checkpointIndex = 0;
+  missionState.stolenTrafficClass = "";
+  missionMenuEl.classList.add("hidden");
+  missionHudEl.classList.add("hidden");
+  missionPromptEl.classList.add("hidden");
+  hideMissionObjective();
+}
+
+function missionObjectiveText() {
+  if (missionState.active === "checkpoint") return `Reach checkpoint ${missionState.checkpointIndex + 1}`;
+  if (missionState.active === "smash") return "Break objects and keep the combo alive";
+  if (missionState.active === "drift") return "Hold controlled drifts to fill the meter";
+  if (missionState.active === "hotride") return missionState.stage === "steal" ? "Get out and carjack a traffic vehicle" : "Deliver the stolen vehicle to the green marker";
+  if (missionState.active === "survival") return "Survive the four-star police operation";
+  return "";
+}
+
+function refreshMissionHud() {
+  if (!missionState.active) return;
+  const definition = MISSION_DEFINITIONS[missionState.active];
+  missionTypeEl.textContent = definition.type;
+  missionTitleEl.textContent = definition.title;
+  missionObjectiveEl.textContent = missionObjectiveText();
+  missionTimerEl.textContent = formatMissionTime(missionState.timeLeft);
+  let ratio = clamp(missionState.progress / Math.max(1, missionState.goal), 0, 1);
+  let counter = `${Math.floor(missionState.progress)} / ${missionState.goal}`;
+  if (missionState.active === "hotride") {
+    ratio = missionState.stage === "deliver" ? 0.5 : 0;
+    counter = missionState.stage === "deliver" ? "CAR SECURED" : "NEED VEHICLE";
+  } else if (missionState.active === "survival") {
+    counter = `${Math.floor(missionState.progress)}s / ${missionState.goal}s`;
+  } else if (missionState.active === "drift") {
+    counter = `${Math.floor(missionState.progress)} / ${missionState.goal} pts`;
+  }
+  missionCounterEl.textContent = counter;
+  missionProgressEl.style.transform = `scaleX(${ratio})`;
+}
+
+function recordMissionSmash() {
+  if (missionState.active !== "smash") return;
+  missionState.progress = Math.min(missionState.goal, missionState.progress + 1);
+  if (missionState.progress >= missionState.goal) completeMission();
+}
+
+function recordMissionDrift(points) {
+  if (missionState.active !== "drift") return;
+  missionState.progress = Math.min(missionState.goal, missionState.progress + points);
+  if (missionState.progress >= missionState.goal) completeMission();
+}
+
+function recordMissionCarjack(vehicle) {
+  if (missionState.active !== "hotride" || missionState.stage !== "steal") return;
+  missionState.stage = "deliver";
+  missionState.progress = 1;
+  missionState.stolenTrafficClass = vehicle.trafficClass || "sedan";
+  setMissionObjective(MISSION_DELIVERY.x, MISSION_DELIVERY.z, 0, 0x39ff72);
+  showNotification("Vehicle secured | Deliver it to Southside Customs", true);
+  playTone(740, 0.16, "triangle", 0.065);
+}
+
+function updateMissionSystem(dt) {
+  const promptVisible = !missionState.active && !missionState.menuOpen && nearMissionBoard();
+  missionPromptEl.classList.toggle("hidden", !promptVisible);
+  missionPromptKeyEl.textContent = inputState.mobile ? "USE" : "E";
+
+  const marker = missionState.objectiveGroup;
+  if (marker?.visible) {
+    const t = performance.now() * 0.004;
+    marker.position.y = 2 + Math.sin(t) * 2.5;
+    marker.userData.arrow.position.y = 75 + Math.sin(t * 1.8) * 5;
+    marker.userData.ring.rotation.z -= dt * 0.8;
+  }
+  if (!missionState.active || gameOver || arrestCutsceneState.active) return;
+
+  missionState.timeLeft = Math.max(0, missionState.timeLeft - dt);
+  if (missionState.active === "survival") {
+    missionState.progress = Math.min(missionState.goal, missionState.duration - missionState.timeLeft);
+    if (policeState.level < 4) triggerMissionHeat();
+    if (missionState.timeLeft <= 0) {
+      completeMission();
+      return;
+    }
+  } else if (missionState.timeLeft <= 0) {
+    failMission();
+    return;
+  }
+
+  if (missionState.active === "checkpoint" && gameMode === "driving") {
+    const target = missionState.checkpoints[missionState.checkpointIndex];
+    if (target && Math.hypot(player.x - target.x, player.z - target.z) < 58) {
+      missionState.checkpointIndex += 1;
+      missionState.progress = missionState.checkpointIndex;
+      playTone(520 + missionState.checkpointIndex * 48, 0.1, "triangle", 0.06);
+      spawnRewardPopup(`CHECKPOINT ${missionState.checkpointIndex} / ${missionState.goal}`, "drift");
+      if (missionState.checkpointIndex >= missionState.goal) {
+        completeMission();
+        return;
+      }
+      const next = missionState.checkpoints[missionState.checkpointIndex];
+      setMissionObjective(next.x, next.z, next.angle, 0xffd83d);
+    }
+  }
+
+  if (missionState.active === "hotride" && missionState.stage === "deliver" && gameMode === "driving") {
+    if (Math.hypot(player.x - MISSION_DELIVERY.x, player.z - MISSION_DELIVERY.z) < MISSION_DELIVERY.radius) {
+      missionState.progress = missionState.goal;
+      completeMission();
+      return;
+    }
+  }
+  refreshMissionHud();
 }
 
 function updateCharacterPreview() {
@@ -8926,6 +9357,10 @@ function handleNetworkMessage(fromPeer, message) {
 
   if (message.type === "event") {
     if (message.event === "arrested") showNotification(`${message.name || "Driver"} got arrested`, true);
+    if (message.event === "mission-complete") {
+      showNotification(`${message.name || "Driver"} completed ${message.mission || "a job"} | +$${message.payout || 0}`, true);
+    }
+    if (message.event === "mission-heat" && multiplayer.mode === "host") triggerMissionHeat();
     if (message.event === "store-punch") applyStorePunchEvent(message);
     if (message.event === "traffic-carjacked") removeCarjackedTrafficFromWorld(message);
     if (message.event === "vendor-knife" && message.targetPeerId === multiplayer.peerId && gameMode === "store") {
@@ -9281,15 +9716,18 @@ function resetJoystick() {
 }
 
 function updateMobileControlLayout() {
-  const active = inputState.mobile && running && !gameOver && !gameIntroState.active && !paused && !garageState.open;
+  const active = inputState.mobile && running && !gameOver && !gameIntroState.active && !paused && !garageState.open && !missionState.menuOpen;
   mobileControlsEl.classList.toggle("hidden", !active);
   if (!active) return;
 
+  const boardUse = !missionState.active && nearMissionBoard();
   if (mobileControlsEl.dataset.mode !== gameMode) mobileControlsEl.dataset.mode = gameMode;
   mobileActionButton.classList.toggle("hidden", !["driving", "walking", "store"].includes(gameMode));
   mobileJumpButton.classList.toggle("hidden", gameMode !== "store" || storeState.dead);
   mobilePunchButton.classList.toggle("hidden", gameMode !== "store" || storeState.dead);
-  mobileUseButton.classList.toggle("hidden", gameMode !== "store" || storeState.dead || storeState.purchaseTimer > 0);
+  mobileUseButton.classList.toggle("hidden", gameMode === "store"
+    ? storeState.dead || storeState.purchaseTimer > 0
+    : !boardUse);
 
   if (gameMode === "driving") {
     if (mobileActionButton.textContent !== "EXIT") mobileActionButton.textContent = "EXIT";
@@ -9300,7 +9738,7 @@ function updateMobileControlLayout() {
   } else {
     if (mobileActionButton.textContent !== "CAM") mobileActionButton.textContent = "CAM";
   }
-  const useLabel = storeState.hasMegaforce ? "DRINK" : "BUY";
+  const useLabel = boardUse ? "JOBS" : storeState.hasMegaforce ? "DRINK" : "BUY";
   if (mobileUseButton.textContent !== useLabel) mobileUseButton.textContent = useLabel;
   if (purchasePromptKeyEl) purchasePromptKeyEl.textContent = inputState.mobile ? "USE" : "E";
 }
@@ -9336,6 +9774,7 @@ function updateJoystickFromPointer(event) {
 function resetGame() {
   if (document.pointerLockElement === canvas) document.exitPointerLock();
   resetJoystick();
+  resetMissionSystem();
   gameMode = "driving";
   paused = false;
   garageState.open = false;
@@ -9543,6 +9982,7 @@ function setArrestCutsceneStage(stage) {
 
 function startArrestCutscene() {
   if (gameOver || arrestCutsceneState.active) return;
+  failMission("Busted by police");
   showNotification(`${playerName} got arrested`, true);
   if (multiplayer.mode === "host") {
     broadcastNetworkMessage({ type: "event", event: "arrested", name: playerName });
@@ -9690,9 +10130,17 @@ function update(dt) {
   if (gameIntroState.active) {
     updateGameIntro(dt);
   } else if (running && !gameOver && gameMode === "driving") {
-    updatePlayer(dt);
-    checkSMarketEntrance();
-    checkGarageEntrance();
+    if (!missionState.menuOpen) {
+      updatePlayer(dt);
+      checkSMarketEntrance();
+      checkGarageEntrance();
+    } else {
+      player.vx *= Math.pow(0.55, dt * 60);
+      player.vz *= Math.pow(0.55, dt * 60);
+      syncVehicle(player);
+      audioState.driveSpeed = 0;
+      audioState.driveThrottle = 0;
+    }
     if (worldHostControlsSimulation()) {
       updateTraffic(dt);
       updateCops(dt);
@@ -9702,8 +10150,10 @@ function update(dt) {
     updateCollisions(dt, worldHostControlsSimulation());
     if (chaseTime > POLICE_INITIAL_DISPATCH_DELAY + 0.2 && policeState.level > 0) hintEl.textContent += policeHudStatus();
   } else if (running && !gameOver && gameMode === "walking") {
-    updateWalking(dt);
-    checkSMarketEntrance();
+    if (!missionState.menuOpen) {
+      updateWalking(dt);
+      checkSMarketEntrance();
+    }
     if (worldHostControlsSimulation()) {
       updateTraffic(dt);
       updateCops(dt);
@@ -9719,6 +10169,7 @@ function update(dt) {
     updateStoreDeath(dt);
     updateStoreHealthHud();
   }
+  updateMissionSystem(dt);
   sendNetworkState(dt);
   updateWantedMeter();
   updateMobileControlLayout();
@@ -9772,13 +10223,14 @@ document.addEventListener("pointerover", (event) => {
 window.addEventListener("keydown", (event) => {
   unlockAudio();
   if (event.key === "Escape" && !event.repeat) {
-    if (garageState.open) closeGarage();
+    if (missionState.menuOpen) setMissionMenu(false);
+    else if (garageState.open) closeGarage();
     else if (paused) closePauseMenu();
     else openPauseMenu();
     event.preventDefault();
     return;
   }
-  if (paused || garageState.open) {
+  if (paused || garageState.open || missionState.menuOpen) {
     event.preventDefault();
     return;
   }
@@ -9789,7 +10241,7 @@ window.addEventListener("keydown", (event) => {
     event.preventDefault();
   }
   if (event.key.toLowerCase() === "e" && !event.repeat) {
-    tryBuyMegaforce();
+    if (!handleMissionAction()) tryBuyMegaforce();
     event.preventDefault();
   }
   keys.add(event.key.toLowerCase());
@@ -9809,6 +10261,11 @@ backCustomizeButton.addEventListener("click", () => closeCharacterCustomisation(
 resumeButton.addEventListener("click", closePauseMenu);
 pauseMainMenuButton.addEventListener("click", returnToMainMenu);
 leaveGarageButton.addEventListener("click", closeGarage);
+closeMissionMenuButton.addEventListener("click", () => setMissionMenu(false));
+closeMissionMenuMobileButton.addEventListener("click", () => setMissionMenu(false));
+missionMenuEl.querySelectorAll("[data-start-mission]").forEach((button) => {
+  button.addEventListener("click", () => startMission(button.dataset.startMission));
+});
 garageScreenEl.querySelectorAll("[data-buy-upgrade]").forEach((button) => {
   button.addEventListener("click", () => buyGarageUpgrade(button.dataset.buyUpgrade));
 });
@@ -9872,12 +10329,17 @@ mobilePunchButton.addEventListener("pointerup", releaseMobilePunch);
 mobilePunchButton.addEventListener("pointercancel", releaseMobilePunch);
 
 mobileUseButton.addEventListener("pointerdown", (event) => {
-  if (!inputState.mobile || gameMode !== "store" || transitionLock || storeState.dead) return;
+  if (!inputState.mobile || transitionLock || storeState.dead || !running || gameOver) return;
   unlockAudio();
   mobileUseButton.classList.add("pressed");
   if (mobileUseButton.setPointerCapture) mobileUseButton.setPointerCapture(event.pointerId);
-  if (storeState.hasMegaforce) startStoreDrink({ button: 2, preventDefault() {} });
-  else tryBuyMegaforce();
+  if (gameMode !== "store") {
+    handleMissionAction();
+  } else if (storeState.hasMegaforce) {
+    startStoreDrink({ button: 2, preventDefault() {} });
+  } else {
+    tryBuyMegaforce();
+  }
   event.preventDefault();
 });
 const releaseMobileUse = (event) => {

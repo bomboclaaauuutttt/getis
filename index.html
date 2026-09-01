@@ -47,6 +47,63 @@
       <i><b id="checkoutSequenceProgress"></b></i>
     </div>
 
+    <div id="missionHud" class="mission-hud hidden" aria-live="polite">
+      <small id="missionType">Southside job</small>
+      <strong id="missionTitle">Checkpoint Rush</strong>
+      <span id="missionObjective">Reach the next checkpoint</span>
+      <div class="mission-progress"><i id="missionProgress"></i></div>
+      <footer>
+        <b id="missionCounter">0 / 8</b>
+        <time id="missionTimer">01:30</time>
+      </footer>
+    </div>
+
+    <div id="missionPrompt" class="mission-prompt hidden">
+      <span id="missionPromptKey">E</span>
+      <div>
+        <small>Southside jobs</small>
+        <strong>Choose a mission</strong>
+      </div>
+    </div>
+
+    <div id="missionMenu" class="mission-menu hidden" role="dialog" aria-modal="true" aria-labelledby="missionMenuTitle">
+      <div class="mission-menu-panel">
+        <header>
+          <div>
+            <small>Southside jobs // available now</small>
+            <h1 id="missionMenuTitle">Pick Your Job</h1>
+          </div>
+          <button id="closeMissionMenu" type="button" aria-label="Close missions">X</button>
+        </header>
+        <div class="mission-grid">
+          <button type="button" data-start-mission="checkpoint">
+            <i>01</i><small>Street race</small><strong>Checkpoint Rush</strong>
+            <span>Hit eight checkpoints before time runs out.</span><b>$4,500 + time bonus</b>
+          </button>
+          <button type="button" data-start-mission="smash">
+            <i>02</i><small>Destruction</small><strong>Smash Rush</strong>
+            <span>Keep moving and destroy eighteen street objects.</span><b>$5,200 + combo bonus</b>
+          </button>
+          <button type="button" data-start-mission="drift">
+            <i>03</i><small>Driving skill</small><strong>Drift Heat</strong>
+            <span>Chain controlled slides to fill the drift meter.</span><b>$6,000</b>
+          </button>
+          <button type="button" data-start-mission="hotride">
+            <i>04</i><small>Vehicle theft</small><strong>Hot Ride</strong>
+            <span>Steal a traffic car and deliver that exact vehicle.</span><b>$7,500 + rarity bonus</b>
+          </button>
+          <button type="button" data-start-mission="survival">
+            <i>05</i><small>High risk</small><strong>Maximum Heat</strong>
+            <span>Survive a four-star police operation for fifty seconds.</span><b>$9,000</b>
+          </button>
+        </div>
+        <footer>
+          <span>Drive to the JOBS terminal to take another contract.</span>
+          <button id="closeMissionMenuMobile" type="button">Close</button>
+        </footer>
+      </div>
+    </div>
+
     <div id="notificationFeed" class="notification-feed" aria-live="polite"></div>
 
     <div id="smashCombo" class="smash-combo hidden" aria-live="polite">
