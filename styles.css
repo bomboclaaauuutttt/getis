@@ -1817,6 +1817,225 @@ button:not(.mobile-action):not(.swatch-button):hover {
 }
 
 
+.arrest-cinematic {
+  position: fixed;
+  inset: 0;
+  z-index: 11;
+  overflow: hidden;
+  pointer-events: none;
+  color: #fff;
+}
+
+.arrest-cinematic.hidden {
+  display: none;
+}
+
+.arrest-cinema-wash,
+.arrest-cinema-vignette,
+.arrest-cinema-grain,
+.arrest-cinema-final-flash {
+  position: absolute;
+  inset: 0;
+}
+
+.arrest-cinema-wash {
+  mix-blend-mode: screen;
+  opacity: 0;
+}
+
+.arrest-cinema-red {
+  background: linear-gradient(90deg, rgba(255, 18, 38, 0.48), transparent 56%);
+  animation: arrestCinemaRed 760ms steps(2, end) infinite;
+}
+
+.arrest-cinema-blue {
+  background: linear-gradient(270deg, rgba(16, 104, 255, 0.5), transparent 58%);
+  animation: arrestCinemaBlue 760ms steps(2, end) 380ms infinite;
+}
+
+.arrest-cinema-vignette {
+  background: radial-gradient(circle at 50% 48%, transparent 30%, rgba(0, 0, 0, 0.22) 58%, rgba(0, 0, 0, 0.78) 100%);
+  animation: arrestCinemaVignette 1400ms ease-out both;
+}
+
+.arrest-cinema-grain {
+  inset: -45%;
+  opacity: 0.11;
+  background: repeating-linear-gradient(102deg, rgba(255, 255, 255, 0.3) 0 1px, transparent 1px 5px);
+  animation: arrestCinemaGrain 170ms steps(2, end) infinite;
+}
+
+.arrest-cinema-bar {
+  position: absolute;
+  left: 0;
+  width: 100%;
+  height: clamp(54px, 10vh, 108px);
+  background: #050607;
+  box-shadow: 0 0 38px rgba(0, 0, 0, 0.62);
+  animation: arrestCinemaBars 700ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.arrest-cinema-bar-top { top: 0; transform-origin: top; }
+.arrest-cinema-bar-bottom { bottom: 0; transform-origin: bottom; }
+
+.arrest-cinema-frame {
+  position: absolute;
+  inset: clamp(72px, 12vh, 126px) clamp(18px, 3vw, 52px);
+  opacity: 0.55;
+}
+
+.arrest-cinema-frame i {
+  position: absolute;
+  width: 34px;
+  height: 34px;
+  border-color: rgba(255, 255, 255, 0.72);
+  border-style: solid;
+}
+
+.arrest-cinema-frame i:nth-child(1) { top: 0; left: 0; border-width: 2px 0 0 2px; }
+.arrest-cinema-frame i:nth-child(2) { top: 0; right: 0; border-width: 2px 2px 0 0; }
+.arrest-cinema-frame i:nth-child(3) { bottom: 0; left: 0; border-width: 0 0 2px 2px; }
+.arrest-cinema-frame i:nth-child(4) { right: 0; bottom: 0; border-width: 0 2px 2px 0; }
+
+.arrest-cinema-copy {
+  position: absolute;
+  left: clamp(24px, 6vw, 92px);
+  bottom: clamp(76px, 13vh, 138px);
+  width: min(620px, calc(100vw - 48px));
+  text-transform: uppercase;
+  text-shadow: 0 3px 12px rgba(0, 0, 0, 0.85);
+  animation: arrestCinemaCopy 650ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.arrest-cinema-copy small {
+  display: block;
+  margin-bottom: 7px;
+  color: #ff4054;
+  font-size: clamp(10px, 1.25vw, 14px);
+  font-weight: 1000;
+}
+
+.arrest-cinema-copy strong {
+  display: block;
+  max-width: 100%;
+  font-size: clamp(30px, 5.5vw, 72px);
+  line-height: 0.92;
+  font-weight: 1000;
+}
+
+.arrest-cinema-copy span {
+  display: block;
+  margin-top: 9px;
+  color: rgba(255, 255, 255, 0.76);
+  font-size: clamp(11px, 1.4vw, 17px);
+  font-weight: 850;
+}
+
+.arrest-cinema-copy > b {
+  display: block;
+  width: min(430px, 72vw);
+  height: 4px;
+  margin-top: 17px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.arrest-cinema-copy > b > i {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, #e9152b, #fff 50%, #2879ff);
+  transform: scaleX(0);
+  transform-origin: left;
+}
+
+.arrest-cinema-stamp {
+  position: absolute;
+  top: clamp(77px, 13vh, 140px);
+  right: clamp(25px, 6vw, 92px);
+  padding: 8px 15px 7px;
+  border: 4px solid rgba(255, 255, 255, 0.82);
+  color: rgba(255, 255, 255, 0.9);
+  font-size: clamp(15px, 2.3vw, 29px);
+  font-weight: 1000;
+  text-transform: uppercase;
+  transform: rotate(6deg) scale(0);
+  opacity: 0;
+}
+
+.arrest-cinematic.phase-3 .arrest-cinema-stamp {
+  animation: arrestCinemaStamp 460ms cubic-bezier(0.18, 1.7, 0.3, 1) both;
+}
+
+.arrest-cinema-final-flash {
+  z-index: 3;
+  background: #fff;
+  opacity: 0;
+}
+
+.arrest-cinematic.final-hit .arrest-cinema-final-flash {
+  animation: arrestCinemaFinal 780ms ease-out both;
+}
+
+body.arrest-cutscene-active #hud,
+body.arrest-cutscene-active #minimap,
+body.arrest-cutscene-active #notificationFeed,
+body.arrest-cutscene-active #smashCombo,
+body.arrest-cutscene-active #rewardLayer {
+  animation: hudDropOut 360ms ease-in both;
+}
+
+body.arrest-cutscene-active #game {
+  animation: arrestCinemaImage 2100ms ease-out both;
+}
+
+@keyframes arrestCinemaRed {
+  0%, 42% { opacity: 0.05; }
+  43%, 100% { opacity: 0.52; }
+}
+
+@keyframes arrestCinemaBlue {
+  0%, 42% { opacity: 0.05; }
+  43%, 100% { opacity: 0.5; }
+}
+
+@keyframes arrestCinemaVignette {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes arrestCinemaGrain {
+  0% { transform: translate3d(-2%, -1%, 0) rotate(0.5deg); }
+  100% { transform: translate3d(2%, 1%, 0) rotate(-0.5deg); }
+}
+
+@keyframes arrestCinemaBars {
+  from { transform: scaleY(0); }
+  to { transform: scaleY(1); }
+}
+
+@keyframes arrestCinemaCopy {
+  from { opacity: 0; transform: translateX(-55px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes arrestCinemaStamp {
+  0% { opacity: 0; transform: rotate(13deg) scale(1.8); }
+  70% { opacity: 1; transform: rotate(4deg) scale(0.94); }
+  100% { opacity: 1; transform: rotate(6deg) scale(1); }
+}
+
+@keyframes arrestCinemaFinal {
+  0% { opacity: 0; }
+  14% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+@keyframes arrestCinemaImage {
+  from { filter: saturate(1) contrast(1); }
+  to { filter: saturate(0.7) contrast(1.16); }
+}
+
 .arrest-screen {
   position: fixed;
   inset: 0;
@@ -2073,4 +2292,706 @@ body.arrested #notificationFeed {
 
 @keyframes introBarBottom {
   100% { transform: translateY(105%); }
+}
+
+/* Main menu */
+#menu {
+  z-index: 20;
+  place-items: center;
+  padding: 28px;
+  box-sizing: border-box;
+  overflow: hidden;
+  background: rgba(5, 7, 8, 0.72);
+  backdrop-filter: grayscale(0.5) contrast(1.18) blur(4px);
+}
+
+#menu::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  opacity: 0.32;
+  background: repeating-linear-gradient(112deg, transparent 0, transparent 70px, rgba(255, 255, 255, 0.04) 72px, transparent 74px);
+  animation: menuRoadRush 8s linear infinite;
+}
+
+#menu .menu-flash {
+  background: #e3061b;
+  mix-blend-mode: screen;
+  animation-duration: 520ms;
+}
+
+#menu .menu-card {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1.08fr) minmax(420px, 0.92fr);
+  column-gap: 54px;
+  width: min(1120px, calc(100vw - 56px));
+  padding: 38px 0 0;
+  text-align: left;
+  transform: none;
+  animation: commandMenuIn 620ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+#menu .menu-card::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 172px;
+  height: 8px;
+  background: #e3061b;
+  box-shadow: 184px 0 0 #ffdf54, 238px 0 0 rgba(255, 255, 255, 0.25);
+  transform: skewX(-25deg);
+}
+
+.menu-brand {
+  align-self: center;
+  min-width: 0;
+}
+
+#menu .menu-kicker {
+  margin: 0 0 9px;
+  color: #ffdf54;
+  font-size: 15px;
+  text-align: left;
+  animation: menuDetailSlide 520ms ease-out 180ms both;
+}
+
+#menu .menu-card h1 {
+  position: relative;
+  width: auto;
+  min-width: 0;
+  max-width: 660px;
+  margin: 0;
+  color: #f5f7f6;
+  font-size: 94px;
+  line-height: 0.78;
+  text-align: left;
+  text-shadow: 0 7px 0 #090b0b, 7px 0 0 rgba(213, 0, 25, 0.72);
+  animation: menuTitleHit 700ms cubic-bezier(0.16, 1, 0.3, 1) 70ms both;
+}
+
+#menu .menu-card h1 span {
+  display: block;
+  color: rgba(255, 255, 255, 0.68);
+  font-size: 49px;
+  line-height: 0.8;
+}
+
+#menu .menu-card h1::after {
+  content: attr(data-text);
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  color: #23d7ff;
+  opacity: 0;
+  clip-path: inset(44% 0 38% 0);
+  animation: menuTitleGlitch 4.6s steps(1) infinite 1.4s;
+}
+
+#menu .menu-rule {
+  width: min(490px, 92%);
+  height: 7px;
+  margin: 27px 0 15px;
+  background: #e3061b;
+}
+
+#menu .menu-card p {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.62);
+  font-size: 18px;
+  text-align: left;
+}
+
+.menu-command {
+  position: relative;
+  padding: 18px;
+  background: rgba(12, 16, 17, 0.92);
+  border-left: 3px solid rgba(255, 255, 255, 0.18);
+  box-shadow: 0 22px 58px rgba(0, 0, 0, 0.5);
+}
+
+.menu-featured {
+  display: grid;
+  gap: 11px;
+}
+
+#menu .mode-button {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr 32px;
+  grid-template-rows: auto auto;
+  align-content: center;
+  width: 100%;
+  height: 82px;
+  min-width: 0;
+  padding: 0 20px;
+  overflow: hidden;
+  text-align: left;
+  border-left: 5px solid rgba(255, 255, 255, 0.78);
+  border-radius: 2px;
+  box-shadow: 0 7px 0 rgba(0, 0, 0, 0.55);
+  animation: menuOptionIn 430ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+#menu .mode-button::before,
+#menu .menu-actions button::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: rgba(255, 255, 255, 0.14);
+  transform: translateX(-112%) skewX(-20deg);
+  transition: transform 260ms ease;
+}
+
+#menu .mode-button:hover::before,
+#menu .menu-actions button:hover::before {
+  transform: translateX(112%) skewX(-20deg);
+}
+
+#menu .mode-button small,
+#menu .mode-button strong {
+  position: relative;
+  z-index: 1;
+  display: block;
+}
+
+#menu .mode-button small {
+  align-self: end;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 10px;
+  text-transform: uppercase;
+}
+
+#menu .mode-button strong {
+  align-self: start;
+  font-size: 22px;
+  text-transform: uppercase;
+}
+
+#menu .mode-button i {
+  position: relative;
+  z-index: 1;
+  grid-column: 2;
+  grid-row: 1 / 3;
+  align-self: center;
+  width: 19px;
+  height: 19px;
+  border-top: 4px solid currentColor;
+  border-right: 4px solid currentColor;
+  transform: rotate(45deg);
+  transition: transform 180ms ease;
+}
+
+#menu .mode-button:hover i {
+  transform: translateX(5px) rotate(45deg);
+}
+
+#menu .solo-button {
+  background: #d8071d;
+}
+
+#menu .public-button {
+  color: #10130f;
+  background: #ffdf54;
+  border-left-color: #39ff72;
+  box-shadow: 0 7px 0 #8c6500, 0 0 26px rgba(255, 223, 84, 0.2);
+}
+
+#menu .public-button small {
+  color: rgba(16, 19, 15, 0.62);
+}
+
+#menu .menu-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 9px;
+  margin-top: 13px;
+  animation: none;
+}
+
+#menu .menu-actions button {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+  height: 48px;
+  padding: 0 12px;
+  overflow: hidden;
+  color: #fff;
+  background: #262d2e;
+  border-radius: 2px;
+  box-shadow: 0 5px 0 #0c0f0f;
+  animation: menuOptionIn 430ms cubic-bezier(0.16, 1, 0.3, 1) 120ms both;
+}
+
+#menu .menu-actions button span {
+  position: relative;
+  z-index: 1;
+}
+
+#menu .menu-actions .customize-button {
+  grid-column: 1 / 3;
+  min-width: 0;
+  color: #07140c;
+  background: #39ff72;
+  box-shadow: 0 5px 0 #0b7a33;
+}
+
+#menu .join-form {
+  width: 100%;
+  margin-top: 13px;
+}
+
+#menu .menu-status {
+  min-height: 16px;
+  margin-top: 11px;
+  text-align: left;
+}
+
+.menu-ticker {
+  grid-column: 1 / 3;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 24px;
+  color: rgba(255, 255, 255, 0.48);
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.menu-ticker i {
+  width: 8px;
+  height: 8px;
+  background: #39ff72;
+  border-radius: 50%;
+  box-shadow: 0 0 12px #39ff72;
+  animation: menuOnlinePulse 1.4s ease-in-out infinite;
+}
+
+.menu-ticker b {
+  flex: 1;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.14);
+}
+
+/* Garage workshop */
+.garage-panel {
+  width: min(1180px, calc(100vw - 40px));
+  max-height: calc(100vh - 36px);
+  overflow: hidden;
+  border-top-color: #39ff72;
+  background: #101415;
+}
+
+.garage-panel header {
+  padding: 15px 20px;
+  background: #0b0e0f;
+}
+
+.garage-panel h1 {
+  font-size: 37px;
+}
+
+.garage-workshop {
+  display: grid;
+  grid-template-columns: minmax(390px, 0.86fr) minmax(520px, 1.14fr);
+  min-height: 550px;
+  max-height: calc(100vh - 176px);
+}
+
+.garage-showroom {
+  position: relative;
+  display: grid;
+  grid-template-rows: minmax(280px, 1fr) auto;
+  min-width: 0;
+  overflow: hidden;
+  background: #252c2d;
+  border-right: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.garage-showroom::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  opacity: 0.28;
+  background: repeating-linear-gradient(90deg, transparent 0, transparent 54px, rgba(255, 255, 255, 0.08) 55px, transparent 56px);
+  transform: perspective(380px) rotateX(58deg) translateY(38%);
+  transform-origin: bottom;
+}
+
+.garage-car-stage {
+  min-height: 280px;
+  background: transparent;
+  border: 0;
+}
+
+.garage-car-stage::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: 190px;
+  height: 100%;
+  background: rgba(255, 255, 255, 0.08);
+  transform: translateX(-50%) skewX(-12deg);
+  filter: blur(18px);
+}
+
+.garage-car-stage > span {
+  right: auto;
+  left: 18px;
+  bottom: 14px;
+  z-index: 2;
+  color: #39ff72;
+  font-size: 12px;
+}
+
+.garage-car {
+  z-index: 2;
+  width: 360px;
+  height: 92px;
+  transition: filter 220ms ease, transform 220ms ease;
+}
+
+.garage-car.tier-2 { filter: drop-shadow(0 0 24px rgba(57, 255, 114, 0.3)); }
+.garage-car.tier-3 { transform: scale(1.04); filter: drop-shadow(0 0 30px rgba(57, 255, 114, 0.42)); }
+.garage-car.tier-4 { transform: scale(1.08); filter: drop-shadow(0 0 36px rgba(255, 223, 84, 0.5)); }
+
+.garage-spoiler {
+  position: absolute;
+  right: 11px;
+  top: 20px;
+  display: none;
+  width: 45px;
+  height: 6px;
+  background: #111;
+  box-shadow: 8px 8px 0 -1px #111;
+}
+
+.garage-car.tier-3 .garage-spoiler,
+.garage-car.tier-4 .garage-spoiler {
+  display: block;
+}
+
+.garage-stats {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  gap: 10px;
+  padding: 17px 20px 20px;
+  background: rgba(8, 11, 12, 0.82);
+}
+
+.garage-stats > div {
+  display: grid;
+  grid-template-columns: 94px 1fr 34px;
+  align-items: center;
+  gap: 9px;
+}
+
+.garage-stats span,
+.garage-stats strong {
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.garage-stats strong {
+  color: #ffdf54;
+  text-align: right;
+}
+
+.garage-stats b {
+  height: 7px;
+  overflow: hidden;
+  background: #363d3e;
+  transform: skewX(-17deg);
+}
+
+.garage-stats b i {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: #39ff72;
+  transform: scaleX(0.2);
+  transform-origin: left;
+  transition: transform 420ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.garage-upgrades {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-content: start;
+  gap: 1px;
+  min-width: 0;
+  overflow-y: auto;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.garage-upgrade {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto auto auto;
+  gap: 9px;
+  min-width: 0;
+  padding: 13px 15px 15px;
+  box-sizing: border-box;
+  background: #151a1b;
+  border: 0;
+  transition: background 160ms ease;
+}
+
+.garage-upgrade[data-upgrade="weight"] {
+  grid-column: 1 / 3;
+}
+
+.garage-upgrade:hover {
+  background: #1d2425;
+}
+
+.garage-upgrade.installing {
+  animation: garagePartInstall 620ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.garage-upgrade.maxed h2,
+.garage-upgrade.maxed small {
+  color: #ffdf54;
+}
+
+.garage-upgrade h2 {
+  margin: 1px 0 3px;
+  font-size: 18px;
+}
+
+.garage-upgrade p {
+  min-height: 0;
+  font-size: 11px;
+}
+
+.garage-level {
+  grid-template-columns: repeat(5, 1fr);
+}
+
+.garage-upgrade button {
+  height: 42px;
+  border-radius: 2px;
+  box-shadow: 0 5px 0 #75000c;
+}
+
+.garage-upgrade button:not(:disabled):hover {
+  background: #ff1d2d;
+}
+
+.garage-car.install-pulse {
+  animation: garageCarInstall 620ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.garage-panel footer {
+  min-height: 58px;
+  padding: 9px 20px;
+  box-sizing: border-box;
+  background: #0b0e0f;
+}
+
+@media (max-width: 860px) {
+  #menu {
+    place-items: start center;
+    padding: 18px;
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+
+  #menu .menu-card {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 25px;
+    width: min(560px, calc(100vw - 36px));
+    padding-top: 24px;
+  }
+
+  #menu .menu-card h1 {
+    font-size: 64px;
+    line-height: 0.8;
+  }
+
+  #menu .menu-card h1 span {
+    font-size: 33px;
+  }
+
+  #menu .menu-rule {
+    margin-top: 18px;
+  }
+
+  .menu-ticker {
+    grid-column: 1;
+    margin-top: 0;
+  }
+
+  .garage-screen {
+    align-items: start;
+    padding: 8px;
+  }
+
+  .garage-panel {
+    width: calc(100vw - 16px);
+    max-height: none;
+    overflow: visible;
+    animation: none;
+    transform: none;
+  }
+
+  .garage-panel header {
+    position: relative;
+    display: block;
+    padding: 12px 88px 12px 14px;
+  }
+
+  .garage-panel h1 {
+    font-size: 20px;
+    white-space: nowrap;
+  }
+
+  #garageMoney {
+    position: absolute;
+    top: 18px;
+    right: 14px;
+    font-size: 20px;
+  }
+
+  .garage-workshop {
+    grid-template-columns: minmax(0, 1fr);
+    min-height: 0;
+    max-height: none;
+  }
+
+  .garage-showroom {
+    grid-template-rows: 150px auto;
+    border-right: 0;
+  }
+
+  .garage-car-stage {
+    min-height: 150px;
+  }
+
+  .garage-car {
+    width: 290px;
+    height: 74px;
+    transform: scale(0.82);
+  }
+
+  .garage-stats {
+    gap: 7px;
+    padding: 11px 14px 13px;
+  }
+
+  .garage-stats > div {
+    grid-template-columns: 80px 1fr 30px;
+  }
+
+  .garage-upgrades {
+    grid-template-columns: minmax(0, 1fr);
+    overflow: visible;
+  }
+
+  .garage-upgrade {
+    width: 100%;
+    padding: 12px 14px 14px;
+  }
+
+  .garage-upgrade[data-upgrade="weight"] {
+    grid-column: 1;
+  }
+
+  .garage-upgrade button,
+  .garage-level {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+
+  .garage-panel footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .garage-panel footer button {
+    width: 100%;
+  }
+}
+
+@media (max-width: 520px) {
+  #menu .menu-card h1 {
+    font-size: 52px;
+  }
+
+  #menu .menu-featured {
+    gap: 8px;
+  }
+
+  #menu .mode-button {
+    height: 70px;
+  }
+
+  #menu .mode-button strong {
+    font-size: 18px;
+  }
+
+  #menu .menu-actions {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  #menu .menu-actions .customize-button {
+    grid-column: 1;
+  }
+}
+
+@keyframes commandMenuIn {
+  0% { opacity: 0; transform: translateY(30px) scale(0.97); filter: blur(4px); }
+  100% { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
+}
+
+@keyframes menuTitleHit {
+  0% { opacity: 0; transform: translateX(-70px) skewX(-8deg); filter: blur(5px); }
+  62% { opacity: 1; transform: translateX(7px) skewX(-2deg); filter: blur(0); }
+  100% { opacity: 1; transform: translateX(0) skewX(0); }
+}
+
+@keyframes menuDetailSlide {
+  0% { opacity: 0; transform: translateX(-28px); }
+  100% { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes menuOptionIn {
+  0% { opacity: 0; transform: translateX(38px); }
+  100% { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes menuTitleGlitch {
+  0%, 91%, 100% { opacity: 0; transform: translate(0, 0); }
+  92% { opacity: 0.65; transform: translate(7px, -2px); }
+  94% { opacity: 0.4; transform: translate(-5px, 2px); }
+  96% { opacity: 0; transform: translate(0, 0); }
+}
+
+@keyframes menuRoadRush {
+  0% { transform: translateX(-90px); }
+  100% { transform: translateX(90px); }
+}
+
+@keyframes menuOnlinePulse {
+  0%, 100% { opacity: 0.55; transform: scale(0.82); }
+  50% { opacity: 1; transform: scale(1.08); }
+}
+
+@keyframes garagePartInstall {
+  0% { background: #39ff72; filter: brightness(1.8); }
+  35% { background: #253f31; }
+  100% { background: #151a1b; filter: brightness(1); }
+}
+
+@keyframes garageCarInstall {
+  0% { transform: scale(0.92); filter: brightness(2.2) drop-shadow(0 0 42px rgba(57, 255, 114, 0.9)); }
+  55% { transform: scale(1.08); }
+  100% { transform: scale(1); }
 }

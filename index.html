@@ -69,6 +69,24 @@
       <div class="intro-start">Drive</div>
     </div>
 
+    <div id="arrestCinematic" class="arrest-cinematic hidden" aria-hidden="true">
+      <div class="arrest-cinema-wash arrest-cinema-red"></div>
+      <div class="arrest-cinema-wash arrest-cinema-blue"></div>
+      <div class="arrest-cinema-vignette"></div>
+      <div class="arrest-cinema-grain"></div>
+      <div class="arrest-cinema-bar arrest-cinema-bar-top"></div>
+      <div class="arrest-cinema-bar arrest-cinema-bar-bottom"></div>
+      <div class="arrest-cinema-frame" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+      <div class="arrest-cinema-copy">
+        <small id="arrestCinematicCode">LSPD // ACTIVE PURSUIT</small>
+        <strong id="arrestCinematicLabel">Suspect contained</strong>
+        <span id="arrestCinematicDetail">Units moving in</span>
+        <b><i id="arrestCinematicProgress"></i></b>
+      </div>
+      <div class="arrest-cinema-stamp">Case closed</div>
+      <div class="arrest-cinema-final-flash"></div>
+    </div>
+
     <div id="nameScreen" class="device-screen">
       <div class="menu-flash"></div>
       <div class="arrest-scanlines"></div>
@@ -136,37 +154,68 @@
         <header>
           <div>
             <small>Southside Customs</small>
-            <h1 id="garageTitle">Upgrade Garage</h1>
+            <h1 id="garageTitle">Performance Workshop</h1>
           </div>
           <strong id="garageMoney">$0</strong>
         </header>
-        <div class="garage-car-stage" aria-hidden="true">
-          <div class="garage-car">
-            <i class="garage-cabin"></i>
-            <i class="garage-wheel garage-wheel-front"></i>
-            <i class="garage-wheel garage-wheel-rear"></i>
+        <div class="garage-workshop">
+          <section class="garage-showroom">
+            <div class="garage-car-stage" aria-hidden="true">
+              <div id="garageCarPreview" class="garage-car">
+                <i class="garage-cabin"></i>
+                <i class="garage-wheel garage-wheel-front"></i>
+                <i class="garage-wheel garage-wheel-rear"></i>
+                <i class="garage-spoiler"></i>
+              </div>
+              <span id="garageBuildLevel">Street stock</span>
+            </div>
+            <div class="garage-stats">
+              <div data-garage-stat="speed"><span>Top speed</span><b><i></i></b><strong>0</strong></div>
+              <div data-garage-stat="accel"><span>Acceleration</span><b><i></i></b><strong>0</strong></div>
+              <div data-garage-stat="grip"><span>Grip</span><b><i></i></b><strong>0</strong></div>
+              <div data-garage-stat="brake"><span>Braking</span><b><i></i></b><strong>0</strong></div>
+            </div>
+          </section>
+          <div class="garage-upgrades">
+            <article class="garage-upgrade" data-upgrade="engine">
+              <div><small>Power</small><h2>Engine</h2><p>Acceleration and torque.</p></div>
+              <div class="garage-level" aria-label="Engine level"><i></i><i></i><i></i><i></i><i></i></div>
+              <button type="button" data-buy-upgrade="engine"><span>Level 1</span><strong>$40</strong></button>
+            </article>
+            <article class="garage-upgrade" data-upgrade="turbo">
+              <div><small>Boost</small><h2>Twin Turbo</h2><p>Power at high speed.</p></div>
+              <div class="garage-level" aria-label="Turbo level"><i></i><i></i><i></i><i></i><i></i></div>
+              <button type="button" data-buy-upgrade="turbo"><span>Level 1</span><strong>$70</strong></button>
+            </article>
+            <article class="garage-upgrade" data-upgrade="transmission">
+              <div><small>Speed</small><h2>Transmission</h2><p>Top speed and shifting.</p></div>
+              <div class="garage-level" aria-label="Transmission level"><i></i><i></i><i></i><i></i><i></i></div>
+              <button type="button" data-buy-upgrade="transmission"><span>Level 1</span><strong>$55</strong></button>
+            </article>
+            <article class="garage-upgrade" data-upgrade="brakes">
+              <div><small>Stopping</small><h2>Race Brakes</h2><p>Shorter braking distance.</p></div>
+              <div class="garage-level" aria-label="Brake level"><i></i><i></i><i></i><i></i><i></i></div>
+              <button type="button" data-buy-upgrade="brakes"><span>Level 1</span><strong>$30</strong></button>
+            </article>
+            <article class="garage-upgrade" data-upgrade="tires">
+              <div><small>Traction</small><h2>Sport Tires</h2><p>Grip on road and rain.</p></div>
+              <div class="garage-level" aria-label="Tire level"><i></i><i></i><i></i><i></i><i></i></div>
+              <button type="button" data-buy-upgrade="tires"><span>Level 1</span><strong>$35</strong></button>
+            </article>
+            <article class="garage-upgrade" data-upgrade="suspension">
+              <div><small>Control</small><h2>Suspension</h2><p>Steering and stability.</p></div>
+              <div class="garage-level" aria-label="Suspension level"><i></i><i></i><i></i><i></i><i></i></div>
+              <button type="button" data-buy-upgrade="suspension"><span>Level 1</span><strong>$40</strong></button>
+            </article>
+            <article class="garage-upgrade" data-upgrade="weight">
+              <div><small>Chassis</small><h2>Weight Reduction</h2><p>Faster response everywhere.</p></div>
+              <div class="garage-level" aria-label="Weight reduction level"><i></i><i></i><i></i><i></i><i></i></div>
+              <button type="button" data-buy-upgrade="weight"><span>Level 1</span><strong>$65</strong></button>
+            </article>
           </div>
-          <span>Performance tuning</span>
-        </div>
-        <div class="garage-upgrades">
-          <article class="garage-upgrade" data-upgrade="engine">
-            <div><small>Power</small><h2>Engine</h2><p>Stronger acceleration and more speed.</p></div>
-            <div class="garage-level" aria-label="Engine level"><i></i><i></i><i></i></div>
-            <button type="button" data-buy-upgrade="engine"><span>Upgrade</span><strong>$60</strong></button>
-          </article>
-          <article class="garage-upgrade" data-upgrade="transmission">
-            <div><small>Speed</small><h2>Transmission</h2><p>Higher top speed and faster shifts.</p></div>
-            <div class="garage-level" aria-label="Transmission level"><i></i><i></i><i></i></div>
-            <button type="button" data-buy-upgrade="transmission"><span>Upgrade</span><strong>$75</strong></button>
-          </article>
-          <article class="garage-upgrade" data-upgrade="handling">
-            <div><small>Control</small><h2>Handling</h2><p>More grip, braking and steering response.</p></div>
-            <div class="garage-level" aria-label="Handling level"><i></i><i></i><i></i></div>
-            <button type="button" data-buy-upgrade="handling"><span>Upgrade</span><strong>$55</strong></button>
-          </article>
         </div>
         <footer>
-          <span id="garageStatus">Drive upgrades apply to your current car.</span>
+          <span id="garageStatus">Every installed part changes the current car.</span>
           <button id="leaveGarageButton" type="button" class="secondary-button">Leave garage</button>
         </footer>
       </div>
@@ -176,22 +225,29 @@
       <div class="menu-flash"></div>
       <div class="arrest-scanlines"></div>
       <div class="menu-card">
-        <div class="menu-kicker">Wanted level rising</div>
-        <h1>Police Getaway</h1>
-        <div class="menu-rule"></div>
-        <p>Escape cops. Drift through traffic. Get paid for reckless driving.</p>
-        <div class="menu-actions">
-          <button id="customizeButton" class="customize-button">Character Customisation</button>
-          <button id="singleplayerButton">Singleplayer</button>
-          <button id="joinPublicButton" class="public-button">Join public server</button>
-          <button id="createGameButton">Create private game</button>
-          <button id="joinGameButton" class="secondary-button">Join private game</button>
+        <div class="menu-brand">
+          <div class="menu-kicker">Southside's most wanted</div>
+          <h1 data-text="POLICE GETAWAY"><span>Police</span> Getaway</h1>
+          <div class="menu-rule"></div>
+          <p>No clean exits.</p>
         </div>
-        <form id="joinForm" class="join-form hidden">
-          <input id="joinCodeInput" inputmode="numeric" maxlength="6" autocomplete="off" placeholder="Game code" />
-          <button id="joinConfirmButton" type="submit">Join</button>
-        </form>
-        <div id="menuStatus" class="menu-status"></div>
+        <div class="menu-command">
+          <div class="menu-featured">
+            <button id="singleplayerButton" class="mode-button solo-button"><small>Solo run</small><strong>Singleplayer</strong><i></i></button>
+            <button id="joinPublicButton" class="mode-button public-button"><small>Live city</small><strong>Join public server</strong><i></i></button>
+          </div>
+          <div class="menu-actions">
+            <button id="createGameButton"><span>Create private game</span></button>
+            <button id="joinGameButton" class="secondary-button"><span>Join private game</span></button>
+            <button id="customizeButton" class="customize-button"><span>Character customisation</span></button>
+          </div>
+          <form id="joinForm" class="join-form hidden">
+            <input id="joinCodeInput" inputmode="numeric" maxlength="6" autocomplete="off" placeholder="Game code" />
+            <button id="joinConfirmButton" type="submit">Join</button>
+          </form>
+          <div id="menuStatus" class="menu-status"></div>
+        </div>
+        <div class="menu-ticker"><i></i><span>Southside dispatch online</span><b></b></div>
       </div>
     </div>
 

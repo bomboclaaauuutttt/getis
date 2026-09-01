@@ -35,6 +35,11 @@ const previewRightArmEl = document.getElementById("previewRightArm");
 const previewLeftLegEl = document.getElementById("previewLeftLeg");
 const previewRightLegEl = document.getElementById("previewRightLeg");
 const gameOverEl = document.getElementById("gameOver");
+const arrestCinematicEl = document.getElementById("arrestCinematic");
+const arrestCinematicCodeEl = document.getElementById("arrestCinematicCode");
+const arrestCinematicLabelEl = document.getElementById("arrestCinematicLabel");
+const arrestCinematicDetailEl = document.getElementById("arrestCinematicDetail");
+const arrestCinematicProgressEl = document.getElementById("arrestCinematicProgress");
 const storeDeathScreenEl = document.getElementById("storeDeathScreen");
 const storeDeathAttackerEl = document.getElementById("storeDeathAttacker");
 const storeRespawnButton = document.getElementById("storeRespawnButton");
@@ -66,6 +71,8 @@ const garageScreenEl = document.getElementById("garageScreen");
 const garageMoneyEl = document.getElementById("garageMoney");
 const garageStatusEl = document.getElementById("garageStatus");
 const leaveGarageButton = document.getElementById("leaveGarageButton");
+const garageCarPreviewEl = document.getElementById("garageCarPreview");
+const garageBuildLevelEl = document.getElementById("garageBuildLevel");
 
 const minimap = document.createElement("canvas");
 const miniCtx = minimap.getContext("2d");
@@ -233,10 +240,15 @@ const VENDOR_KNIFE_DAMAGE = 100;
 const VENDOR_KNIFE_COOLDOWN = 2;
 const OUTSIDE_CHARACTER_SCALE = 0.46;
 const GARAGE_ENTRANCE = Object.freeze({ x: 308, z: -177, radius: 40 });
+const GARAGE_STORAGE_KEY = "policeGetawayGarageUpgradesV2";
 const GARAGE_UPGRADES = Object.freeze({
-  engine: { prices: [60, 140, 300], label: "Engine" },
-  transmission: { prices: [75, 170, 360], label: "Transmission" },
-  handling: { prices: [55, 125, 270], label: "Handling" },
+  engine: { prices: [40, 90, 180, 350, 650], label: "Engine" },
+  turbo: { prices: [70, 150, 300, 560, 950], label: "Twin Turbo" },
+  transmission: { prices: [55, 125, 250, 480, 820], label: "Transmission" },
+  brakes: { prices: [30, 70, 145, 290, 500], label: "Race Brakes" },
+  tires: { prices: [35, 80, 165, 310, 540], label: "Sport Tires" },
+  suspension: { prices: [40, 95, 190, 370, 620], label: "Suspension" },
+  weight: { prices: [65, 140, 280, 520, 900], label: "Weight Reduction" },
 });
 
 const mats = {
@@ -370,6 +382,13 @@ const driftRewardState = {
   active: false,
 };
 let arrestTime = 0;
+const arrestCutsceneState = {
+  active: false,
+  time: 0,
+  duration: 7.2,
+  stage: -1,
+  finalHit: false,
+};
 let chaseTime = 0;
 let backupTime = 0;
 let idleHeat = 0;
@@ -419,7 +438,7 @@ let paused = false;
 const garageState = {
   open: false,
   lastExitAt: 0,
-  levels: { engine: 0, transmission: 0, handling: 0 },
+  levels: loadGarageLevels(),
 };
 let megaforceTemplate = null;
 let megaforceLoading = false;
@@ -974,13 +993,16 @@ function updateAudio(dt) {
   const now = ctx.currentTime;
   const driving = running && !gameOver && gameMode === "driving";
   const speed = driving ? Math.abs(audioState.driveSpeed) : 0;
-  const speed01 = clamp(speed / 560, 0, 1);
+  const speed01 = clamp(speed / 900, 0, 1);
   const throttle01 = driving ? clamp(Math.abs(audioState.driveThrottle), 0, 1) : 0;
   const drift01 = driving ? clamp(audioState.driftIntensity, 0, 1) : 0;
   const copDistance = cops.reduce((best, cop) => Math.min(best, dist(player, cop)), Infinity);
   const siren01 = driving && cops.length > 0 ? clamp(1 - (copDistance - 150) / 760, 0.08, 0.75) : 0;
 
   const gearBands = [0, 76, 148, 226, 314, 414, 528, 660, 850];
+  const transmissionLevel = garageState.levels.transmission || 0;
+  const redlineHold = 0.44 - transmissionLevel * 0.022;
+  const shiftDuration = 0.3 - transmissionLevel * 0.024;
   audioState.engineShiftTimer = Math.max(0, audioState.engineShiftTimer - dt);
   if (!driving) {
     audioState.engineGear = 1;
@@ -998,9 +1020,9 @@ function updateAudio(dt) {
   if (driving && audioState.engineShiftTimer <= 0) {
     if (nearRedline && throttle01 > 0.16 && audioState.engineGear < gearBands.length - 1) {
       audioState.engineRedlineTimer += dt * (0.72 + throttle01 * 0.28);
-      if (audioState.engineRedlineTimer >= 0.44) {
+      if (audioState.engineRedlineTimer >= redlineHold) {
         audioState.engineGear += 1;
-        audioState.engineShiftTimer = 0.3;
+        audioState.engineShiftTimer = shiftDuration;
         audioState.engineRedlineTimer = 0;
         audioState.engineRpm *= 0.5;
         playGearShiftSound();
@@ -1223,6 +1245,24 @@ function shadeHex(value, amount) {
   return `#${color.getHexString()}`;
 }
 
+function loadGarageLevels() {
+  let saved = {};
+  try {
+    saved = JSON.parse(localStorage.getItem(GARAGE_STORAGE_KEY) || "{}") || {};
+  } catch {
+    saved = {};
+  }
+  const levels = {};
+  for (const [id, definition] of Object.entries(GARAGE_UPGRADES)) {
+    levels[id] = clamp(Math.floor(Number(saved[id]) || 0), 0, definition.prices.length);
+  }
+  return levels;
+}
+
+function saveGarageLevels() {
+  localStorage.setItem(GARAGE_STORAGE_KEY, JSON.stringify(garageState.levels));
+}
+
 function loadCharacterStyle() {
   let saved = {};
   try {
@@ -1429,38 +1469,38 @@ function playerSurfaceTuning() {
   const boost = megaforceBoostActive() ? 1.5 : 1;
   const tune = onRoad
       ? {
-        accel: 150,
-        accelFalloffStart: 0.3,
-        highSpeedAccel: 0.17,
-        brake: 460,
-        reverseAccel: 105,
-        maxSpeed: 560,
-        reverseMax: 50,
-        grip: 6.25,
-        driftSlip: 36,
-        driftThreshold: 78,
-        throttleGripLoss: 0.22,
-        coast: 118,
-        turnRate: 2.95,
-        steerSharpness: 6.8,
-        steerBuild: 2.25,
+        accel: 92,
+        accelFalloffStart: 0.24,
+        highSpeedAccel: 0.11,
+        brake: 310,
+        reverseAccel: 72,
+        maxSpeed: 400,
+        reverseMax: 43,
+        grip: 4.8,
+        driftSlip: 42,
+        driftThreshold: 67,
+        throttleGripLoss: 0.27,
+        coast: 92,
+        turnRate: 2.48,
+        steerSharpness: 5.45,
+        steerBuild: 1.85,
       }
       : {
-        accel: 68,
-        accelFalloffStart: 0.24,
-        highSpeedAccel: 0.2,
-        brake: 360,
-        reverseAccel: 75,
-        maxSpeed: 340,
-        reverseMax: 38,
-        grip: 1.85,
-        driftSlip: 58,
+        accel: 48,
+        accelFalloffStart: 0.2,
+        highSpeedAccel: 0.14,
+        brake: 255,
+        reverseAccel: 58,
+        maxSpeed: 245,
+        reverseMax: 34,
+        grip: 1.5,
+        driftSlip: 64,
         driftThreshold: 42,
-        throttleGripLoss: 0.46,
-        coast: 76,
-        turnRate: 2.55,
-        steerSharpness: 5.2,
-        steerBuild: 1.75,
+        throttleGripLoss: 0.52,
+        coast: 62,
+        turnRate: 2.22,
+        steerSharpness: 4.7,
+        steerBuild: 1.5,
       };
   if (player.trafficTune) {
     const vehicleTune = player.trafficTune;
@@ -1476,17 +1516,18 @@ function playerSurfaceTuning() {
     tune.driftSlip *= lerp(1, 1.24, wetness);
     tune.throttleGripLoss *= lerp(1, 1.28, wetness);
   }
-  const engineLevel = garageState.levels.engine;
-  const transmissionLevel = garageState.levels.transmission;
-  const handlingLevel = garageState.levels.handling;
-  tune.accel *= 1 + engineLevel * 0.11;
-  tune.reverseAccel *= 1 + engineLevel * 0.06;
-  tune.maxSpeed *= (1 + engineLevel * 0.035) * (1 + transmissionLevel * 0.095);
-  tune.highSpeedAccel *= 1 + transmissionLevel * 0.14;
-  tune.grip *= 1 + handlingLevel * 0.085;
-  tune.brake *= 1 + handlingLevel * 0.1;
-  tune.turnRate *= 1 + handlingLevel * 0.045;
-  tune.steerSharpness *= 1 + handlingLevel * 0.055;
+  const { engine, turbo, transmission, brakes, tires, suspension, weight } = garageState.levels;
+  tune.accel *= (1 + engine * 0.13) * (1 + turbo * 0.075) * (1 + weight * 0.055);
+  tune.reverseAccel *= (1 + engine * 0.07) * (1 + weight * 0.035);
+  tune.maxSpeed *= (1 + engine * 0.025) * (1 + turbo * 0.07) * (1 + transmission * 0.11);
+  tune.highSpeedAccel *= (1 + turbo * 0.4) * (1 + transmission * 0.12);
+  tune.grip *= (1 + tires * 0.115) * (1 + suspension * 0.07);
+  tune.brake *= 1 + brakes * 0.14;
+  tune.turnRate *= (1 + suspension * 0.075) * (1 + weight * 0.035);
+  tune.steerSharpness *= 1 + suspension * 0.075;
+  tune.steerBuild *= 1 + suspension * 0.06;
+  tune.coast *= 1 + weight * 0.035;
+  tune.throttleGripLoss *= Math.max(0.62, 1 - tires * 0.045);
   tune.maxSpeed *= boost;
   tune.accel *= boost;
   tune.reverseAccel *= boost;
@@ -4839,11 +4880,29 @@ function updateGarageScreen(status = "") {
     if (!card || !button) continue;
     card.querySelectorAll(".garage-level i").forEach((bar, index) => bar.classList.toggle("active", index < level));
     const maxed = level >= definition.prices.length;
+    card.classList.toggle("maxed", maxed);
     button.disabled = maxed;
     button.querySelector("span").textContent = maxed ? "Installed" : `Level ${level + 1}`;
     button.querySelector("strong").textContent = maxed ? "MAX" : `$${definition.prices[level]}`;
   }
-  garageStatusEl.textContent = status || "Drive upgrades apply to your current car.";
+  const levels = garageState.levels;
+  const stats = {
+    speed: clamp(18 + levels.engine * 2 + levels.turbo * 6 + levels.transmission * 10, 0, 100),
+    accel: clamp(16 + levels.engine * 11 + levels.turbo * 6 + levels.weight * 4, 0, 100),
+    grip: clamp(20 + levels.tires * 11 + levels.suspension * 6, 0, 100),
+    brake: clamp(24 + levels.brakes * 14, 0, 100),
+  };
+  for (const [id, value] of Object.entries(stats)) {
+    const row = garageScreenEl.querySelector(`[data-garage-stat="${id}"]`);
+    if (!row) continue;
+    row.querySelector("i").style.transform = `scaleX(${value / 100})`;
+    row.querySelector("strong").textContent = value;
+  }
+  const totalLevels = Object.values(levels).reduce((sum, level) => sum + level, 0);
+  const tier = totalLevels >= 29 ? 4 : totalLevels >= 19 ? 3 : totalLevels >= 8 ? 2 : 1;
+  garageCarPreviewEl.className = `garage-car tier-${tier}`;
+  garageBuildLevelEl.textContent = tier === 4 ? "Outlaw build" : tier === 3 ? "Race build" : tier === 2 ? "Street tuned" : "Street stock";
+  garageStatusEl.textContent = status || "Every installed part changes the current car.";
 }
 
 function openGarage() {
@@ -4885,8 +4944,16 @@ function buyGarageUpgrade(id) {
   }
   money -= price;
   garageState.levels[id] = level + 1;
+  saveGarageLevels();
   moneyEl.textContent = `$${Math.floor(money)}`;
   updateGarageScreen(`${definition.label} level ${level + 1} installed.`);
+  const card = garageScreenEl.querySelector(`[data-upgrade="${id}"]`);
+  card?.classList.remove("installing");
+  garageCarPreviewEl.classList.remove("install-pulse");
+  void garageCarPreviewEl.offsetWidth;
+  card?.classList.add("installing");
+  garageCarPreviewEl.classList.add("install-pulse");
+  window.setTimeout(() => card?.classList.remove("installing"), 620);
   playPurchaseSound();
   playTone(520 + level * 120, 0.12, "square", 0.04, 0.08);
   pulseMoneyDisplay();
@@ -4931,6 +4998,10 @@ function returnToMainMenu() {
   running = false;
   gameOver = false;
   gameIntroState.active = false;
+  arrestCutsceneState.active = false;
+  arrestCutsceneState.time = 0;
+  arrestCutsceneState.stage = -1;
+  arrestCutsceneState.finalHit = false;
   player.vx = 0;
   player.vz = 0;
   audioState.driveSpeed = 0;
@@ -4947,7 +5018,9 @@ function returnToMainMenu() {
   gameIntroEl.setAttribute("aria-hidden", "true");
   mobileControlsEl.classList.add("hidden");
   weatherHudEl.classList.add("hidden");
-  document.body.classList.remove("arrested");
+  arrestCinematicEl.className = "arrest-cinematic hidden";
+  arrestCinematicEl.setAttribute("aria-hidden", "true");
+  document.body.classList.remove("arrested", "arrest-cutscene-active");
   joinForm.classList.add("hidden");
   setMenuStatus("");
   menuEl.classList.remove("hidden");
@@ -5352,7 +5425,7 @@ function addUpgradeGarage(parent) {
 
   const bayBack = makeBox(108, 48, 4, mats.pumpDark);
   bayBack.position.set(x - 32, 27, z + 55);
-  const bayGlow = makeBox(100, 40, 2, makeGlowMaterial(0x39ff72, 0.24));
+  const bayGlow = makeBox(100, 40, 2, makeGlowMaterial(0x39ff72, 0.12));
   bayGlow.position.set(x - 32, 26, z + 57.2);
   const bayTop = makeBox(116, 8, 9, mats.stationTrim);
   bayTop.position.set(x - 32, 54, z + 57);
@@ -5362,11 +5435,32 @@ function addUpgradeGarage(parent) {
   bayRight.position.set(x + 26, 28, z + 57);
   parent.add(bayBack, bayGlow, bayTop, bayLeft, bayRight);
 
-  for (let i = 0; i < 5; i++) {
-    const doorLine = makeBox(94, 1.4, 2.4, mats.metal);
-    doorLine.position.set(x - 32, 9 + i * 8, z + 58.5);
-    parent.add(doorLine);
+  const tunnelFloor = makePlane(94, 82, mats.pumpDark, 0.28);
+  tunnelFloor.position.set(x - 32, 0.28, z + 30);
+  tunnelFloor.renderOrder = 3;
+  const tunnelBack = makeBox(88, 36, 2, mats.pumpDark);
+  tunnelBack.position.set(x - 32, 21, z + 59.2);
+  parent.add(tunnelFloor, tunnelBack);
+
+  for (let i = 0; i < 3; i++) {
+    const shopLight = makeBox(26, 2.2, 5, mats.light);
+    shopLight.position.set(x - 66 + i * 34, 45, z + 60);
+    parent.add(shopLight);
+    glowingObjects.push(shopLight);
   }
+  for (const side of [-1, 1]) {
+    for (let i = 0; i < 5; i++) {
+      const hazard = makeBox(7, 4.4, 2.5, i % 2 ? mats.pumpDark : mats.line);
+      hazard.position.set(x - 32 + side * 53, 9 + i * 7.5, z + 62);
+      hazard.rotation.z = side * 0.32;
+      parent.add(hazard);
+    }
+  }
+
+  const enterLabel = new THREE.Mesh(new THREE.PlaneGeometry(72, 12), makeBuildingLabel("DRIVE IN", "#142019", "#39ff72"));
+  enterLabel.position.set(x - 32, 53, z + 62.5);
+  enterLabel.renderOrder = 9;
+  parent.add(enterLabel);
 
   const officeFrame = makeBox(68, 43, 6, mats.pumpDark);
   officeFrame.position.set(x + 69, 28, z + 56);
@@ -5376,11 +5470,22 @@ function addUpgradeGarage(parent) {
   officeDivider.position.set(x + 69, 29, z + 61);
   parent.add(officeFrame, officeGlass, officeDivider);
 
+  const toolCabinet = makeBox(26, 28, 13, mats.stationTrim);
+  toolCabinet.position.set(x + 73, 14, z + 16);
+  const toolTop = makeBox(30, 3, 16, mats.pumpDark);
+  toolTop.position.set(x + 73, 29, z + 16);
+  parent.add(toolCabinet, toolTop);
+  for (let i = 0; i < 3; i++) {
+    const spareTire = new THREE.Mesh(carGeometry.wheel, mats.tire);
+    spareTire.rotation.z = Math.PI * 0.5;
+    spareTire.position.set(x + 100, 5 + i * 9, z + 34);
+    parent.add(spareTire);
+  }
+
   const signBack = makeBox(154, 28, 7, mats.pumpDark);
   signBack.position.set(x, 63, z + 58);
   const sign = new THREE.Mesh(new THREE.PlaneGeometry(144, 24), makeBuildingLabel("CUSTOMS", "#111719", "#39ff72"));
   sign.position.set(x, 63, z + 62);
-  sign.rotation.y = Math.PI;
   sign.renderOrder = 8;
   parent.add(signBack, sign);
 
@@ -5394,13 +5499,16 @@ function addUpgradeGarage(parent) {
   parent.add(servicePad, guideLeft, guideRight);
   glowingObjects.push(bayGlow, servicePad);
 
+  const entranceLight = new THREE.PointLight(0x49ff86, 1.15, 155, 2);
+  entranceLight.position.set(GARAGE_ENTRANCE.x, 30, GARAGE_ENTRANCE.z - 4);
+  parent.add(entranceLight);
+
   const pylon = new THREE.Mesh(new THREE.CylinderGeometry(3.2, 4.2, 62, 8), mats.pumpDark);
   pylon.position.set(x + 124, 31, z + 104);
   const pylonSign = makeBox(54, 34, 7, mats.stationTrim);
   pylonSign.position.set(x + 124, 66, z + 104);
   const pylonLabel = new THREE.Mesh(new THREE.PlaneGeometry(47, 27), makeBuildingLabel("CUSTOMS", "#d7192d", "#ffffff"));
   pylonLabel.position.set(x + 124, 66, z + 108);
-  pylonLabel.rotation.y = Math.PI;
   parent.add(pylon, pylonSign, pylonLabel);
 
   addCurb(parent, x - 131, z + 31, 4, 178);
@@ -8719,9 +8827,6 @@ function resetGame() {
   paused = false;
   garageState.open = false;
   garageState.lastExitAt = 0;
-  garageState.levels.engine = 0;
-  garageState.levels.transmission = 0;
-  garageState.levels.handling = 0;
   pauseMenuEl.classList.add("hidden");
   garageScreenEl.classList.add("hidden");
   transitionLock = false;
@@ -8841,6 +8946,10 @@ function resetGame() {
     });
   }
   arrestTime = 0;
+  arrestCutsceneState.active = false;
+  arrestCutsceneState.time = 0;
+  arrestCutsceneState.stage = -1;
+  arrestCutsceneState.finalHit = false;
   chaseTime = 0;
   backupTime = 0;
   idleHeat = 0;
@@ -8874,7 +8983,9 @@ function resetGame() {
   camera.updateProjectionMatrix();
   running = true;
   gameOver = false;
-  document.body.classList.remove("arrested");
+  arrestCinematicEl.className = "arrest-cinematic hidden";
+  arrestCinematicEl.setAttribute("aria-hidden", "true");
+  document.body.classList.remove("arrested", "arrest-cutscene-active");
   menuEl.classList.add("hidden");
   gameOverEl.classList.add("hidden");
   arrestFx.style.opacity = "0";
@@ -8885,10 +8996,40 @@ function resetGame() {
   startGameIntro();
 }
 
-function loseGame() {
-  if (gameOver) return;
+function setArrestCutsceneStage(stage) {
+  if (arrestCutsceneState.stage === stage) return;
+  arrestCutsceneState.stage = stage;
+  arrestCinematicEl.classList.remove("phase-0", "phase-1", "phase-2", "phase-3");
+  arrestCinematicEl.classList.add(`phase-${stage}`);
+
+  const captions = [
+    ["LSPD // PURSUIT TERMINATED", "Suspect contained", "Patrol units have blocked every escape route"],
+    ["BODYCAM // UNIT 07", "Do not move", "Officers approaching the vehicle"],
+    ["AIR SUPPORT // SCENE SECURE", "Surrounded", `${Math.max(1, cops.length)} units holding the perimeter`],
+    ["CASE STATUS // CLOSED", "Taken into custody", "Vehicle secured and suspect arrested"],
+  ];
+  const [code, label, detail] = captions[stage];
+  arrestCinematicCodeEl.textContent = code;
+  arrestCinematicLabelEl.textContent = label;
+  arrestCinematicDetailEl.textContent = detail;
+
+  if (stage === 0) {
+    playNoiseHit(0.22, 0.09, 320);
+    playTone(72, 0.52, "sawtooth", 0.075);
+  } else if (stage === 1) {
+    playTone(148, 0.18, "square", 0.055);
+    playTone(110, 0.26, "sawtooth", 0.05, 0.11);
+  } else if (stage === 2) {
+    playNoiseHit(0.28, 0.08, 420);
+    playTone(82, 0.6, "sine", 0.08);
+  } else {
+    playArrestSound();
+  }
+}
+
+function startArrestCutscene() {
+  if (gameOver || arrestCutsceneState.active) return;
   showNotification(`${playerName} got arrested`, true);
-  playArrestSound();
   if (multiplayer.mode === "host") {
     broadcastNetworkMessage({ type: "event", event: "arrested", name: playerName });
   } else if (multiplayer.mode === "client") {
@@ -8896,9 +9037,131 @@ function loseGame() {
   }
   gameOver = true;
   running = false;
+  player.vx *= 0.08;
+  player.vz *= 0.08;
+  for (const cop of cops) {
+    cop.vx *= 0.12;
+    cop.vz *= 0.12;
+  }
+  arrestCutsceneState.active = true;
+  arrestCutsceneState.time = 0;
+  arrestCutsceneState.stage = -1;
+  arrestCutsceneState.finalHit = false;
+  arrestCinematicProgressEl.style.transform = "scaleX(0)";
+  arrestCinematicEl.className = "arrest-cinematic";
+  arrestCinematicEl.setAttribute("aria-hidden", "false");
+  document.body.classList.add("arrest-cutscene-active");
+  gameOverEl.classList.add("hidden");
+  setArrestCutsceneStage(0);
+}
+
+function finishArrestCutscene() {
+  if (!arrestCutsceneState.active) return;
+  arrestCutsceneState.active = false;
+  arrestCinematicEl.classList.add("hidden");
+  arrestCinematicEl.setAttribute("aria-hidden", "true");
+  document.body.classList.remove("arrest-cutscene-active");
   document.body.classList.add("arrested");
   gameOverEl.classList.remove("hidden");
   arrestFx.style.opacity = "0.95";
+}
+
+function updateArrestCutscene(dt) {
+  arrestCutsceneState.time += dt;
+  const t = arrestCutsceneState.time;
+  const progress = clamp(t / arrestCutsceneState.duration, 0, 1);
+  arrestCinematicProgressEl.style.transform = `scaleX(${progress})`;
+
+  const focusX = gameMode === "walking" ? outsideState.x : player.x;
+  const focusZ = gameMode === "walking" ? outsideState.z : player.z;
+  const heading = gameMode === "walking" ? outsideState.angle : player.angle;
+  const focusY = gameMode === "walking" ? 13 : 11;
+  let stage;
+  let stageProgress;
+  let orbitAngle;
+  let radius;
+  let height;
+  let wantedFov;
+
+  if (t < 1.35) {
+    stage = 0;
+    stageProgress = t / 1.35;
+    orbitAngle = heading + 0.72;
+    radius = lerp(122, 82, stageProgress);
+    height = lerp(48, 27, stageProgress);
+    wantedFov = lerp(58, 46, stageProgress);
+  } else if (t < 3.45) {
+    stage = 1;
+    stageProgress = (t - 1.35) / 2.1;
+    orbitAngle = heading + 0.72 + stageProgress * 1.85;
+    radius = 78 + Math.sin(stageProgress * Math.PI) * 10;
+    height = 25 + Math.sin(stageProgress * Math.PI) * 7;
+    wantedFov = 43;
+  } else if (t < 5.45) {
+    stage = 2;
+    stageProgress = (t - 3.45) / 2;
+    orbitAngle = heading + 2.57 - stageProgress * 0.92;
+    radius = lerp(92, 172, stageProgress);
+    height = lerp(42, 152, stageProgress);
+    wantedFov = lerp(48, 56, stageProgress);
+  } else {
+    stage = 3;
+    stageProgress = clamp((t - 5.45) / 1.75, 0, 1);
+    orbitAngle = heading + Math.PI + 0.13;
+    radius = lerp(82, 54, stageProgress);
+    height = lerp(34, 22, stageProgress);
+    wantedFov = lerp(48, 39, stageProgress);
+  }
+  setArrestCutsceneStage(stage);
+
+  const desired = new THREE.Vector3(
+    focusX + Math.sin(orbitAngle) * radius,
+    height,
+    focusZ + Math.cos(orbitAngle) * radius
+  );
+  const target = new THREE.Vector3(focusX, focusY, focusZ);
+  if (stage === 0 && cops.length > 0) {
+    let nearest = cops[0];
+    let nearestDistance = dist(nearest, { x: focusX, z: focusZ });
+    for (let i = 1; i < cops.length; i++) {
+      const distance = dist(cops[i], { x: focusX, z: focusZ });
+      if (distance < nearestDistance) {
+        nearest = cops[i];
+        nearestDistance = distance;
+      }
+    }
+    if (nearestDistance < 105) {
+      target.x = lerp(focusX, nearest.x, 0.22);
+      target.z = lerp(focusZ, nearest.z, 0.22);
+    }
+  }
+
+  const cameraSnap = stage === 1 || stage === 3 ? 5.5 : 3.5;
+  cameraState.position.lerp(desired, 1 - Math.exp(-dt * cameraSnap));
+  cameraState.target.lerp(target, 1 - Math.exp(-dt * 7));
+  camera.position.copy(cameraState.position);
+  const shake = Math.max(0, 1 - t / 1.1) * 1.8 + (stage === 3 ? 0.25 : 0);
+  camera.position.x += Math.sin(t * 29) * shake;
+  camera.position.y += Math.cos(t * 24) * shake * 0.35;
+  camera.lookAt(cameraState.target);
+  camera.rotation.z += Math.sin(t * 0.9) * 0.008;
+  camera.fov = lerp(camera.fov, wantedFov, 1 - Math.exp(-dt * 7));
+  camera.updateProjectionMatrix();
+  sun.position.set(focusX - 220, 470, focusZ + 160);
+  sun.target.position.set(focusX, 0, focusZ);
+  arrestFx.style.opacity = (0.2 + Math.max(0, Math.sin(t * 10)) * 0.17).toFixed(2);
+
+  if (t >= 6.35 && !arrestCutsceneState.finalHit) {
+    arrestCutsceneState.finalHit = true;
+    arrestCinematicEl.classList.add("final-hit");
+    playNoiseHit(0.42, 0.18, 360);
+    playTone(58, 0.72, "sawtooth", 0.11);
+  }
+  if (t >= arrestCutsceneState.duration) finishArrestCutscene();
+}
+
+function loseGame() {
+  startArrestCutscene();
 }
 
 function update(dt) {
@@ -8951,7 +9214,9 @@ function update(dt) {
   updateDriveEffects(dt);
   updateGlows(dt);
   updateStoreImpactFx(dt);
-  if (gameIntroState.active) {
+  if (arrestCutsceneState.active) {
+    updateArrestCutscene(dt);
+  } else if (gameIntroState.active) {
     drawMinimap();
   } else if (gameMode === "store") {
     updateStoreCamera(dt);
