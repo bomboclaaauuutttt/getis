@@ -506,6 +506,7 @@ const SMARKET_EXIT = { x: 6000, z: 306, radius: 64 };
 const storeState = {
   group: null,
   character: null,
+  returnMode: "driving",
   fist: null,
   x: 6000,
   y: 0,
@@ -4390,7 +4391,8 @@ function updateGameIntro(dt) {
 }
 
 function enterStoreMode() {
-  if (transitionLock || gameMode !== "driving") return;
+  if (transitionLock || (gameMode !== "driving" && gameMode !== "walking")) return;
+  storeState.returnMode = gameMode;
   transitionLock = true;
   playTone(320, 0.16, "triangle", 0.06);
   playTone(520, 0.22, "triangle", 0.045, 0.12);
@@ -4399,6 +4401,7 @@ function enterStoreMode() {
     gameMode = "store";
     world.visible = false;
     player.group.visible = false;
+    if (outsideState.character) outsideState.character.visible = false;
     storeState.group.visible = true;
     minimapEl.classList.add("hidden");
     mobileJumpButton.classList.toggle("hidden", !inputState.mobile);
@@ -4471,18 +4474,35 @@ function enterDrivingMode() {
   setTransition(true);
   if (document.pointerLockElement === canvas) document.exitPointerLock();
   window.setTimeout(() => {
-    gameMode = "driving";
+    const returnOnFoot = storeState.returnMode === "walking";
+    gameMode = returnOnFoot ? "walking" : "driving";
     world.visible = true;
     player.group.visible = true;
-    if (outsideState.character) outsideState.character.visible = false;
     minimapEl.classList.remove("hidden");
     mobileJumpButton.classList.add("hidden");
-    player.x = SMARKET_ENTRANCE.x;
-    player.z = SMARKET_ENTRANCE.z - 70;
-    player.vx = 0;
-    player.vz = 0;
-    player.angle = 0;
-    syncVehicle(player);
+    if (returnOnFoot) {
+      if (!outsideState.character) createOutsideCharacter();
+      applyCharacterStyleToPerson(outsideState.character, characterStyle);
+      outsideState.x = SMARKET_ENTRANCE.x;
+      outsideState.z = SMARKET_ENTRANCE.z - 58;
+      outsideState.angle = 0;
+      outsideState.walkCycle = 0;
+      outsideState.exitProtection = 0.55;
+      outsideState.carjackTarget = null;
+      outsideState.carjackTimer = 0;
+      outsideState.character.scale.setScalar(OUTSIDE_CHARACTER_SCALE);
+      outsideState.character.position.set(outsideState.x, 0, outsideState.z);
+      outsideState.character.rotation.set(0, OUTSIDE_CHARACTER_YAW_OFFSET, 0);
+      outsideState.character.visible = true;
+    } else {
+      if (outsideState.character) outsideState.character.visible = false;
+      player.x = SMARKET_ENTRANCE.x;
+      player.z = SMARKET_ENTRANCE.z - 70;
+      player.vx = 0;
+      player.vz = 0;
+      player.angle = 0;
+      syncVehicle(player);
+    }
     storeState.y = 0;
     storeState.vy = 0;
     storeState.grounded = true;
@@ -4510,9 +4530,16 @@ function enterDrivingMode() {
     if (storeState.fist) storeState.fist.visible = false;
     storeState.character.visible = true;
     storeState.group.visible = false;
-    cameraState.position.set(player.x, 210, player.z + 210);
-    cameraState.target.set(player.x, 0, player.z - 28);
-    hintEl.textContent = inputState.mobile ? "Joystick drive" : "W/S drive, A/D turn";
+    if (returnOnFoot) {
+      cameraState.position.set(outsideState.x, 88, outsideState.z + 138);
+      cameraState.target.set(outsideState.x, 15, outsideState.z - 34);
+      hintEl.textContent = inputState.mobile ? "Joystick walk" : "On foot | WASD walk | F near a car";
+    } else {
+      cameraState.position.set(player.x, 210, player.z + 210);
+      cameraState.target.set(player.x, 0, player.z - 28);
+      hintEl.textContent = inputState.mobile ? "Joystick drive" : "W/S drive, A/D turn";
+    }
+    updateChunks();
     window.setTimeout(() => {
       setTransition(false);
       transitionLock = false;
@@ -4926,8 +4953,11 @@ function updateGlows(dt) {
 }
 
 function checkSMarketEntrance() {
-  if (transitionLock || gameMode !== "driving") return;
-  if (Math.hypot(player.x - SMARKET_ENTRANCE.x, player.z - SMARKET_ENTRANCE.z) < SMARKET_ENTRANCE.radius) {
+  if (transitionLock || (gameMode !== "driving" && gameMode !== "walking")) return;
+  if (gameMode === "walking" && outsideState.carjackTarget) return;
+  const x = gameMode === "walking" ? outsideState.x : player.x;
+  const z = gameMode === "walking" ? outsideState.z : player.z;
+  if (Math.hypot(x - SMARKET_ENTRANCE.x, z - SMARKET_ENTRANCE.z) < SMARKET_ENTRANCE.radius) {
     enterStoreMode();
   }
 }
@@ -9013,6 +9043,7 @@ function resetGame() {
   storeState.y = 0;
   storeState.vy = 0;
   storeState.grounded = true;
+  storeState.returnMode = "driving";
   storeState.cameraMode = "first";
   storeState.cameraYaw = storeState.angle;
   storeState.hasMegaforce = false;
@@ -9353,6 +9384,7 @@ function update(dt) {
     if (chaseTime > POLICE_INITIAL_DISPATCH_DELAY + 0.2 && policeState.level > 0) hintEl.textContent += policeHudStatus();
   } else if (running && !gameOver && gameMode === "walking") {
     updateWalking(dt);
+    checkSMarketEntrance();
     if (worldHostControlsSimulation()) {
       updateTraffic(dt);
       updateCops(dt);
