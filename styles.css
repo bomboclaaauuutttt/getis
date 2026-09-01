@@ -2597,7 +2597,8 @@ body.arrested #notificationFeed {
 .garage-workshop {
   display: grid;
   grid-template-columns: minmax(390px, 0.86fr) minmax(520px, 1.14fr);
-  min-height: 550px;
+  height: min(650px, calc(100vh - 176px));
+  min-height: 0;
   max-height: calc(100vh - 176px);
 }
 
@@ -2606,6 +2607,7 @@ body.arrested #notificationFeed {
   display: grid;
   grid-template-rows: minmax(280px, 1fr) auto;
   min-width: 0;
+  min-height: 0;
   overflow: hidden;
   background: #252c2d;
   border-right: 1px solid rgba(255, 255, 255, 0.12);
@@ -2658,6 +2660,10 @@ body.arrested #notificationFeed {
 .garage-car.tier-2 { filter: drop-shadow(0 0 24px rgba(57, 255, 114, 0.3)); }
 .garage-car.tier-3 { transform: scale(1.04); filter: drop-shadow(0 0 30px rgba(57, 255, 114, 0.42)); }
 .garage-car.tier-4 { transform: scale(1.08); filter: drop-shadow(0 0 36px rgba(255, 223, 84, 0.5)); }
+.garage-car.tier-5 {
+  transform: scale(1.11);
+  filter: drop-shadow(0 0 18px rgba(57, 255, 114, 0.7)) drop-shadow(0 0 42px rgba(37, 133, 255, 0.58));
+}
 
 .garage-spoiler {
   position: absolute;
@@ -2671,7 +2677,8 @@ body.arrested #notificationFeed {
 }
 
 .garage-car.tier-3 .garage-spoiler,
-.garage-car.tier-4 .garage-spoiler {
+.garage-car.tier-4 .garage-spoiler,
+.garage-car.tier-5 .garage-spoiler {
   display: block;
 }
 
@@ -2726,6 +2733,7 @@ body.arrested #notificationFeed {
   align-content: start;
   gap: 1px;
   min-width: 0;
+  min-height: 0;
   overflow-y: auto;
   background: rgba(255, 255, 255, 0.1);
 }
@@ -2861,6 +2869,7 @@ body.arrested #notificationFeed {
 
   .garage-workshop {
     grid-template-columns: minmax(0, 1fr);
+    height: auto;
     min-height: 0;
     max-height: none;
   }
@@ -2880,9 +2889,16 @@ body.arrested #notificationFeed {
     transform: scale(0.82);
   }
 
+  .garage-car.tier-2,
+  .garage-car.tier-3,
+  .garage-car.tier-4,
+  .garage-car.tier-5 {
+    transform: scale(0.86);
+  }
+
   .garage-stats {
     gap: 7px;
-    padding: 11px 14px 13px;
+    padding: 11px 14px 17px;
   }
 
   .garage-stats > div {

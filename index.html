@@ -174,43 +174,75 @@
               <div data-garage-stat="accel"><span>Acceleration</span><b><i></i></b><strong>0</strong></div>
               <div data-garage-stat="grip"><span>Grip</span><b><i></i></b><strong>0</strong></div>
               <div data-garage-stat="brake"><span>Braking</span><b><i></i></b><strong>0</strong></div>
+              <div data-garage-stat="boost"><span>Boost</span><b><i></i></b><strong>0</strong></div>
+              <div data-garage-stat="durability"><span>Durability</span><b><i></i></b><strong>0</strong></div>
             </div>
           </section>
           <div class="garage-upgrades">
             <article class="garage-upgrade" data-upgrade="engine">
               <div><small>Power</small><h2>Engine</h2><p>Acceleration and torque.</p></div>
               <div class="garage-level" aria-label="Engine level"><i></i><i></i><i></i><i></i><i></i></div>
-              <button type="button" data-buy-upgrade="engine"><span>Level 1</span><strong>$40</strong></button>
+              <button type="button" data-buy-upgrade="engine"><span>Level 1</span><strong>$3,500</strong></button>
             </article>
             <article class="garage-upgrade" data-upgrade="turbo">
               <div><small>Boost</small><h2>Twin Turbo</h2><p>Power at high speed.</p></div>
               <div class="garage-level" aria-label="Turbo level"><i></i><i></i><i></i><i></i><i></i></div>
-              <button type="button" data-buy-upgrade="turbo"><span>Level 1</span><strong>$70</strong></button>
+              <button type="button" data-buy-upgrade="turbo"><span>Level 1</span><strong>$5,000</strong></button>
             </article>
             <article class="garage-upgrade" data-upgrade="transmission">
               <div><small>Speed</small><h2>Transmission</h2><p>Top speed and shifting.</p></div>
               <div class="garage-level" aria-label="Transmission level"><i></i><i></i><i></i><i></i><i></i></div>
-              <button type="button" data-buy-upgrade="transmission"><span>Level 1</span><strong>$55</strong></button>
+              <button type="button" data-buy-upgrade="transmission"><span>Level 1</span><strong>$4,200</strong></button>
             </article>
             <article class="garage-upgrade" data-upgrade="brakes">
               <div><small>Stopping</small><h2>Race Brakes</h2><p>Shorter braking distance.</p></div>
               <div class="garage-level" aria-label="Brake level"><i></i><i></i><i></i><i></i><i></i></div>
-              <button type="button" data-buy-upgrade="brakes"><span>Level 1</span><strong>$30</strong></button>
+              <button type="button" data-buy-upgrade="brakes"><span>Level 1</span><strong>$2,400</strong></button>
             </article>
             <article class="garage-upgrade" data-upgrade="tires">
               <div><small>Traction</small><h2>Sport Tires</h2><p>Grip on road and rain.</p></div>
               <div class="garage-level" aria-label="Tire level"><i></i><i></i><i></i><i></i><i></i></div>
-              <button type="button" data-buy-upgrade="tires"><span>Level 1</span><strong>$35</strong></button>
+              <button type="button" data-buy-upgrade="tires"><span>Level 1</span><strong>$2,800</strong></button>
             </article>
             <article class="garage-upgrade" data-upgrade="suspension">
               <div><small>Control</small><h2>Suspension</h2><p>Steering and stability.</p></div>
               <div class="garage-level" aria-label="Suspension level"><i></i><i></i><i></i><i></i><i></i></div>
-              <button type="button" data-buy-upgrade="suspension"><span>Level 1</span><strong>$40</strong></button>
+              <button type="button" data-buy-upgrade="suspension"><span>Level 1</span><strong>$3,200</strong></button>
             </article>
             <article class="garage-upgrade" data-upgrade="weight">
               <div><small>Chassis</small><h2>Weight Reduction</h2><p>Faster response everywhere.</p></div>
               <div class="garage-level" aria-label="Weight reduction level"><i></i><i></i><i></i><i></i><i></i></div>
-              <button type="button" data-buy-upgrade="weight"><span>Level 1</span><strong>$65</strong></button>
+              <button type="button" data-buy-upgrade="weight"><span>Level 1</span><strong>$4,500</strong></button>
+            </article>
+            <article class="garage-upgrade" data-upgrade="ecu">
+              <div><small>Electronics</small><h2>Race ECU</h2><p>Sharper throttle and stronger power delivery.</p></div>
+              <div class="garage-level" aria-label="ECU level"><i></i><i></i><i></i><i></i><i></i></div>
+              <button type="button" data-buy-upgrade="ecu"><span>Level 1</span><strong>$3,000</strong></button>
+            </article>
+            <article class="garage-upgrade" data-upgrade="differential">
+              <div><small>Drivetrain</small><h2>Limited Slip Diff</h2><p>More control through slides and tight corners.</p></div>
+              <div class="garage-level" aria-label="Differential level"><i></i><i></i><i></i><i></i><i></i></div>
+              <button type="button" data-buy-upgrade="differential"><span>Level 1</span><strong>$3,500</strong></button>
+            </article>
+            <article class="garage-upgrade" data-upgrade="aero">
+              <div><small>Body</small><h2>Aerodynamics</h2><p>Higher speed with more stability.</p></div>
+              <div class="garage-level" aria-label="Aerodynamics level"><i></i><i></i><i></i><i></i><i></i></div>
+              <button type="button" data-buy-upgrade="aero"><span>Level 1</span><strong>$4,800</strong></button>
+            </article>
+            <article class="garage-upgrade" data-upgrade="cooling">
+              <div><small>Endurance</small><h2>Race Cooling</h2><p>Keeps full power at extreme speed.</p></div>
+              <div class="garage-level" aria-label="Cooling level"><i></i><i></i><i></i><i></i><i></i></div>
+              <button type="button" data-buy-upgrade="cooling"><span>Level 1</span><strong>$2,600</strong></button>
+            </article>
+            <article class="garage-upgrade" data-upgrade="armor">
+              <div><small>Protection</small><h2>Reinforced Chassis</h2><p>Push through crashes without losing momentum.</p></div>
+              <div class="garage-level" aria-label="Chassis armor level"><i></i><i></i><i></i><i></i><i></i></div>
+              <button type="button" data-buy-upgrade="armor"><span>Level 1</span><strong>$5,500</strong></button>
+            </article>
+            <article class="garage-upgrade" data-upgrade="nitrous">
+              <div><small>Extreme</small><h2>Nitrous System</h2><p>Massive acceleration and speed under full power.</p></div>
+              <div class="garage-level" aria-label="Nitrous level"><i></i><i></i><i></i><i></i><i></i></div>
+              <button type="button" data-buy-upgrade="nitrous"><span>Level 1</span><strong>$8,000</strong></button>
             </article>
           </div>
         </div>

@@ -242,13 +242,19 @@ const OUTSIDE_CHARACTER_SCALE = 0.46;
 const GARAGE_ENTRANCE = Object.freeze({ x: 308, z: -177, radius: 40 });
 const GARAGE_STORAGE_KEY = "policeGetawayGarageUpgradesV2";
 const GARAGE_UPGRADES = Object.freeze({
-  engine: { prices: [40, 90, 180, 350, 650], label: "Engine" },
-  turbo: { prices: [70, 150, 300, 560, 950], label: "Twin Turbo" },
-  transmission: { prices: [55, 125, 250, 480, 820], label: "Transmission" },
-  brakes: { prices: [30, 70, 145, 290, 500], label: "Race Brakes" },
-  tires: { prices: [35, 80, 165, 310, 540], label: "Sport Tires" },
-  suspension: { prices: [40, 95, 190, 370, 620], label: "Suspension" },
-  weight: { prices: [65, 140, 280, 520, 900], label: "Weight Reduction" },
+  engine: { prices: [3500, 9000, 22000, 52000, 120000], label: "Engine" },
+  turbo: { prices: [5000, 14000, 34000, 78000, 175000], label: "Twin Turbo" },
+  transmission: { prices: [4200, 11000, 28000, 65000, 150000], label: "Transmission" },
+  brakes: { prices: [2400, 6500, 16000, 38000, 90000], label: "Race Brakes" },
+  tires: { prices: [2800, 7200, 18000, 42000, 98000], label: "Sport Tires" },
+  suspension: { prices: [3200, 8500, 21000, 48000, 110000], label: "Suspension" },
+  weight: { prices: [4500, 12000, 30000, 70000, 160000], label: "Weight Reduction" },
+  ecu: { prices: [3000, 8000, 20000, 46000, 105000], label: "Race ECU" },
+  differential: { prices: [3500, 9000, 23000, 54000, 125000], label: "Limited Slip Differential" },
+  aero: { prices: [4800, 13000, 32000, 75000, 170000], label: "Aerodynamics" },
+  cooling: { prices: [2600, 7000, 17500, 41000, 95000], label: "Race Cooling" },
+  armor: { prices: [5500, 15000, 38000, 88000, 200000], label: "Reinforced Chassis" },
+  nitrous: { prices: [8000, 22000, 55000, 125000, 280000], label: "Nitrous System" },
 });
 
 const mats = {
@@ -1516,18 +1522,21 @@ function playerSurfaceTuning() {
     tune.driftSlip *= lerp(1, 1.24, wetness);
     tune.throttleGripLoss *= lerp(1, 1.28, wetness);
   }
-  const { engine, turbo, transmission, brakes, tires, suspension, weight } = garageState.levels;
-  tune.accel *= (1 + engine * 0.13) * (1 + turbo * 0.075) * (1 + weight * 0.055);
+  const {
+    engine, turbo, transmission, brakes, tires, suspension, weight,
+    ecu, differential, aero, cooling, nitrous,
+  } = garageState.levels;
+  tune.accel *= (1 + engine * 0.13) * (1 + turbo * 0.075) * (1 + weight * 0.055) * (1 + ecu * 0.055) * (1 + nitrous * 0.04);
   tune.reverseAccel *= (1 + engine * 0.07) * (1 + weight * 0.035);
-  tune.maxSpeed *= (1 + engine * 0.025) * (1 + turbo * 0.07) * (1 + transmission * 0.11);
-  tune.highSpeedAccel *= (1 + turbo * 0.4) * (1 + transmission * 0.12);
-  tune.grip *= (1 + tires * 0.115) * (1 + suspension * 0.07);
+  tune.maxSpeed *= (1 + engine * 0.025) * (1 + turbo * 0.07) * (1 + transmission * 0.11) * (1 + aero * 0.02) * (1 + nitrous * 0.045);
+  tune.highSpeedAccel *= (1 + turbo * 0.4) * (1 + transmission * 0.12) * (1 + ecu * 0.18) * (1 + cooling * 0.28) * (1 + nitrous * 0.38);
+  tune.grip *= (1 + tires * 0.115) * (1 + suspension * 0.07) * (1 + differential * 0.08) * (1 + aero * 0.03);
   tune.brake *= 1 + brakes * 0.14;
-  tune.turnRate *= (1 + suspension * 0.075) * (1 + weight * 0.035);
-  tune.steerSharpness *= 1 + suspension * 0.075;
-  tune.steerBuild *= 1 + suspension * 0.06;
+  tune.turnRate *= (1 + suspension * 0.075) * (1 + weight * 0.035) * (1 + differential * 0.055);
+  tune.steerSharpness *= (1 + suspension * 0.075) * (1 + differential * 0.06);
+  tune.steerBuild *= (1 + suspension * 0.06) * (1 + differential * 0.055);
   tune.coast *= 1 + weight * 0.035;
-  tune.throttleGripLoss *= Math.max(0.62, 1 - tires * 0.045);
+  tune.throttleGripLoss *= Math.max(0.5, (1 - tires * 0.045) * (1 - differential * 0.04));
   tune.maxSpeed *= boost;
   tune.accel *= boost;
   tune.reverseAccel *= boost;
@@ -4871,8 +4880,12 @@ function checkSMarketEntrance() {
   }
 }
 
+function formatGarageCash(value) {
+  return `$${Math.floor(value).toLocaleString("en-US")}`;
+}
+
 function updateGarageScreen(status = "") {
-  garageMoneyEl.textContent = `$${Math.floor(money)}`;
+  garageMoneyEl.textContent = formatGarageCash(money);
   for (const [id, definition] of Object.entries(GARAGE_UPGRADES)) {
     const level = garageState.levels[id] || 0;
     const card = garageScreenEl.querySelector(`[data-upgrade="${id}"]`);
@@ -4883,14 +4896,16 @@ function updateGarageScreen(status = "") {
     card.classList.toggle("maxed", maxed);
     button.disabled = maxed;
     button.querySelector("span").textContent = maxed ? "Installed" : `Level ${level + 1}`;
-    button.querySelector("strong").textContent = maxed ? "MAX" : `$${definition.prices[level]}`;
+    button.querySelector("strong").textContent = maxed ? "MAX" : formatGarageCash(definition.prices[level]);
   }
   const levels = garageState.levels;
   const stats = {
-    speed: clamp(18 + levels.engine * 2 + levels.turbo * 6 + levels.transmission * 10, 0, 100),
-    accel: clamp(16 + levels.engine * 11 + levels.turbo * 6 + levels.weight * 4, 0, 100),
-    grip: clamp(20 + levels.tires * 11 + levels.suspension * 6, 0, 100),
-    brake: clamp(24 + levels.brakes * 14, 0, 100),
+    speed: clamp(12 + levels.engine * 2 + levels.turbo * 5 + levels.transmission * 7 + levels.aero * 4 + levels.nitrous * 5, 0, 100),
+    accel: clamp(12 + levels.engine * 7 + levels.turbo * 5 + levels.weight * 3 + levels.ecu * 7 + levels.nitrous * 4, 0, 100),
+    grip: clamp(16 + levels.tires * 8 + levels.suspension * 5 + levels.differential * 7 + levels.aero * 3, 0, 100),
+    brake: clamp(20 + levels.brakes * 13 + levels.tires * 3, 0, 100),
+    boost: clamp(5 + levels.turbo * 7 + levels.ecu * 3 + levels.cooling * 8 + levels.nitrous * 10, 0, 100),
+    durability: clamp(15 + levels.armor * 17, 0, 100),
   };
   for (const [id, value] of Object.entries(stats)) {
     const row = garageScreenEl.querySelector(`[data-garage-stat="${id}"]`);
@@ -4899,9 +4914,9 @@ function updateGarageScreen(status = "") {
     row.querySelector("strong").textContent = value;
   }
   const totalLevels = Object.values(levels).reduce((sum, level) => sum + level, 0);
-  const tier = totalLevels >= 29 ? 4 : totalLevels >= 19 ? 3 : totalLevels >= 8 ? 2 : 1;
+  const tier = totalLevels >= 60 ? 5 : totalLevels >= 46 ? 4 : totalLevels >= 28 ? 3 : totalLevels >= 12 ? 2 : 1;
   garageCarPreviewEl.className = `garage-car tier-${tier}`;
-  garageBuildLevelEl.textContent = tier === 4 ? "Outlaw build" : tier === 3 ? "Race build" : tier === 2 ? "Street tuned" : "Street stock";
+  garageBuildLevelEl.textContent = tier === 5 ? "Legend build" : tier === 4 ? "Outlaw build" : tier === 3 ? "Race build" : tier === 2 ? "Street tuned" : "Street stock";
   garageStatusEl.textContent = status || "Every installed part changes the current car.";
 }
 
@@ -4938,7 +4953,7 @@ function buyGarageUpgrade(id) {
   if (level >= definition.prices.length) return;
   const price = definition.prices[level];
   if (money < price) {
-    updateGarageScreen(`Not enough cash. ${definition.label} level ${level + 1} costs $${price}.`);
+    updateGarageScreen(`Not enough cash. ${definition.label} level ${level + 1} costs ${formatGarageCash(price)}.`);
     playUiError();
     return;
   }
@@ -7362,8 +7377,11 @@ function collideVehicles(a, b) {
   const relVz = a.vz - b.vz;
   const impactSpeed = Math.abs(relVx * nx + relVz * nz);
   const push = hit.overlap + 0.35;
-  const aMass = a === player ? 1.12 : isPoliceVehicle(a) ? (a.kind === "swat" ? 1.38 : 1.08) : (a.mass || 1);
-  const bMass = b === player ? 1.12 : isPoliceVehicle(b) ? (b.kind === "swat" ? 1.38 : 1.08) : (b.mass || 1);
+  const armorLevel = garageState.levels.armor || 0;
+  const armorStrength = armorLevel / 5;
+  const playerMass = 1.12 + armorLevel * 0.17;
+  const aMass = a === player ? playerMass : isPoliceVehicle(a) ? (a.kind === "swat" ? 1.38 : 1.08) : (a.mass || 1);
+  const bMass = b === player ? playerMass : isPoliceVehicle(b) ? (b.kind === "swat" ? 1.38 : 1.08) : (b.mass || 1);
   const totalMass = aMass + bMass;
   a.x += nx * push * (bMass / totalMass);
   a.z += nz * push * (bMass / totalMass);
@@ -7373,13 +7391,15 @@ function collideVehicles(a, b) {
   const aIntoB = a.vx * -nx + a.vz * -nz;
   const bIntoA = b.vx * nx + b.vz * nz;
   if (aIntoB > bIntoA) {
-    a.vx *= 0.38;
-    a.vz *= 0.38;
+    const retention = a === player ? lerp(0.38, 0.68, armorStrength) : 0.38;
+    a.vx *= retention;
+    a.vz *= retention;
     b.vx *= 0.8;
     b.vz *= 0.8;
   } else {
-    b.vx *= 0.38;
-    b.vz *= 0.38;
+    const retention = b === player ? lerp(0.38, 0.68, armorStrength) : 0.38;
+    b.vx *= retention;
+    b.vz *= retention;
     a.vx *= 0.8;
     a.vz *= 0.8;
   }
@@ -7401,7 +7421,7 @@ function collideVehicles(a, b) {
   }
   syncVehicle(a);
   syncVehicle(b);
-  if (a === player || b === player) cameraState.shake = Math.max(cameraState.shake, 0.55);
+  if (a === player || b === player) cameraState.shake = Math.max(cameraState.shake, lerp(0.55, 0.3, armorStrength));
   if (impactSpeed > 32) playCrashSound(impactSpeed * 0.72);
   if (impactSpeed > 105 && (a === player || b === player)) {
     const other = a === player ? b : a;
@@ -7415,8 +7435,9 @@ function collideVehicles(a, b) {
       } else {
         launchVehicle(other, dirX, dirZ, impactSpeed);
       }
-      player.vx *= 0.72;
-      player.vz *= 0.72;
+      const hardCrashRetention = lerp(0.72, 0.9, armorStrength);
+      player.vx *= hardCrashRetention;
+      player.vz *= hardCrashRetention;
     } else {
       hardCrashFx((a.x + b.x) * 0.5, (a.z + b.z) * 0.5, impactSpeed);
     }
