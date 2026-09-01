@@ -5956,6 +5956,19 @@ function isPoliceVehicle(v) {
   return !!v && POLICE_KINDS.has(v.kind);
 }
 
+function isPoliceBehindPlayer(cop, maxSideDistance = 34) {
+  if (!isPoliceVehicle(cop)) return false;
+  const forward = vehicleForward(player);
+  const right = vehicleRight(player);
+  const dx = cop.x - player.x;
+  const dz = cop.z - player.z;
+  const longitudinal = dx * forward.x + dz * forward.z;
+  const lateral = Math.abs(dx * right.x + dz * right.z);
+  const copForward = vehicleForward(cop);
+  const sameDirection = copForward.x * forward.x + copForward.z * forward.z;
+  return longitudinal < -5 && longitudinal > -78 && lateral < maxSideDistance && sameDirection > 0.28;
+}
+
 function vehicleRight(v) {
   return { x: Math.cos(v.angle), z: -Math.sin(v.angle) };
 }
@@ -7275,6 +7288,11 @@ function updateCops(dt) {
     const angleError = Math.abs(angleDelta(cop.angle, desired));
     let steering = clamp(angleDelta(cop.angle, desired) * (cop.personality === "calm" ? 1.65 : 2.45), -1, 1);
     let throttle = close ? 0.68 : angleError > 1.35 ? 0.45 : 1;
+    if (gameMode === "driving" && targetPlayer === player && isPoliceBehindPlayer(cop, 30) && angleError < 0.55) {
+      if (distanceToPlayer < 38) throttle = Math.min(throttle, -0.08);
+      else if (distanceToPlayer < 52) throttle = Math.min(throttle, 0.18);
+      else if (distanceToPlayer < 66) throttle = Math.min(throttle, 0.42);
+    }
     if (cop.policeRole === POLICE_ROLES.ROADBLOCK && roleDistance < 72) {
       cop.deployed = true;
       throttle = 0;
@@ -7377,9 +7395,11 @@ function collideVehicles(a, b) {
   const relVz = a.vz - b.vz;
   const impactSpeed = Math.abs(relVx * nx + relVz * nz);
   const push = hit.overlap + 0.35;
+  const rearPoliceContact = (a === player && isPoliceBehindPlayer(b)) || (b === player && isPoliceBehindPlayer(a));
+  const rearCop = a === player ? b : a;
   const armorLevel = garageState.levels.armor || 0;
   const armorStrength = armorLevel / 5;
-  const playerMass = 1.12 + armorLevel * 0.17;
+  const playerMass = (rearPoliceContact ? 3.15 : 1.12) + armorLevel * 0.17;
   const aMass = a === player ? playerMass : isPoliceVehicle(a) ? (a.kind === "swat" ? 1.38 : 1.08) : (a.mass || 1);
   const bMass = b === player ? playerMass : isPoliceVehicle(b) ? (b.kind === "swat" ? 1.38 : 1.08) : (b.mass || 1);
   const totalMass = aMass + bMass;
@@ -7391,17 +7411,33 @@ function collideVehicles(a, b) {
   const aIntoB = a.vx * -nx + a.vz * -nz;
   const bIntoA = b.vx * nx + b.vz * nz;
   if (aIntoB > bIntoA) {
-    const retention = a === player ? lerp(0.38, 0.68, armorStrength) : 0.38;
+    const retention = a === player
+      ? rearPoliceContact ? 0.95 : lerp(0.38, 0.68, armorStrength)
+      : rearPoliceContact && isPoliceVehicle(a) ? 0.56 : 0.38;
     a.vx *= retention;
     a.vz *= retention;
-    b.vx *= 0.8;
-    b.vz *= 0.8;
+    const otherRetention = rearPoliceContact && isPoliceVehicle(b) ? 0.58 : 0.8;
+    b.vx *= otherRetention;
+    b.vz *= otherRetention;
   } else {
-    const retention = b === player ? lerp(0.38, 0.68, armorStrength) : 0.38;
+    const retention = b === player
+      ? rearPoliceContact ? 0.95 : lerp(0.38, 0.68, armorStrength)
+      : rearPoliceContact && isPoliceVehicle(b) ? 0.56 : 0.38;
     b.vx *= retention;
     b.vz *= retention;
-    a.vx *= 0.8;
-    a.vz *= 0.8;
+    const otherRetention = rearPoliceContact && isPoliceVehicle(a) ? 0.58 : 0.8;
+    a.vx *= otherRetention;
+    a.vz *= otherRetention;
+  }
+  if (rearPoliceContact && isPoliceVehicle(rearCop)) {
+    const forward = vehicleForward(player);
+    const playerForwardSpeed = player.vx * forward.x + player.vz * forward.z;
+    const copForwardSpeed = rearCop.vx * forward.x + rearCop.vz * forward.z;
+    const transferredSpeed = clamp((copForwardSpeed - playerForwardSpeed) * 0.48, 0, 30);
+    player.vx += forward.x * transferredSpeed;
+    player.vz += forward.z * transferredSpeed;
+    rearCop.vx -= forward.x * transferredSpeed * 0.42;
+    rearCop.vz -= forward.z * transferredSpeed * 0.42;
   }
   if (a !== player && b !== player && impactSpeed < 38) {
     const aBlocker = { other: b, ahead: 34, side: -1 };
@@ -7421,7 +7457,10 @@ function collideVehicles(a, b) {
   }
   syncVehicle(a);
   syncVehicle(b);
-  if (a === player || b === player) cameraState.shake = Math.max(cameraState.shake, lerp(0.55, 0.3, armorStrength));
+  if (a === player || b === player) {
+    const collisionShake = rearPoliceContact ? 0.22 : lerp(0.55, 0.3, armorStrength);
+    cameraState.shake = Math.max(cameraState.shake, collisionShake);
+  }
   if (impactSpeed > 32) playCrashSound(impactSpeed * 0.72);
   if (impactSpeed > 105 && (a === player || b === player)) {
     const other = a === player ? b : a;
@@ -7531,10 +7570,14 @@ function updateCollisions(dt, fullWorldCollisions = true) {
     const d = gameMode === "walking"
       ? Math.hypot(outsideState.x - cop.x, outsideState.z - cop.z)
       : dist(player, cop);
-    const contact = gameMode !== "walking" && d < player.radius + cop.radius + 10;
-    const inArrestZone = d < COP_ARREST_RADIUS;
-    const boxedIn = gameMode !== "walking" && d < 55 && vehicleSpeed(player) < 78;
-    const copStillPushing = d < 48 && vehicleSpeed(cop) > 8;
+    const playerSpeed = gameMode === "walking" ? 0 : vehicleSpeed(player);
+    const rearPressure = gameMode === "driving" && isPoliceBehindPlayer(cop);
+    const contactSpeedLimit = rearPressure ? 34 : 92;
+    const zoneSpeedLimit = rearPressure ? 44 : 76;
+    const contact = gameMode !== "walking" && d < player.radius + cop.radius + 10 && playerSpeed < contactSpeedLimit;
+    const inArrestZone = d < COP_ARREST_RADIUS && (gameMode === "walking" || playerSpeed < zoneSpeedLimit);
+    const boxedIn = gameMode !== "walking" && d < 55 && playerSpeed < 62 && (!rearPressure || playerSpeed < 18);
+    const copStillPushing = d < 48 && vehicleSpeed(cop) > 8 && (gameMode === "walking" || playerSpeed < (rearPressure ? 24 : 58));
     if (contact || inArrestZone || boxedIn || copStillPushing) {
       const zonePressure = 0.68 + clamp((COP_ARREST_RADIUS - d) / COP_ARREST_RADIUS, 0, 1) * 0.48;
       arrestPressure = Math.max(arrestPressure, boxedIn ? 1.35 : contact ? 1.12 : copStillPushing ? 0.9 : zonePressure);
