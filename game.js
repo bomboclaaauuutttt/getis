@@ -51,6 +51,10 @@ const joinPublicButton = document.getElementById("joinPublicButton");
 const joinForm = document.getElementById("joinForm");
 const joinCodeInput = document.getElementById("joinCodeInput");
 const menuStatusEl = document.getElementById("menuStatus");
+const multiplayerLoadingEl = document.getElementById("multiplayerLoading");
+const multiplayerLoadingTitleEl = document.getElementById("multiplayerLoadingTitle");
+const multiplayerLoadingStatusEl = document.getElementById("multiplayerLoadingStatus");
+const cancelMultiplayerJoinButton = document.getElementById("cancelMultiplayerJoinButton");
 const gameCodeEl = document.getElementById("gameCode");
 const weatherHudEl = document.getElementById("weatherHud");
 const restartButton = document.getElementById("restartButton");
@@ -638,6 +642,8 @@ const PEER_PREFIX = "police-getaway-";
 const PUBLIC_SERVER_CODE = "PUBLIC";
 const PUBLIC_SERVER_PEER_ID = `${PEER_PREFIX}public`;
 const PUBLIC_SERVER_SEED = 735201;
+const PRIVATE_JOIN_TIMEOUT = 12000;
+const PUBLIC_JOIN_TIMEOUT = 20000;
 const multiplayer = {
   mode: "singleplayer",
   publicServer: false,
@@ -649,6 +655,10 @@ const multiplayer = {
   status: "",
   sendTimer: 0,
   worldSendTimer: 0,
+  attemptId: 0,
+  joining: false,
+  joinTimeout: 0,
+  publicPromotionStarted: false,
 };
 
 function makeTaperedBoxGeometry(width, height, depth, topScaleX = 0.72, topScaleZ = 0.82) {
@@ -8019,6 +8029,65 @@ function setMenuStatus(text) {
   menuStatusEl.textContent = text || "";
 }
 
+function setMultiplayerLoading(active, title = "Joining city", status = "Contacting multiplayer dispatch...") {
+  multiplayerLoadingEl.classList.toggle("hidden", !active);
+  multiplayerLoadingEl.setAttribute("aria-hidden", active ? "false" : "true");
+  document.body.classList.toggle("multiplayer-joining", active);
+  multiplayerLoadingTitleEl.textContent = title;
+  multiplayerLoadingStatusEl.textContent = status;
+  for (const control of [singleplayerButton, createGameButton, joinGameButton, joinPublicButton, joinCodeInput]) {
+    control.disabled = active;
+  }
+}
+
+function updateMultiplayerLoading(status, title = "") {
+  if (title) multiplayerLoadingTitleEl.textContent = title;
+  if (status) multiplayerLoadingStatusEl.textContent = status;
+}
+
+function clearMultiplayerJoinTimeout() {
+  if (multiplayer.joinTimeout) window.clearTimeout(multiplayer.joinTimeout);
+  multiplayer.joinTimeout = 0;
+}
+
+function beginMultiplayerAttempt(title, status) {
+  if (multiplayer.joining) return 0;
+  stopMultiplayer();
+  multiplayer.joining = true;
+  multiplayer.publicPromotionStarted = false;
+  setMultiplayerLoading(true, title, status);
+  setMenuStatus(status);
+  return multiplayer.attemptId;
+}
+
+function completeMultiplayerAttempt(attemptId, status = "Connected") {
+  if (attemptId !== multiplayer.attemptId || !multiplayer.joining) return false;
+  clearMultiplayerJoinTimeout();
+  multiplayer.joining = false;
+  setMultiplayerLoading(false);
+  setMenuStatus("");
+  setMultiplayerStatus(status);
+  updateGameCodeHud();
+  return true;
+}
+
+function failMultiplayerAttempt(attemptId, message) {
+  if (attemptId !== multiplayer.attemptId || !multiplayer.joining) return;
+  playUiError();
+  stopMultiplayer();
+  running = false;
+  gameIntroState.active = false;
+  gameIntroEl.classList.add("hidden");
+  gameIntroEl.setAttribute("aria-hidden", "true");
+  menuEl.classList.remove("hidden");
+  setMenuStatus(message);
+}
+
+function scheduleMultiplayerTimeout(attemptId, duration, message) {
+  clearMultiplayerJoinTimeout();
+  multiplayer.joinTimeout = window.setTimeout(() => failMultiplayerAttempt(attemptId, message), duration);
+}
+
 function cleanPlayerName(value) {
   const cleaned = String(value || "")
     .replace(/[^\w \-]/g, "")
@@ -8246,7 +8315,15 @@ function randomGameCode() {
 }
 
 function sendToConnection(conn, message) {
-  if (conn && conn.open) conn.send(message);
+  if (!conn || !conn.open) return false;
+  const bufferedAmount = conn.dataChannel?.bufferedAmount || 0;
+  if (message?.type === "world-state" && bufferedAmount > 640000) return false;
+  try {
+    conn.send(message);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function broadcastNetworkMessage(message, exceptPeer = "") {
@@ -8751,7 +8828,8 @@ function animateRemoteOutsideCharacter(remote, dt, moving) {
 function updateRemotePlayers(dt) {
   const now = performance.now();
   for (const [peerId, remote] of remotePlayers) {
-    if (now - (remote.lastSeen || now) > 9000) {
+    const directConnectionAlive = multiplayer.mode === "host" && !!multiplayer.connections.get(peerId)?.open;
+    if (!directConnectionAlive && now - (remote.lastSeen || now) > 18000) {
       removeRemotePlayer(peerId);
       continue;
     }
@@ -8839,7 +8917,10 @@ function handleNetworkMessage(fromPeer, message) {
   }
 
   if (message.type === "world-state") {
+    const finishingJoin = multiplayer.mode === "client" && multiplayer.joining;
+    if (finishingJoin) resetGame();
     applyWorldState(message.state);
+    if (finishingJoin) completeMultiplayerAttempt(multiplayer.attemptId, "Connected");
     return;
   }
 
@@ -8862,47 +8943,86 @@ function handleNetworkMessage(fromPeer, message) {
 
 function attachNetworkConnection(conn, options = {}) {
   const peerId = conn.peer;
-  if (multiplayer.connections.has(peerId)) {
-    try { multiplayer.connections.get(peerId).close(); } catch {}
+  const attemptId = options.attemptId ?? multiplayer.attemptId;
+  const previousConnection = multiplayer.connections.get(peerId);
+  if (previousConnection && previousConnection !== conn) {
+    try { previousConnection.close(); } catch {}
   }
   multiplayer.connections.set(peerId, conn);
   if (options.hostConnection) multiplayer.hostConnection = conn;
 
   conn.on("open", () => {
-    if (options.startOnOpen) resetGame();
+    if (attemptId !== multiplayer.attemptId || multiplayer.connections.get(peerId) !== conn) return;
     setMenuStatus("");
-    setMultiplayerStatus(multiplayer.mode === "host" ? `${multiplayer.connections.size} player joined` : "Connected");
+    setMultiplayerStatus(multiplayer.mode === "host" ? `${multiplayer.connections.size} players connected` : "Synchronizing city");
     updateGameCodeHud();
 
     if (multiplayer.mode === "host") {
-      sendToConnection(conn, { type: "peer-state", peerId: multiplayer.peerId, state: localNetworkState() });
       sendToConnection(conn, { type: "world-state", state: worldNetworkState() });
+      sendToConnection(conn, { type: "peer-state", peerId: multiplayer.peerId, state: localNetworkState() });
       for (const [otherPeer, remote] of remotePlayers) {
         if (otherPeer !== peerId && remote.remoteTarget) {
           sendToConnection(conn, { type: "peer-state", peerId: otherPeer, state: remote.remoteTarget });
         }
       }
+    } else if (options.hostConnection) {
+      updateMultiplayerLoading("Synchronizing shared traffic and police...");
     }
   });
 
-  conn.on("data", (message) => handleNetworkMessage(peerId, message));
+  conn.on("data", (message) => {
+    if (attemptId === multiplayer.attemptId && multiplayer.connections.get(peerId) === conn) {
+      handleNetworkMessage(peerId, message);
+    }
+  });
   conn.on("close", () => {
+    if (multiplayer.connections.get(peerId) !== conn) return;
     multiplayer.connections.delete(peerId);
     if (multiplayer.hostConnection === conn) multiplayer.hostConnection = null;
     removeRemotePlayer(peerId);
     if (multiplayer.mode === "host") broadcastNetworkMessage({ type: "peer-left", peerId });
-    setMultiplayerStatus(multiplayer.mode === "host" ? `${multiplayer.connections.size} players connected` : "Disconnected");
+    if (options.hostConnection && multiplayer.mode === "client") {
+      if (multiplayer.joining) {
+        if (multiplayer.publicServer) promotePublicJoinToHost(attemptId);
+        else failMultiplayerAttempt(attemptId, "Could not join. Check the code and that the host is still online.");
+      } else {
+        setMultiplayerStatus("Connection lost");
+        showNotification("Connection to host lost", true);
+        window.setTimeout(() => {
+          if (multiplayer.mode === "client" && !multiplayer.hostConnection) {
+            returnToMainMenu();
+            setMenuStatus("Connection lost. Join the server again.");
+          }
+        }, 600);
+      }
+    } else {
+      setMultiplayerStatus(`${multiplayer.connections.size} players connected`);
+    }
     updateGameCodeHud();
   });
   conn.on("error", () => {
+    if (attemptId !== multiplayer.attemptId || multiplayer.connections.get(peerId) !== conn) return;
+    if (options.hostConnection && multiplayer.joining) {
+      if (multiplayer.publicServer) promotePublicJoinToHost(attemptId);
+      else failMultiplayerAttempt(attemptId, "Could not connect to that private game.");
+      return;
+    }
     setMultiplayerStatus("Connection error");
     updateGameCodeHud();
   });
 }
 
 function stopMultiplayer() {
+  multiplayer.attemptId += 1;
+  clearMultiplayerJoinTimeout();
+  multiplayer.joining = false;
+  multiplayer.publicPromotionStarted = false;
+  setMultiplayerLoading(false);
   broadcastNetworkMessage({ type: "peer-left", peerId: multiplayer.peerId, name: playerName });
-  for (const conn of multiplayer.connections.values()) {
+  const activeConnections = [...multiplayer.connections.values()];
+  multiplayer.connections.clear();
+  multiplayer.hostConnection = null;
+  for (const conn of activeConnections) {
     try { conn.close(); } catch {}
   }
   if (multiplayer.peer) {
@@ -8913,8 +9033,6 @@ function stopMultiplayer() {
   multiplayer.peer = null;
   multiplayer.code = "";
   multiplayer.peerId = "";
-  multiplayer.connections.clear();
-  multiplayer.hostConnection = null;
   multiplayer.status = "";
   multiplayer.sendTimer = 0;
   multiplayer.worldSendTimer = 0;
@@ -8928,76 +9046,163 @@ function startSingleplayer() {
   resetGame();
 }
 
+function networkAttemptIsCurrent(attemptId, peer = null) {
+  return attemptId === multiplayer.attemptId && multiplayer.joining && (!peer || multiplayer.peer === peer);
+}
+
+function monitorPeerConnection(peer) {
+  peer.on("disconnected", () => {
+    if (multiplayer.peer !== peer || multiplayer.mode === "singleplayer") return;
+    setMultiplayerStatus("Network reconnecting");
+    updateGameCodeHud();
+    try { peer.reconnect(); } catch {}
+  });
+}
+
 function startHostPeer(attempt = 0, options = {}) {
   const publicServer = !!options.publicServer;
+  const attemptId = options.attemptId ?? multiplayer.attemptId;
+  if (!networkAttemptIsCurrent(attemptId)) return;
   const code = publicServer ? PUBLIC_SERVER_CODE : randomGameCode();
   const peerId = publicServer ? PUBLIC_SERVER_PEER_ID : PEER_PREFIX + code;
+  multiplayer.mode = "host";
   multiplayer.publicServer = publicServer;
   multiplayer.code = code;
   multiplayer.peerId = peerId;
   multiplayer.status = publicServer ? "Opening public server" : "Creating game";
   updateGameCodeHud();
-  setMenuStatus(publicServer ? "Joining public server..." : "Creating private game...");
+  updateMultiplayerLoading(publicServer ? "Opening the shared city..." : `Securing private game ${code}...`, publicServer ? "Joining public server" : "Creating private game");
 
   const peer = new window.Peer(peerId);
   multiplayer.peer = peer;
+  monitorPeerConnection(peer);
 
   peer.on("open", () => {
+    if (!networkAttemptIsCurrent(attemptId, peer)) return;
     multiplayer.mode = "host";
     multiplayer.publicServer = publicServer;
     multiplayer.status = publicServer ? "Public host" : "Waiting for players";
     seed = publicServer ? PUBLIC_SERVER_SEED : Number(code);
     resetGame();
-    updateGameCodeHud();
+    completeMultiplayerAttempt(attemptId, multiplayer.status);
     if (publicServer) showNotification(`${playerName} opened the public server`, true);
   });
 
-  peer.on("connection", (conn) => attachNetworkConnection(conn));
+  peer.on("connection", (conn) => {
+    if (multiplayer.peer === peer && multiplayer.mode === "host") attachNetworkConnection(conn, { attemptId });
+    else try { conn.close(); } catch {}
+  });
 
   peer.on("error", (error) => {
-    if (publicServer && error && error.type === "unavailable-id") {
-      try { peer.destroy(); } catch {}
-      joinGame(PUBLIC_SERVER_CODE, { publicServer: true });
+    if (attemptId !== multiplayer.attemptId || multiplayer.peer !== peer) return;
+    if (!multiplayer.joining) {
+      setMultiplayerStatus("Network warning");
+      updateGameCodeHud();
       return;
     }
-    if (!publicServer && error && error.type === "unavailable-id" && attempt < 4) {
+    if (error?.type === "unavailable-id") {
       try { peer.destroy(); } catch {}
-      startHostPeer(attempt + 1);
+      if (publicServer) {
+        updateMultiplayerLoading("Another player opened the city. Connecting to them...");
+        window.setTimeout(() => startClientPeer(PUBLIC_SERVER_CODE, true, attemptId), 350);
+      } else if (attempt < 4) {
+        startHostPeer(attempt + 1, { publicServer: false, attemptId });
+      } else {
+        failMultiplayerAttempt(attemptId, "Could not reserve a private game code. Try again.");
+      }
       return;
     }
-    playUiError();
-    setMenuStatus(publicServer ? "Public server failed. Try again." : "Multiplayer failed. Try again or use Singleplayer.");
-    setMultiplayerStatus("Network error");
-    updateGameCodeHud();
+    failMultiplayerAttempt(attemptId, publicServer ? "Public server failed. Try again." : "Multiplayer failed. Try again or use Singleplayer.");
   });
 }
 
+function startClientPeer(code, publicServer, attemptId) {
+  if (!networkAttemptIsCurrent(attemptId)) return;
+  multiplayer.mode = "client";
+  multiplayer.publicServer = publicServer;
+  multiplayer.code = code;
+  multiplayer.status = "Contacting host";
+  updateGameCodeHud();
+
+  const peer = new window.Peer();
+  multiplayer.peer = peer;
+  monitorPeerConnection(peer);
+  peer.on("open", (id) => {
+    if (!networkAttemptIsCurrent(attemptId, peer)) return;
+    multiplayer.peerId = id;
+    updateMultiplayerLoading("Host found. Opening a reliable connection...");
+    const targetPeer = publicServer ? PUBLIC_SERVER_PEER_ID : PEER_PREFIX + code;
+    const conn = peer.connect(targetPeer, { reliable: true });
+    attachNetworkConnection(conn, { hostConnection: true, attemptId });
+    window.setTimeout(() => {
+      if (!networkAttemptIsCurrent(attemptId, peer) || conn.open) return;
+      if (publicServer) promotePublicJoinToHost(attemptId);
+      else failMultiplayerAttempt(attemptId, "Could not join. Check the code and that the host is still online.");
+    }, 6500);
+  });
+  peer.on("error", (error) => {
+    if (attemptId !== multiplayer.attemptId || multiplayer.peer !== peer) return;
+    if (!multiplayer.joining) {
+      setMultiplayerStatus("Network warning");
+      updateGameCodeHud();
+      return;
+    }
+    if (publicServer && (error?.type === "peer-unavailable" || error?.type === "network")) {
+      promotePublicJoinToHost(attemptId);
+      return;
+    }
+    failMultiplayerAttempt(attemptId, publicServer ? "Could not join the public server. Try again." : "Could not connect to that private game.");
+  });
+}
+
+function promotePublicJoinToHost(attemptId) {
+  if (!networkAttemptIsCurrent(attemptId) || !multiplayer.publicServer || multiplayer.publicPromotionStarted) return;
+  multiplayer.publicPromotionStarted = true;
+  updateMultiplayerLoading("No public host answered. Opening the shared city...", "Starting public server");
+  const oldConnection = multiplayer.hostConnection;
+  if (oldConnection) multiplayer.connections.delete(oldConnection.peer);
+  multiplayer.hostConnection = null;
+  try { oldConnection?.close(); } catch {}
+  const oldPeer = multiplayer.peer;
+  multiplayer.peer = null;
+  try { oldPeer?.destroy(); } catch {}
+  window.setTimeout(() => startHostPeer(0, { publicServer: true, attemptId }), 300);
+}
+
 function createGame() {
+  if (multiplayer.joining) return;
   if (!peerLibraryReady()) {
     playUiError();
     setMenuStatus("Multiplayer needs internet access. PeerJS did not load.");
     return;
   }
   playConfirmSound();
-  stopMultiplayer();
-  multiplayer.mode = "host";
-  startHostPeer(0, { publicServer: false });
+  const attemptId = beginMultiplayerAttempt("Creating private game", "Reserving a secure six digit game code...");
+  if (!attemptId) return;
+  scheduleMultiplayerTimeout(attemptId, PRIVATE_JOIN_TIMEOUT, "Private game creation timed out. Try again.");
+  startHostPeer(0, { publicServer: false, attemptId });
 }
 
 function showJoinGame() {
+  if (multiplayer.joining) return;
   playConfirmSound();
+  if (!joinForm.classList.contains("hidden") && joinCodeInput.value.length === 6) {
+    joinGame(joinCodeInput.value);
+    return;
+  }
   joinForm.classList.remove("hidden");
   setMenuStatus("Enter the 6 digit game code.");
-  joinCodeInput.value = "";
   joinCodeInput.focus();
 }
 
 function joinGame(code, options = {}) {
+  if (multiplayer.joining) return;
   const publicServer = !!options.publicServer;
   const cleanCode = publicServer ? PUBLIC_SERVER_CODE : String(code || "").replace(/\D/g, "").slice(0, 6);
   if (!publicServer && cleanCode.length !== 6) {
     playUiError();
     setMenuStatus("Game code must be 6 numbers.");
+    joinCodeInput.focus();
     return;
   }
   if (!peerLibraryReady()) {
@@ -9006,57 +9211,38 @@ function joinGame(code, options = {}) {
     return;
   }
   playConfirmSound();
-
-  stopMultiplayer();
+  const attemptId = beginMultiplayerAttempt(
+    publicServer ? "Joining public server" : "Joining private game",
+    publicServer ? "Finding the shared city..." : `Contacting game ${cleanCode}...`
+  );
+  if (!attemptId) return;
   multiplayer.mode = "client";
   multiplayer.publicServer = publicServer;
   multiplayer.code = cleanCode;
   seed = publicServer ? PUBLIC_SERVER_SEED : Number(cleanCode);
-  multiplayer.status = "Joining";
-  updateGameCodeHud();
-  setMenuStatus(publicServer ? "Joining public server..." : "Joining private game...");
-
-  const peer = new window.Peer();
-  multiplayer.peer = peer;
-  peer.on("open", (id) => {
-    multiplayer.peerId = id;
-    const conn = peer.connect(publicServer ? PUBLIC_SERVER_PEER_ID : PEER_PREFIX + cleanCode, { reliable: false });
-    attachNetworkConnection(conn, { hostConnection: true, startOnOpen: true });
-    window.setTimeout(() => {
-      if (multiplayer.mode === "client" && !conn.open) {
-        if (publicServer) {
-          try { peer.destroy(); } catch {}
-          multiplayer.mode = "host";
-          startHostPeer(0, { publicServer: true });
-        } else {
-          playUiError();
-          setMenuStatus("Could not join. Check the code and that host is still in game.");
-          setMultiplayerStatus("No host found");
-          updateGameCodeHud();
-        }
-      }
-    }, 6000);
-  });
-  peer.on("error", () => {
-    playUiError();
-    setMenuStatus(publicServer ? "Could not join public server. Try again." : "Could not connect to multiplayer. Try again.");
-    setMultiplayerStatus("Network error");
-    updateGameCodeHud();
-  });
+  scheduleMultiplayerTimeout(
+    attemptId,
+    publicServer ? PUBLIC_JOIN_TIMEOUT : PRIVATE_JOIN_TIMEOUT,
+    publicServer ? "Public server connection timed out. Try again." : "Private game connection timed out. Check the code and try again."
+  );
+  startClientPeer(cleanCode, publicServer, attemptId);
 }
 
 function joinPublicServer() {
-  if (!peerLibraryReady()) {
-    playUiError();
-    setMenuStatus("Multiplayer needs internet access. PeerJS did not load.");
-    return;
-  }
+  if (multiplayer.joining) return;
   joinForm.classList.add("hidden");
   joinGame(PUBLIC_SERVER_CODE, { publicServer: true });
 }
 
+function cancelMultiplayerJoin() {
+  if (!multiplayer.joining) return;
+  playUiClick();
+  stopMultiplayer();
+  setMenuStatus("Multiplayer join cancelled.");
+}
+
 function sendNetworkState(dt) {
-  if (multiplayer.mode === "singleplayer" || !running || gameOver) return;
+  if (multiplayer.mode === "singleplayer" || (!running && !gameOver)) return;
   multiplayer.sendTimer += dt;
   if (multiplayer.sendTimer < 0.055) return;
   multiplayer.sendTimer = 0;
@@ -9065,7 +9251,7 @@ function sendNetworkState(dt) {
   if (multiplayer.mode === "host") {
     broadcastNetworkMessage({ type: "peer-state", peerId: multiplayer.peerId, state });
     multiplayer.worldSendTimer += 0.055;
-    if (multiplayer.worldSendTimer >= 0.11) {
+    if (multiplayer.worldSendTimer >= 0.16) {
       multiplayer.worldSendTimer = 0;
       broadcastNetworkMessage({ type: "world-state", state: worldNetworkState() });
     }
@@ -9514,7 +9700,6 @@ function update(dt) {
       updateNetworkWorldVehicles(dt);
     }
     updateCollisions(dt, worldHostControlsSimulation());
-    sendNetworkState(dt);
     if (chaseTime > POLICE_INITIAL_DISPATCH_DELAY + 0.2 && policeState.level > 0) hintEl.textContent += policeHudStatus();
   } else if (running && !gameOver && gameMode === "walking") {
     updateWalking(dt);
@@ -9526,7 +9711,6 @@ function update(dt) {
       updateNetworkWorldVehicles(dt);
     }
     updateCollisions(dt, worldHostControlsSimulation());
-    sendNetworkState(dt);
     if (chaseTime > POLICE_INITIAL_DISPATCH_DELAY + 0.2 && policeState.level > 0) hintEl.textContent = `On foot${policeHudStatus()}`;
   } else if (running && !gameOver && gameMode === "store") {
     moveStoreCharacter(dt);
@@ -9534,8 +9718,8 @@ function update(dt) {
     updateStoreShop(dt);
     updateStoreDeath(dt);
     updateStoreHealthHud();
-    sendNetworkState(dt);
   }
+  sendNetworkState(dt);
   updateWantedMeter();
   updateMobileControlLayout();
   updatePoliceLights(dt);
@@ -9733,6 +9917,7 @@ singleplayerButton.addEventListener("click", startSingleplayer);
 createGameButton.addEventListener("click", createGame);
 joinGameButton.addEventListener("click", showJoinGame);
 joinPublicButton.addEventListener("click", joinPublicServer);
+cancelMultiplayerJoinButton.addEventListener("click", cancelMultiplayerJoin);
 joinCodeInput.addEventListener("input", () => {
   joinCodeInput.value = joinCodeInput.value.replace(/\D/g, "").slice(0, 6);
 });
