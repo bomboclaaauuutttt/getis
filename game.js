@@ -62,6 +62,9 @@ const storeHealthLabelEl = storeHealthEl.querySelector("span");
 const storeHealthFillEl = storeHealthEl.querySelector("b");
 const purchasePromptEl = document.getElementById("purchasePrompt");
 const purchasePromptKeyEl = purchasePromptEl.querySelector("span");
+const checkoutSequenceEl = document.getElementById("checkoutSequence");
+const checkoutSequenceStatusEl = document.getElementById("checkoutSequenceStatus");
+const checkoutSequenceProgressEl = document.getElementById("checkoutSequenceProgress");
 const gameIntroEl = document.getElementById("gameIntro");
 const pauseMenuEl = document.getElementById("pauseMenu");
 const pauseModeHintEl = document.getElementById("pauseModeHint");
@@ -561,10 +564,14 @@ const storeState = {
   vendorWalkCycle: 0,
   vendorKnife: null,
   scanner: null,
+  scannerBeam: null,
+  paymentScreen: null,
+  receipt: null,
   megaforceDisplay: null,
   purchaseFx: null,
   purchaseTimer: 0,
   purchaseDuration: 0,
+  purchaseCue: 0,
   drinkCan: null,
   hasMegaforce: false,
   drinking: false,
@@ -3094,15 +3101,34 @@ function addMegaforceDisplay(parent, x, y, z) {
   const display = new THREE.Group();
   display.position.set(x, y, z);
   display.rotation.y = Math.PI;
-  display.scale.setScalar(1.5);
   parent.add(display);
   storeState.megaforceDisplay = display;
 
-  attachMegaforceModel(display, 34);
+  const centerCan = new THREE.Group();
+  centerCan.position.y = 2;
+  attachMegaforceModel(centerCan, 26);
+  const leftCan = new THREE.Group();
+  leftCan.position.set(-19, -2, 1);
+  leftCan.rotation.z = -0.08;
+  attachMegaforceModel(leftCan, 22);
+  const rightCan = new THREE.Group();
+  rightCan.position.set(19, -2, 1);
+  rightCan.rotation.z = 0.08;
+  attachMegaforceModel(rightCan, 22);
 
-  const glow = new THREE.Mesh(new THREE.RingGeometry(18, 29, 32), mats.megaforceGlow);
+  const plinth = new THREE.Mesh(
+    new THREE.CylinderGeometry(35, 38, 6, 32),
+    new THREE.MeshStandardMaterial({ color: 0x111719, roughness: 0.42, metalness: 0.58 })
+  );
+  plinth.position.y = -17;
+  const trim = new THREE.Mesh(new THREE.TorusGeometry(34, 1.2, 7, 32), mats.megaforceBlue);
+  trim.rotation.x = -Math.PI / 2;
+  trim.position.y = -13.5;
+  display.add(plinth, trim, centerCan, leftCan, rightCan);
+
+  const glow = new THREE.Mesh(new THREE.RingGeometry(24, 38, 32), mats.megaforceGlow);
   glow.rotation.x = -Math.PI / 2;
-  glow.position.y = -18;
+  glow.position.y = -19.5;
   display.add(glow);
   glowingObjects.push(glow);
   return display;
@@ -3229,8 +3255,28 @@ function createSMarketInterior() {
   scanner.position.set(6052, 43, -192);
   const counterScreen = makeBox(38, 24, 4, mats.marketBlue);
   counterScreen.position.set(6108, 58, -244);
-  group.add(belt, register, scanner, counterScreen);
+  const scannerBeam = makeBox(42, 2.2, 26, makeGlowMaterial(0xff3048, 0.72));
+  scannerBeam.position.set(6052, 55, -192);
+  scannerBeam.visible = false;
+
+  const paymentTerminal = new THREE.Group();
+  paymentTerminal.position.set(6088, 43, -188);
+  paymentTerminal.rotation.x = -0.18;
+  const paymentBody = makeBox(24, 8, 30, mats.pumpDark);
+  const paymentScreen = makeBox(18, 2.2, 18, mats.marketBlue.clone());
+  paymentScreen.position.set(0, 5, -2);
+  paymentTerminal.add(paymentBody, paymentScreen);
+
+  const receipt = makeBox(26, 0.8, 36, new THREE.MeshBasicMaterial({ color: 0xf4f0dc }));
+  receipt.position.set(6118, 64, -220);
+  receipt.rotation.z = -0.08;
+  receipt.visible = false;
+
+  group.add(belt, register, scanner, counterScreen, scannerBeam, paymentTerminal, receipt);
   storeState.scanner = scanner;
+  storeState.scannerBeam = scannerBeam;
+  storeState.paymentScreen = paymentScreen;
+  storeState.receipt = receipt;
   glowingObjects.push(scanner, counterScreen);
 
   const vendor = makeVendor();
@@ -3239,7 +3285,7 @@ function createSMarketInterior() {
   storeState.vendor = vendor;
   resetVendorAtCheckout();
 
-  addMegaforceDisplay(group, 6008, 64, -198);
+  addMegaforceDisplay(group, 6008, 55, -198);
 
   const megaforceSign = makeBox(210, 64, 5, makeStoreTextMaterial("MEGAFORCE", "ENERGY 2e", "#118bdb"));
   megaforceSign.position.set(6000, 76, -316);
@@ -3287,10 +3333,11 @@ function storeRectCollision(x, z, radius, rect) {
 
 function moveStoreCharacter(dt) {
   if (storeState.dead) return;
-  const moveInput = inputState.mobile
+  const checkoutLocked = storeState.purchaseTimer > 0;
+  const moveInput = checkoutLocked ? 0 : inputState.mobile
     ? inputState.throttle
     : (keys.has("w") || keys.has("arrowup") ? 1 : 0) + (keys.has("s") || keys.has("arrowdown") ? -1 : 0);
-  const strafeInput = inputState.mobile
+  const strafeInput = checkoutLocked ? 0 : inputState.mobile
     ? 0
     : (keys.has("d") || keys.has("arrowright") ? 1 : 0) + (keys.has("a") || keys.has("arrowleft") ? -1 : 0);
 
@@ -3451,7 +3498,7 @@ function updateStorePunch(dt) {
 
 function startStorePunch(event) {
   if (event.button !== 0 || gameMode !== "store" || transitionLock || storeState.dead || paused || garageState.open) return;
-  if (storeState.punchCooldown > 0 || storeState.drinking) return;
+  if (storeState.punchCooldown > 0 || storeState.drinking || storeState.purchaseTimer > 0) return;
   if (!inputState.mobile && document.pointerLockElement !== canvas) requestStorePointerLock();
   storeState.punchCharging = true;
   storeState.punchCharge = 0;
@@ -3475,62 +3522,144 @@ function storeMegaforceDistance() {
 }
 
 function removeStorePurchaseFx() {
-  if (!storeState.purchaseFx || !storeState.group) return;
-  storeState.group.remove(storeState.purchaseFx);
+  if (storeState.purchaseFx && storeState.group) storeState.group.remove(storeState.purchaseFx);
   storeState.purchaseFx = null;
+  storeState.purchaseCue = 0;
+  if (storeState.megaforceDisplay) storeState.megaforceDisplay.visible = true;
+  if (storeState.scanner) storeState.scanner.scale.set(1, 1, 1);
+  if (storeState.scannerBeam) {
+    storeState.scannerBeam.visible = false;
+    storeState.scannerBeam.material.color.setHex(0xff3048);
+  }
+  if (storeState.paymentScreen) storeState.paymentScreen.material.color.setHex(0x1b8fe8);
+  if (storeState.receipt) storeState.receipt.visible = false;
+  checkoutSequenceEl.classList.add("hidden");
+  checkoutSequenceEl.dataset.stage = "";
+  checkoutSequenceProgressEl.style.transform = "scaleX(0)";
 }
 
 function startMegaforcePurchaseAnimation() {
   removeStorePurchaseFx();
   const fx = new THREE.Group();
-  fx.position.set(6008, 69, -151);
-  attachMegaforceModel(fx, 38);
-
-  const ring = new THREE.Mesh(new THREE.RingGeometry(24, 38, 32), makeGlowMaterial(0x39ff72, 0.7));
-  ring.rotation.x = -Math.PI / 2;
-  ring.position.y = -28;
-  fx.add(ring);
-  glowingObjects.push(ring);
+  fx.position.set(6008, 55, -198);
+  attachMegaforceModel(fx, 26);
 
   storeState.group.add(fx);
   storeState.purchaseFx = fx;
-  storeState.purchaseDuration = 1.15;
+  storeState.purchaseDuration = 2.65;
   storeState.purchaseTimer = storeState.purchaseDuration;
+  storeState.purchaseCue = 0;
+  if (storeState.megaforceDisplay) storeState.megaforceDisplay.visible = false;
   if (storeState.scanner) storeState.scanner.scale.set(1.7, 1.45, 1.7);
+  checkoutSequenceStatusEl.textContent = "OuTii picks up Megis";
+  checkoutSequenceProgressEl.style.transform = "scaleX(0)";
+  checkoutSequenceEl.dataset.stage = "pickup";
+  checkoutSequenceEl.classList.remove("hidden");
+  playTone(310, 0.08, "triangle", 0.045);
+  playNoiseHit(0.06, 0.025, 1100);
 }
 
 function updateMegaforcePurchaseAnimation(dt) {
   if (storeState.purchaseTimer <= 0) return;
   storeState.purchaseTimer = Math.max(0, storeState.purchaseTimer - dt);
   const t = 1 - storeState.purchaseTimer / Math.max(0.01, storeState.purchaseDuration);
-  const eased = 1 - Math.pow(1 - t, 3);
-  const wobble = Math.sin(t * Math.PI * 3) * (1 - t);
+  const pickup = smoothStep01(t / 0.24);
+  const scan = smoothStep01((t - 0.24) / 0.24);
+  const handoff = smoothStep01((t - 0.68) / 0.32);
   const targetX = storeState.x + Math.sin(storeState.angle) * 20 - Math.cos(storeState.angle) * 16;
   const targetZ = storeState.z + Math.cos(storeState.angle) * 20 + Math.sin(storeState.angle) * 16;
-  const targetY = 58 + Math.sin(t * Math.PI) * 24;
+  const source = { x: 6008, y: 55, z: -198 };
+  const vendorHand = { x: 6004, y: 56, z: -244 };
+  const scanPoint = { x: 6052, y: 54, z: -192 };
 
   if (storeState.purchaseFx) {
-    storeState.purchaseFx.position.set(
-      lerp(6008, targetX, eased),
-      lerp(69, targetY, eased),
-      lerp(-151, targetZ, eased)
-    );
-    storeState.purchaseFx.rotation.y += dt * (7 + wobble * 4);
-    storeState.purchaseFx.rotation.z = wobble * 0.28;
-    storeState.purchaseFx.scale.setScalar(1 + Math.sin(t * Math.PI) * 0.32);
+    let x = lerp(source.x, vendorHand.x, pickup);
+    let y = lerp(source.y, vendorHand.y, pickup) + Math.sin(pickup * Math.PI) * 8;
+    let z = lerp(source.z, vendorHand.z, pickup);
+    if (t >= 0.24) {
+      x = lerp(vendorHand.x, scanPoint.x, scan);
+      y = lerp(vendorHand.y, scanPoint.y, scan) + Math.sin(scan * Math.PI) * 7;
+      z = lerp(vendorHand.z, scanPoint.z, scan);
+    }
+    if (t >= 0.68) {
+      x = lerp(scanPoint.x, targetX, handoff);
+      y = lerp(scanPoint.y, 58, handoff) + Math.sin(handoff * Math.PI) * 28;
+      z = lerp(scanPoint.z, targetZ, handoff);
+    }
+    storeState.purchaseFx.position.set(x, y, z);
+    storeState.purchaseFx.rotation.y += dt * (t < 0.48 ? 5.5 : 2.2);
+    storeState.purchaseFx.rotation.z = Math.sin(t * Math.PI * 2) * 0.08;
+    storeState.purchaseFx.scale.setScalar(1 + Math.sin(t * Math.PI) * 0.16);
   }
+
+  const vendor = storeState.vendor;
+  if (vendor && !storeState.vendorDead) {
+    const reach = Math.sin(clamp(t / 0.68, 0, 1) * Math.PI);
+    const give = Math.sin(handoff * Math.PI);
+    vendor.rotation.y += angleDelta(vendor.rotation.y, 0) * (1 - Math.exp(-dt * 12));
+    if (vendor.userData.rightArm) {
+      vendor.userData.rightArm.rotation.x = lerp(vendor.userData.rightArm.rotation.x, -0.2 - reach * 1.05 - give * 0.38, 1 - Math.exp(-dt * 16));
+      vendor.userData.rightArm.rotation.z = lerp(vendor.userData.rightArm.rotation.z, -0.12 - give * 0.32, 1 - Math.exp(-dt * 16));
+    }
+    if (vendor.userData.leftArm) {
+      vendor.userData.leftArm.rotation.x = lerp(vendor.userData.leftArm.rotation.x, -reach * 0.56, 1 - Math.exp(-dt * 14));
+    }
+    if (vendor.userData.head) vendor.userData.head.rotation.y = Math.sin(t * Math.PI) * -0.18;
+  }
+
   if (storeState.scanner) {
-    const pulse = 1 + Math.sin(t * Math.PI) * 1.2;
-    storeState.scanner.scale.set(pulse, 1 + pulse * 0.18, pulse);
+    const scanPulse = t >= 0.4 && t < 0.68 ? 1 + Math.sin((t - 0.4) * Math.PI * 18) * 0.42 : 1;
+    storeState.scanner.scale.set(scanPulse, 1 + (scanPulse - 1) * 0.4, scanPulse);
+  }
+  if (storeState.scannerBeam) {
+    storeState.scannerBeam.visible = t >= 0.4 && t < 0.68;
+    storeState.scannerBeam.material.opacity = 0.42 + Math.sin(t * Math.PI * 24) * 0.24;
+  }
+  if (storeState.receipt) {
+    const receiptProgress = smoothStep01((t - 0.58) / 0.22);
+    storeState.receipt.visible = t >= 0.58;
+    storeState.receipt.position.y = 64 + receiptProgress * 5;
+    storeState.receipt.position.z = -220 + receiptProgress * 22;
+  }
+
+  checkoutSequenceProgressEl.style.transform = `scaleX(${clamp(t, 0, 1)})`;
+  if (t < 0.24) {
+    checkoutSequenceEl.dataset.stage = "pickup";
+    checkoutSequenceStatusEl.textContent = "OuTii picks up Megis";
+  } else if (t < 0.56) {
+    checkoutSequenceEl.dataset.stage = "scan";
+    checkoutSequenceStatusEl.textContent = "Scanning Megis";
+  } else if (t < 0.72) {
+    checkoutSequenceEl.dataset.stage = "payment";
+    checkoutSequenceStatusEl.textContent = "Contactless payment";
+  } else {
+    checkoutSequenceEl.dataset.stage = "approved";
+    checkoutSequenceStatusEl.textContent = "Approved - Megis is yours";
+  }
+
+  if (t >= 0.4 && storeState.purchaseCue < 1) {
+    storeState.purchaseCue = 1;
+    playTone(1180, 0.075, "square", 0.075);
+    playNoiseHit(0.055, 0.025, 2200);
+  }
+  if (t >= 0.6 && storeState.purchaseCue < 2) {
+    storeState.purchaseCue = 2;
+    if (storeState.scannerBeam) storeState.scannerBeam.material.color.setHex(0x39ff72);
+    if (storeState.paymentScreen) storeState.paymentScreen.material.color.setHex(0x39ff72);
+    playPurchaseSound();
+  }
+  if (t >= 0.86 && storeState.purchaseCue < 3) {
+    storeState.purchaseCue = 3;
+    playConfirmSound();
   }
 
   if (storeState.purchaseTimer <= 0) {
     removeStorePurchaseFx();
-    if (storeState.scanner) storeState.scanner.scale.set(1, 1, 1);
     storeState.hasMegaforce = true;
     storeState.drinking = false;
     storeState.drinkProgress = 0;
-    showNotification("Megis acquired - hold right mouse to drink", true);
+    resetPersonPose(storeState.vendor);
+    showNotification(`${VENDOR_NAME} handed Megis to ${playerName}`, true);
   }
 }
 
@@ -3539,6 +3668,11 @@ function tryBuyMegaforce() {
   if (storeState.vendorDead) {
     playUiError();
     showNotification(`${VENDOR_NAME} is not at the checkout`);
+    return;
+  }
+  if (storeState.vendorAggroTimer > 0) {
+    playUiError();
+    showNotification(`${VENDOR_NAME} refuses service during a fight`);
     return;
   }
   if (storeState.hasMegaforce) {
@@ -3558,7 +3692,6 @@ function tryBuyMegaforce() {
   }
   money -= 2;
   moneyEl.textContent = "$" + Math.floor(money);
-  playPurchaseSound();
   storeState.punchCharging = false;
   storeState.punchTimer = 0;
   storeState.drinkDuration = 2.35;
@@ -3567,7 +3700,6 @@ function tryBuyMegaforce() {
   storeState.hasMegaforce = false;
   storeState.drinking = false;
   storeState.boostReady = false;
-  showNotification(`${playerName} purchased Megis`, true);
   startMegaforcePurchaseAnimation();
 }
 
@@ -3591,16 +3723,18 @@ function updateStoreShop(dt) {
   }
 
   const nearCheckout = storeMegaforceDistance() < 96;
-  purchasePromptEl.classList.toggle("hidden", gameMode !== "store" || !nearCheckout || storeState.hasMegaforce || storeState.drinking || storeState.purchaseTimer > 0 || storeState.dead || storeState.vendorDead);
+  purchasePromptEl.classList.toggle("hidden", gameMode !== "store" || !nearCheckout || storeState.hasMegaforce || storeState.drinking || storeState.purchaseTimer > 0 || storeState.dead || storeState.vendorDead || storeState.vendorAggroTimer > 0);
 
   if (storeState.purchaseTimer > 0) {
-    hintEl.textContent = "Purchasing Megis...";
+    hintEl.textContent = checkoutSequenceStatusEl.textContent;
   } else if (storeState.drinking) {
     hintEl.textContent = "Drinking Megaforce...";
   } else if (storeState.hasMegaforce) {
     hintEl.textContent = inputState.mobile ? "Hold DRINK to use Megaforce" : "Hold right mouse to drink Megaforce";
   } else if (storeState.vendorDead) {
     hintEl.textContent = `${VENDOR_NAME} returns in ${Math.ceil(storeState.vendorRespawnTimer)}s`;
+  } else if (storeState.vendorAggroTimer > 0) {
+    hintEl.textContent = `${VENDOR_NAME} refuses checkout during a fight`;
   } else if (nearCheckout) {
     hintEl.textContent = inputState.mobile ? "Tap BUY - Megis 2e" : "E to purchase Megis";
   } else {

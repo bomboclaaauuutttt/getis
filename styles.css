@@ -288,6 +288,101 @@ body {
   font-weight: 1000;
 }
 
+.checkout-sequence {
+  position: fixed;
+  left: 50%;
+  bottom: 88px;
+  z-index: 9;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px 18px;
+  width: min(420px, calc(100vw - 28px));
+  padding: 13px 15px 12px;
+  box-sizing: border-box;
+  color: #fff;
+  background: rgba(8, 13, 14, 0.94);
+  border: 1px solid rgba(67, 208, 255, 0.58);
+  border-left: 5px solid #1b9ee8;
+  border-radius: 5px;
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.52), 0 0 28px rgba(27, 158, 232, 0.2);
+  pointer-events: none;
+  transform: translateX(-50%);
+  animation: checkoutSequenceIn 220ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.checkout-sequence.hidden {
+  display: none;
+}
+
+.checkout-sequence div {
+  min-width: 0;
+}
+
+.checkout-sequence small,
+.checkout-sequence strong {
+  display: block;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.checkout-sequence small {
+  margin-bottom: 3px;
+  color: #6dccff;
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.checkout-sequence strong {
+  overflow-wrap: anywhere;
+  font-size: 16px;
+  font-weight: 1000;
+}
+
+.checkout-sequence > span {
+  color: #fff06a;
+  font-size: 21px;
+  font-weight: 1000;
+}
+
+.checkout-sequence > i {
+  grid-column: 1 / -1;
+  display: block;
+  height: 5px;
+  overflow: hidden;
+  background: #283236;
+}
+
+.checkout-sequence > i > b {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: #1b9ee8;
+  box-shadow: 0 0 15px rgba(27, 158, 232, 0.7);
+  transform: scaleX(0);
+  transform-origin: left;
+}
+
+.checkout-sequence[data-stage="approved"] {
+  border-color: rgba(57, 255, 114, 0.7);
+  border-left-color: #39ff72;
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.52), 0 0 32px rgba(57, 255, 114, 0.3);
+}
+
+.checkout-sequence[data-stage="approved"] small,
+.checkout-sequence[data-stage="approved"] > i > b {
+  color: #72ff9b;
+  background: #39ff72;
+}
+
+@media (max-width: 620px) {
+  .checkout-sequence {
+    top: 94px;
+    bottom: auto;
+    width: calc(100vw - 22px);
+  }
+}
+
 .notification-feed {
   position: fixed;
   left: 18px;
@@ -2254,6 +2349,11 @@ body.arrested #notificationFeed {
 @keyframes purchasePromptPulse {
   0%, 100% { filter: brightness(1); }
   50% { filter: brightness(1.22); }
+}
+
+@keyframes checkoutSequenceIn {
+  0% { opacity: 0; transform: translate(-50%, 14px) scale(0.96); }
+  100% { opacity: 1; transform: translate(-50%, 0) scale(1); }
 }
 
 @keyframes smashComboPop {
