@@ -326,6 +326,12 @@ const WORLD_MAP_MAX_ZOOM = 0.68;
 const GARAGE_ENTRANCE = Object.freeze({ x: 308, z: -177, radius: 40 });
 const MISSION_BOARD = Object.freeze({ x: 145, z: -46, radius: 46 });
 const MISSION_DELIVERY = Object.freeze({ x: 308, z: -118, radius: 52 });
+const MAJOR_LANDMARKS = Object.freeze([
+  { id: "harbor", label: "NORTH HARBOR", cx: 2, cz: 2, x: 470, z: 500, color: "#ffb640" },
+  { id: "hospital", label: "CITY HOSPITAL", cx: -2, cz: 2, x: -470, z: 500, color: "#ff5364" },
+  { id: "arena", label: "GETAWAY ARENA", cx: 2, cz: -2, x: 470, z: -500, color: "#62e6ff" },
+  { id: "police", label: "POLICE HQ", cx: -2, cz: -2, x: -470, z: -500, color: "#6f91ff" },
+]);
 const MISSION_DEFINITIONS = Object.freeze({
   checkpoint: { title: "Checkpoint Rush", type: "Street race", duration: 95, goal: 8, reward: 4500 },
   smash: { title: "Smash Rush", type: "Destruction", duration: 62, goal: 18, reward: 5200 },
@@ -437,6 +443,17 @@ const mats = {
   smashOrange: new THREE.MeshLambertMaterial({ color: 0xf26722 }),
   smashBlue: new THREE.MeshLambertMaterial({ color: 0x258bc7 }),
   smashRed: new THREE.MeshLambertMaterial({ color: 0xc93636 }),
+  harborGround: new THREE.MeshLambertMaterial({ color: 0x555b5d }),
+  harborWater: new THREE.MeshLambertMaterial({ color: 0x276f8d, emissive: 0x071a22 }),
+  containerBlue: new THREE.MeshLambertMaterial({ color: 0x287cac }),
+  containerGreen: new THREE.MeshLambertMaterial({ color: 0x397556 }),
+  containerYellow: new THREE.MeshLambertMaterial({ color: 0xd19a30 }),
+  hospitalWhite: new THREE.MeshLambertMaterial({ color: 0xe7e8e2 }),
+  hospitalRed: new THREE.MeshLambertMaterial({ color: 0xd93b4a }),
+  arenaTrack: new THREE.MeshLambertMaterial({ color: 0xb14c42 }),
+  arenaSeat: new THREE.MeshLambertMaterial({ color: 0x238aaa }),
+  policeWall: new THREE.MeshLambertMaterial({ color: 0x63717d }),
+  policeBlue: new THREE.MeshLambertMaterial({ color: 0x224d8f }),
 };
 
 const buildingMats = [
@@ -6180,6 +6197,388 @@ function addMissionTerminal(parent) {
   glowingObjects.push(ring, floorGlow, beacon);
 }
 
+function addLandmarkSign(parent, text, x, y, z, width, background, rotationY = Math.PI) {
+  const signRoot = new THREE.Group();
+  signRoot.position.set(x, y, z);
+  signRoot.rotation.y = rotationY;
+  const backing = makeBox(width + 8, 24, 5, mats.pumpDark);
+  const material = makeBuildingLabel(text, background, "#ffffff");
+  const face = new THREE.Mesh(new THREE.PlaneGeometry(width, 19), material);
+  face.position.z = 2.7;
+  face.renderOrder = 9;
+  signRoot.add(backing, face);
+  parent.add(signRoot);
+}
+
+function addLandmarkAccess(parent, x, z, width, depth) {
+  const road = nearestRoad(x, z);
+  if (road.axis === "z") {
+    const roadX = roadCenterX(road.id, z);
+    const side = Math.sign(roadX - x) || 1;
+    const edgeX = x + side * width * 0.5;
+    makeRoadSegment(edgeX, z, roadX, z, 46, mats.parking, 0.12, parent, 2);
+    addDashedLaneLine(parent, edgeX, z, roadX, z, 5);
+  } else {
+    const roadZ = roadCenterZ(road.id, x);
+    const side = Math.sign(roadZ - z) || 1;
+    const edgeZ = z + side * depth * 0.5;
+    makeRoadSegment(x, edgeZ, x, roadZ, 46, mats.parking, 0.12, parent, 2);
+    addDashedLaneLine(parent, x, edgeZ, x, roadZ, 5);
+  }
+}
+
+function addLandmarkLamp(parent, x, z, height = 52) {
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(1.4, 1.8, height, 8), mats.pumpDark);
+  pole.position.set(x, height * 0.5, z);
+  const crossbar = makeBox(20, 2.4, 3, mats.metal);
+  crossbar.position.set(x, height - 1, z);
+  const left = makeBox(7, 2.5, 6, mats.light);
+  left.position.set(x - 7, height - 3, z);
+  const right = makeBox(7, 2.5, 6, mats.light);
+  right.position.set(x + 7, height - 3, z);
+  parent.add(pole, crossbar, left, right);
+}
+
+function addDecorativeVehicle(parent, x, z, kind = "service", angle = 0) {
+  const root = new THREE.Group();
+  root.position.set(x, 0, z);
+  root.rotation.y = angle;
+  const emergency = kind === "ambulance";
+  const police = kind === "police";
+  const bodyMat = emergency ? mats.hospitalWhite : police ? mats.copWhite : mats.containerYellow;
+  const body = makeBox(28, emergency ? 18 : 12, 48, bodyMat);
+  body.position.y = emergency ? 13 : 9;
+  const cab = makeBox(25, 15, 23, emergency ? mats.hospitalWhite : police ? mats.copWhite : mats.stationWall);
+  cab.position.set(0, emergency ? 22 : 16, -7);
+  const windshield = makeBox(21, 8, 2, mats.glass);
+  windshield.position.set(0, emergency ? 23 : 17, -19);
+  const stripe = makeBox(29, 4, 34, emergency ? mats.hospitalRed : police ? mats.copBlue : mats.pumpDark);
+  stripe.position.set(0, emergency ? 14 : 10, 3);
+  root.add(body, cab, windshield, stripe);
+  for (const wx of [-15, 15]) {
+    for (const wz of [-15, 15]) {
+      const wheel = new THREE.Mesh(carGeometry.wheel, mats.tire);
+      wheel.rotation.z = Math.PI * 0.5;
+      wheel.position.set(wx, 6, wz);
+      root.add(wheel);
+    }
+  }
+  if (emergency || police) {
+    const lightbar = makeBox(18, 3, 5, emergency ? mats.hospitalRed : mats.copBlue);
+    lightbar.position.set(0, emergency ? 32 : 25, -3);
+    root.add(lightbar);
+  }
+  parent.add(root);
+  addSolidRect(parent, x, z, 31, 50, 1);
+  return root;
+}
+
+function addNorthHarbor(parent, landmark) {
+  const { x, z } = landmark;
+  const pad = makePlane(260, 210, mats.harborGround, 0.08);
+  pad.position.set(x, 0.08, z - 4);
+  const water = makePlane(270, 82, mats.harborWater, 0.05);
+  water.position.set(x, 0.05, z + 126);
+  water.renderOrder = 1;
+  const quay = makeBox(266, 5, 18, mats.concrete);
+  quay.position.set(x, 2.5, z + 82);
+  parent.add(pad, water, quay);
+  addLandmarkAccess(parent, x, z - 38, 260, 210);
+
+  const warehouse = makeBox(124, 58, 72, mats.metal);
+  warehouse.position.set(x + 54, 29, z + 28);
+  const warehouseRoof = makeBox(136, 7, 84, mats.roofDark);
+  warehouseRoof.position.set(x + 54, 62, z + 28);
+  const loadingDoor = makeBox(52, 36, 3, mats.pumpDark);
+  loadingDoor.position.set(x + 31, 19, z - 9.5);
+  const officeWindow = makeBox(32, 20, 3, mats.windowWarm);
+  officeWindow.position.set(x + 82, 25, z - 9.7);
+  parent.add(warehouse, warehouseRoof, loadingDoor, officeWindow);
+  addLandmarkSign(parent, "NORTH HARBOR", x + 54, 51, z - 10.5, 102, "#b87223");
+  addSolidRect(parent, x + 54, z + 28, 124, 72, 2);
+
+  const containerMaterials = [mats.containerBlue, mats.containerGreen, mats.containerYellow, mats.stationTrim];
+  const containerSpots = [
+    [-92, 42, 0, 2], [-55, 43, 0, 1], [-91, 12, Math.PI * 0.5, 1],
+    [-54, 6, Math.PI * 0.5, 2], [-92, -31, 0, 1],
+  ];
+  containerSpots.forEach(([dx, dz, rotation, levels], index) => {
+    for (let level = 0; level < levels; level++) {
+      const container = makeBox(rotation ? 16 : 38, 15, rotation ? 38 : 16, containerMaterials[(index + level) % containerMaterials.length]);
+      container.position.set(x + dx, 7.5 + level * 15.5, z + dz);
+      container.castShadow = true;
+      parent.add(container);
+    }
+    addSolidRect(parent, x + dx, z + dz, rotation ? 17 : 39, rotation ? 39 : 17, 1);
+  });
+
+  const crane = new THREE.Group();
+  crane.position.set(x - 70, 0, z + 78);
+  for (const side of [-1, 1]) {
+    const leg = makeBox(7, 72, 8, mats.containerYellow);
+    leg.position.set(side * 27, 36, 0);
+    leg.rotation.z = -side * 0.08;
+    crane.add(leg);
+  }
+  const bridge = makeBox(72, 8, 10, mats.containerYellow);
+  bridge.position.y = 71;
+  const arm = makeBox(112, 6, 8, mats.containerYellow);
+  arm.position.set(18, 83, 0);
+  const cable = makeBox(2, 39, 2, mats.pumpDark);
+  cable.position.set(50, 60, 0);
+  const hook = new THREE.Mesh(new THREE.TorusGeometry(4, 1.2, 6, 12, Math.PI * 1.5), mats.pumpDark);
+  hook.position.set(50, 39, 0);
+  crane.add(bridge, arm, cable, hook);
+  parent.add(crane);
+  addSolidRect(parent, x - 97, z + 78, 10, 12, 1);
+  addSolidRect(parent, x - 43, z + 78, 10, 12, 1);
+
+  const tug = new THREE.Group();
+  tug.position.set(x + 62, 0, z + 128);
+  const hull = makeBox(74, 12, 29, mats.stationTrim);
+  hull.position.y = 8;
+  const deck = makeBox(45, 5, 25, mats.curb);
+  deck.position.y = 16;
+  const cabin = makeBox(25, 18, 21, mats.hospitalWhite);
+  cabin.position.set(4, 27, 0);
+  const cabinGlass = makeBox(17, 7, 22, mats.window);
+  cabinGlass.position.set(-5, 30, 0);
+  const stack = new THREE.Mesh(new THREE.CylinderGeometry(3, 4, 16, 8), mats.pumpDark);
+  stack.position.set(21, 30, 0);
+  tug.add(hull, deck, cabin, cabinGlass, stack);
+  parent.add(tug);
+
+  for (const [dx, dz, kind] of [[-16, -55, "barrel"], [8, -60, "pallet"], [32, -55, "crate"], [-43, -58, "tires"], [-72, -55, "barrel"]]) {
+    addSmashableSetPiece(parent, x + dx, z + dz, kind, rngFor(Math.round(x + dx), Math.round(z + dz), 2280), 0);
+  }
+  addLandmarkLamp(parent, x - 116, z - 78, 58);
+  addLandmarkLamp(parent, x + 116, z - 78, 58);
+}
+
+function addCityHospital(parent, landmark) {
+  const { x, z } = landmark;
+  const pad = makePlane(252, 212, mats.concrete, 0.08);
+  pad.position.set(x, 0.08, z);
+  parent.add(pad);
+  addLandmarkAccess(parent, x, z - 46, 252, 212);
+
+  const main = makeBox(174, 76, 78, mats.hospitalWhite);
+  main.position.set(x + 12, 38, z + 40);
+  const wing = makeBox(68, 55, 66, mats.hospitalWhite);
+  wing.position.set(x - 74, 27.5, z - 5);
+  const mainRoof = makeBox(184, 7, 88, mats.roofDark);
+  mainRoof.position.set(x + 12, 80, z + 40);
+  const wingRoof = makeBox(76, 6, 74, mats.roofDark);
+  wingRoof.position.set(x - 74, 58, z - 5);
+  const redBand = makeBox(176, 10, 5, mats.hospitalRed);
+  redBand.position.set(x + 12, 62, z - 0.5);
+  parent.add(main, wing, mainRoof, wingRoof, redBand);
+  addSolidRect(parent, x + 12, z + 40, 174, 78, 2);
+  addSolidRect(parent, x - 74, z - 5, 68, 66, 2);
+
+  for (let floor = 0; floor < 2; floor++) {
+    for (let column = -3; column <= 3; column++) {
+      addBuildingWindow(parent, x + 12 + column * 22, 24 + floor * 28, z - 0.4, 14, 16, "front", floor === 0 && column % 3 === 0);
+    }
+  }
+  addLandmarkSign(parent, "CITY HOSPITAL", x + 12, 69, z - 3, 132, "#c7273d");
+
+  const emergencyPad = makePlane(120, 58, mats.parking, 0.18);
+  emergencyPad.position.set(x + 57, 0.18, z - 51);
+  const canopy = makeBox(104, 6, 38, mats.hospitalRed);
+  canopy.position.set(x + 57, 33, z - 20);
+  const canopyLight = makeBox(92, 2, 27, mats.light);
+  canopyLight.position.set(x + 57, 29, z - 20);
+  parent.add(emergencyPad, canopy, canopyLight);
+  for (const dx of [-47, 47]) {
+    const support = makeBox(5, 31, 5, mats.curb);
+    support.position.set(x + 57 + dx, 15.5, z - 20);
+    parent.add(support);
+  }
+  addLandmarkSign(parent, "EMERGENCY", x + 57, 35, z - 40, 90, "#d93b4a");
+
+  const heliCircle = new THREE.Mesh(new THREE.CircleGeometry(29, 40), mats.hospitalRed);
+  heliCircle.rotation.x = -Math.PI / 2;
+  heliCircle.position.set(x + 54, 84, z + 40);
+  const hBarA = makeBox(6, 1, 32, mats.hospitalWhite);
+  hBarA.position.set(x + 54, 84.8, z + 40);
+  const hBarB = makeBox(27, 1, 6, mats.hospitalWhite);
+  hBarB.position.set(x + 54, 84.8, z + 40);
+  parent.add(heliCircle, hBarA, hBarB);
+
+  addDecorativeVehicle(parent, x + 62, z - 66, "ambulance", 0);
+  for (let i = -2; i <= 2; i++) addParkingStripe(parent, x - 72 + i * 23, z - 78, 3, 43);
+  addParkingStripe(parent, x - 72, z - 56, 118, 3);
+  addLandmarkLamp(parent, x - 112, z - 82);
+  addLandmarkLamp(parent, x + 112, z - 82);
+
+  const crossVertical = makeBox(8, 34, 4, mats.hospitalRed);
+  crossVertical.position.set(x - 72, 39, z - 39);
+  const crossHorizontal = makeBox(28, 8, 4, mats.hospitalRed);
+  crossHorizontal.position.set(x - 72, 39, z - 39);
+  parent.add(crossVertical, crossHorizontal);
+}
+
+function addGetawayArena(parent, landmark) {
+  const { x, z } = landmark;
+  const plaza = makePlane(262, 232, mats.concrete, 0.08);
+  plaza.position.set(x, 0.08, z);
+  const track = makePlane(196, 150, mats.arenaTrack, 0.13);
+  track.position.set(x, 0.13, z + 2);
+  const field = makePlane(142, 88, mats.playground, 0.19);
+  field.position.set(x, 0.19, z + 2);
+  parent.add(plaza, track, field);
+  addLandmarkAccess(parent, x, z - 76, 262, 232);
+
+  const lineMaterial = mats.chalk;
+  for (const [lx, lz, lw, ld] of [[0, -42, 142, 2], [0, 46, 142, 2], [-71, 2, 2, 88], [71, 2, 2, 88], [0, 2, 2, 88]]) {
+    const line = makePlane(lw, ld, lineMaterial, 0.23);
+    line.position.set(x + lx, 0.23, z + lz);
+    parent.add(line);
+  }
+  const centerCircle = new THREE.Mesh(new THREE.RingGeometry(14, 16, 30), mats.chalk);
+  centerCircle.rotation.x = -Math.PI / 2;
+  centerCircle.position.set(x, 0.24, z + 2);
+  parent.add(centerCircle);
+
+  const addStand = (sx, sz, w, d, levels, axis = "z") => {
+    for (let level = 0; level < levels; level++) {
+      const stepWidth = axis === "x" ? Math.max(12, w - level * 5) : w;
+      const stepDepth = axis === "z" ? Math.max(12, d - level * 5) : d;
+      const step = makeBox(
+        stepWidth,
+        7,
+        stepDepth,
+        level % 2 ? mats.arenaSeat : mats.marketBlue
+      );
+      step.position.set(
+        sx + (axis === "x" ? Math.sign(sx - x) * level * 2.5 : 0),
+        3.5 + level * 7,
+        sz + (axis === "z" ? Math.sign(sz - z) * level * 2.5 : 0)
+      );
+      parent.add(step);
+    }
+    addSolidRect(parent, sx, sz, w, d, 1);
+  };
+  addStand(x - 104, z + 2, 28, 154, 4, "x");
+  addStand(x + 104, z + 2, 28, 154, 4, "x");
+  addStand(x, z + 92, 178, 28, 4, "z");
+  addStand(x - 67, z - 90, 48, 25, 3, "z");
+  addStand(x + 67, z - 90, 48, 25, 3, "z");
+
+  for (const side of [-1, 1]) {
+    const goal = new THREE.Group();
+    goal.position.set(x + side * 66, 0, z + 2);
+    const top = makeBox(2.3, 2.3, 29, mats.curb);
+    top.position.set(0, 17, 0);
+    goal.add(top);
+    for (const dz of [-13, 13]) {
+      const post = makeBox(2.3, 34, 2.3, mats.curb);
+      post.position.set(0, 17, dz);
+      goal.add(post);
+    }
+    parent.add(goal);
+    registerBreakableProp(parent, goal, "courtFence", 18, 0);
+  }
+
+  const scoreboard = makeBox(70, 34, 8, mats.pumpDark);
+  scoreboard.position.set(x, 43, z + 111);
+  parent.add(scoreboard);
+  addLandmarkSign(parent, "GETAWAY ARENA", x, 43, z + 106, 62, "#147da2", 0);
+  for (const [dx, dz] of [[-119, -100], [119, -100], [-119, 104], [119, 104]]) addLandmarkLamp(parent, x + dx, z + dz, 78);
+  for (const [dx, kind] of [[-28, "barrier"], [0, "cone"], [28, "barrier"]]) {
+    addSmashableSetPiece(parent, x + dx, z - 112, kind, rngFor(Math.round(x + dx), Math.round(z - 112), 2291), 0);
+  }
+}
+
+function addPoliceHeadquarters(parent, landmark) {
+  const { x, z } = landmark;
+  const yard = makePlane(252, 216, mats.harborGround, 0.08);
+  yard.position.set(x, 0.08, z);
+  parent.add(yard);
+  addLandmarkAccess(parent, x, z - 46, 252, 216);
+
+  const headquarters = makeBox(166, 72, 78, mats.policeWall);
+  headquarters.position.set(x + 8, 36, z + 43);
+  const tower = makeBox(48, 112, 50, mats.policeBlue);
+  tower.position.set(x - 55, 56, z + 42);
+  const roof = makeBox(178, 7, 90, mats.roofDark);
+  roof.position.set(x + 8, 76, z + 43);
+  const towerRoof = makeBox(58, 7, 60, mats.pumpDark);
+  towerRoof.position.set(x - 55, 116, z + 42);
+  const blueBand = makeBox(168, 12, 5, mats.policeBlue);
+  blueBand.position.set(x + 8, 58, z + 1.5);
+  parent.add(headquarters, tower, roof, towerRoof, blueBand);
+  addSolidRect(parent, x + 8, z + 43, 166, 78, 2);
+  addLandmarkSign(parent, "POLICE HQ", x + 18, 64, z, 105, "#193e78");
+
+  for (let floor = 0; floor < 2; floor++) {
+    for (let column = -2; column <= 3; column++) {
+      addBuildingWindow(parent, x + 10 + column * 24, 23 + floor * 27, z + 2, 14, 15, "front", false);
+    }
+  }
+  for (let floor = 0; floor < 3; floor++) {
+    const window = makeBox(31, 16, 3, mats.window);
+    window.position.set(x - 55, 23 + floor * 28, z + 15.5);
+    parent.add(window);
+  }
+
+  const garageBlock = makeBox(102, 38, 44, mats.pumpDark);
+  garageBlock.position.set(x + 51, 19, z - 14);
+  parent.add(garageBlock);
+  addSolidRect(parent, x + 51, z - 14, 102, 44, 1);
+  for (let i = -1; i <= 1; i++) {
+    const door = makeBox(28, 27, 3, mats.metal);
+    door.position.set(x + 51 + i * 32, 14, z - 37);
+    const topLight = makeBox(17, 2, 4, i === 0 ? mats.copRed : mats.copBlue);
+    topLight.position.set(x + 51 + i * 32, 33, z - 38);
+    parent.add(door, topLight);
+  }
+
+  const heliPad = new THREE.Mesh(new THREE.CircleGeometry(25, 36), mats.policeWall);
+  heliPad.rotation.x = -Math.PI / 2;
+  heliPad.position.set(x - 55, 120, z + 42);
+  const heliH1 = makeBox(6, 1, 28, mats.curb);
+  heliH1.position.set(x - 55, 120.8, z + 42);
+  const heliH2 = makeBox(24, 1, 6, mats.curb);
+  heliH2.position.set(x - 55, 120.8, z + 42);
+  parent.add(heliPad, heliH1, heliH2);
+
+  addDecorativeVehicle(parent, x - 55, z - 62, "police", 0);
+  addDecorativeVehicle(parent, x - 13, z - 62, "police", 0);
+  for (const [dx, kind] of [[34, "barrier"], [59, "barrier"], [84, "cone"]]) {
+    addSmashableSetPiece(parent, x + dx, z - 72, kind, rngFor(Math.round(x + dx), Math.round(z - 72), 2298), 0);
+  }
+
+  for (const side of [-1, 1]) {
+    const watch = new THREE.Group();
+    watch.position.set(x + side * 111, 0, z + 82);
+    const cabin = makeBox(24, 22, 24, mats.policeBlue);
+    cabin.position.y = 43;
+    const glass = makeBox(20, 10, 25, mats.window);
+    glass.position.y = 46;
+    watch.add(cabin, glass);
+    for (const sx of [-8, 8]) {
+      for (const sz of [-8, 8]) {
+        const leg = makeBox(3, 36, 3, mats.metal);
+        leg.position.set(sx, 18, sz);
+        watch.add(leg);
+      }
+    }
+    parent.add(watch);
+    addSolidRect(parent, x + side * 111, z + 82, 27, 27, 1);
+  }
+  addLandmarkLamp(parent, x - 112, z - 91, 62);
+  addLandmarkLamp(parent, x + 112, z - 91, 62);
+}
+
+function addMajorLandmark(parent, landmark) {
+  if (landmark.id === "harbor") addNorthHarbor(parent, landmark);
+  else if (landmark.id === "hospital") addCityHospital(parent, landmark);
+  else if (landmark.id === "arena") addGetawayArena(parent, landmark);
+  else if (landmark.id === "police") addPoliceHeadquarters(parent, landmark);
+}
+
 function makeSpawnArea(parent) {
   const lot = makePlane(340, 250, mats.parking, 0.16);
   lot.position.set(0, 0.16, 48);
@@ -6280,6 +6679,12 @@ function generateChunk(cx, cz) {
   }
 
   if (Math.abs(cx) <= 1 && Math.abs(cz) <= 1) return;
+
+  const landmark = MAJOR_LANDMARKS.find((candidate) => candidate.cx === cx && candidate.cz === cz);
+  if (landmark) {
+    addMajorLandmark(group, landmark);
+    return;
+  }
 
   const biome = biomeForChunk(cx, cz);
   const forestZone = biome === "denseForest";
@@ -8522,6 +8927,12 @@ function worldMapPointsOfInterest() {
     { label: "GARAGE", x: GARAGE_ENTRANCE.x, z: GARAGE_ENTRANCE.z, color: "#ff4b5f" },
     { label: "JOBS", x: MISSION_BOARD.x, z: MISSION_BOARD.z, color: "#ffd83d" },
     { label: "GAS", x: 338, z: 50, color: "#f0f0e8" },
+    ...MAJOR_LANDMARKS.map((landmark) => ({
+      label: landmark.label,
+      x: landmark.x,
+      z: landmark.z,
+      color: landmark.color,
+    })),
   ];
 }
 
