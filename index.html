@@ -13,6 +13,12 @@
       <div id="money">$0</div>
       <div id="wantedStars" class="wanted-stars" aria-label="Wanted level"></div>
       <div id="hint">Choose controls</div>
+      <div id="vehicleConditionHud" class="vehicle-condition-hud hidden" aria-label="Vehicle condition">
+        <div class="vehicle-condition-title"><span>Vehicle</span><strong id="vehicleConditionStatus">Good</strong></div>
+        <div data-condition-hud="engine"><span>Engine</span><b><i></i></b></div>
+        <div data-condition-hud="body"><span>Body</span><b><i></i></b></div>
+        <div data-condition-hud="tires"><span>Tires</span><b><i></i></b></div>
+      </div>
     </div>
 
     <div id="gameCode" class="game-code hidden">
@@ -267,6 +273,18 @@
                 <canvas id="garageVehicleCanvas"></canvas>
               </div>
               <span id="garageBuildLevel">Street stock</span>
+            </div>
+            <div id="garageDiagnostics" class="garage-diagnostics">
+              <header>
+                <div><small>Workshop diagnostics</small><h2 id="garageDiagnosticStatus">No faults</h2></div>
+                <strong id="garageConditionScore">100%</strong>
+              </header>
+              <div class="garage-repair-list">
+                <div data-repair-part="engine"><span><i></i><b>Engine</b><small>Power unit</small></span><em><i></i></em><strong>100%</strong><button class="garage-repair-button" type="button" data-repair-vehicle="engine">Repair</button></div>
+                <div data-repair-part="body"><span><i></i><b>Body</b><small>Chassis</small></span><em><i></i></em><strong>100%</strong><button class="garage-repair-button" type="button" data-repair-vehicle="body">Repair</button></div>
+                <div data-repair-part="tires"><span><i></i><b>Tires</b><small>Traction</small></span><em><i></i></em><strong>100%</strong><button class="garage-repair-button" type="button" data-repair-vehicle="tires">Repair</button></div>
+              </div>
+              <button id="repairAllButton" class="garage-repair-all garage-repair-button" type="button"><span>Repair all</span><strong>$0</strong></button>
             </div>
             <div class="garage-stats">
               <div data-garage-stat="speed"><span>Top speed</span><b><i></i></b><strong>0</strong></div>

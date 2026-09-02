@@ -74,6 +74,8 @@ const worldMapRecenterButton = document.getElementById("worldMapRecenter");
 const mobileMapButton = document.getElementById("mobileMapButton");
 const transitionFadeEl = document.getElementById("transitionFade");
 const damageFxEl = document.getElementById("damageFx");
+const vehicleConditionHudEl = document.getElementById("vehicleConditionHud");
+const vehicleConditionStatusEl = document.getElementById("vehicleConditionStatus");
 const storeHealthEl = document.getElementById("storeHealth");
 const storeHealthLabelEl = storeHealthEl.querySelector("span");
 const storeHealthFillEl = storeHealthEl.querySelector("b");
@@ -90,6 +92,10 @@ const pauseMainMenuButton = document.getElementById("pauseMainMenuButton");
 const garageScreenEl = document.getElementById("garageScreen");
 const garageMoneyEl = document.getElementById("garageMoney");
 const garageStatusEl = document.getElementById("garageStatus");
+const garageDiagnosticsEl = document.getElementById("garageDiagnostics");
+const garageDiagnosticStatusEl = document.getElementById("garageDiagnosticStatus");
+const garageConditionScoreEl = document.getElementById("garageConditionScore");
+const repairAllButton = document.getElementById("repairAllButton");
 const leaveGarageButton = document.getElementById("leaveGarageButton");
 const garageCarPreviewEl = document.getElementById("garageCarPreview");
 const garageVehicleCanvas = document.getElementById("garageVehicleCanvas");
@@ -343,6 +349,11 @@ const GARAGE_UPGRADES = Object.freeze({
   armor: { prices: [5500, 15000, 38000, 88000, 200000], label: "Reinforced Chassis" },
   nitrous: { prices: [8000, 22000, 55000, 125000, 280000], label: "Nitrous System" },
 });
+const VEHICLE_REPAIR_DEFINITIONS = Object.freeze({
+  engine: { label: "Engine", baseRate: 46 },
+  body: { label: "Body", baseRate: 31 },
+  tires: { label: "Tires", baseRate: 36 },
+});
 
 const mats = {
   grass: new THREE.MeshLambertMaterial({ color: 0x668f59 }),
@@ -564,6 +575,15 @@ const garageState = {
   open: false,
   lastExitAt: 0,
   levels: loadGarageLevels(),
+};
+const vehicleCondition = {
+  engine: 100,
+  body: 100,
+  tires: 100,
+  nextImpactAt: 0,
+  smokeTimer: 0,
+  criticalSparkTimer: 0,
+  lastStatus: "good",
 };
 let megaforceTemplate = null;
 let megaforceLoading = false;
@@ -1685,6 +1705,18 @@ function playerSurfaceTuning() {
   tune.steerBuild *= (1 + suspension * 0.06) * (1 + differential * 0.055);
   tune.coast *= 1 + weight * 0.035;
   tune.throttleGripLoss *= Math.max(0.5, (1 - tires * 0.045) * (1 - differential * 0.04));
+  const engineCondition = vehicleCondition.engine / 100;
+  const tireCondition = vehicleCondition.tires / 100;
+  const bodyCondition = vehicleCondition.body / 100;
+  tune.accel *= lerp(0.3, 1, engineCondition);
+  tune.reverseAccel *= lerp(0.44, 1, engineCondition);
+  tune.maxSpeed *= lerp(0.48, 1, engineCondition) * lerp(0.88, 1, bodyCondition);
+  tune.highSpeedAccel *= lerp(0.22, 1, engineCondition);
+  tune.grip *= lerp(0.36, 1, tireCondition);
+  tune.brake *= lerp(0.5, 1, tireCondition);
+  tune.turnRate *= lerp(0.68, 1, tireCondition);
+  tune.steerSharpness *= lerp(0.62, 1, tireCondition);
+  tune.throttleGripLoss *= lerp(1.62, 1, tireCondition);
   tune.maxSpeed *= boost;
   tune.accel *= boost;
   tune.reverseAccel *= boost;
@@ -2285,6 +2317,11 @@ function makeVehicle(kind, x, z, angle, paintColor = null, trafficClass = null) 
     paintColor: kind === "remote" ? remoteColor : trafficVehicle ? trafficColor : null,
     trafficClass: archetype?.id || null,
     trafficTune: archetype || null,
+    condition: trafficVehicle ? {
+      engine: 76 + Math.random() * 24,
+      body: 66 + Math.random() * 34,
+      tires: 72 + Math.random() * 28,
+    } : { engine: 100, body: 100, tires: 100 },
   };
   if (kind === "swat") {
     car.radius = 23.5;
@@ -4929,6 +4966,7 @@ function adoptCarjackedVehicle(vehicle) {
   player.trafficClass = vehicle.trafficClass;
   player.trafficTune = vehicle.trafficTune || TRAFFIC_ARCHETYPE_BY_ID[vehicle.trafficClass] || null;
   player.group.visible = true;
+  setVehicleCondition(vehicle.condition || { engine: 100, body: 100, tires: 100 });
 }
 
 function announceCarjackedTraffic(vehicle, trafficIndex) {
@@ -5189,6 +5227,214 @@ function formatGarageCash(value) {
   return `$${Math.floor(value).toLocaleString("en-US")}`;
 }
 
+function vehicleConditionAverage() {
+  return (vehicleCondition.engine + vehicleCondition.body + vehicleCondition.tires) / 3;
+}
+
+function vehicleConditionLevel(value = Math.min(vehicleCondition.engine, vehicleCondition.body, vehicleCondition.tires)) {
+  if (value < 28) return "critical";
+  if (value < 58) return "damaged";
+  if (value < 82) return "worn";
+  return "good";
+}
+
+function vehicleConditionLabel(level = vehicleConditionLevel()) {
+  return level === "critical" ? "Critical" : level === "damaged" ? "Damaged" : level === "worn" ? "Worn" : "Good";
+}
+
+function conditionColor(value) {
+  if (value < 28) return "#f02035";
+  if (value < 58) return "#ff8a32";
+  if (value < 82) return "#ffcf3f";
+  return "#39ff72";
+}
+
+function setVehicleCondition(nextCondition = {}) {
+  for (const part of Object.keys(VEHICLE_REPAIR_DEFINITIONS)) {
+    vehicleCondition[part] = clamp(Number(nextCondition[part] ?? 100), 0, 100);
+  }
+  vehicleCondition.nextImpactAt = performance.now() + 300;
+  vehicleCondition.smokeTimer = 0;
+  vehicleCondition.criticalSparkTimer = 0;
+  vehicleCondition.lastStatus = vehicleConditionLevel();
+  updateVehicleConditionHud();
+}
+
+function applyVehicleDamage(damage, source = "Collision") {
+  const armorLevel = garageState.levels.armor || 0;
+  const armorFactor = Math.max(0.58, 1 - armorLevel * 0.084);
+  const weakenedBody = lerp(1.28, 1, vehicleCondition.body / 100);
+  const previousLevel = vehicleConditionLevel();
+  const previous = {
+    engine: vehicleCondition.engine,
+    body: vehicleCondition.body,
+    tires: vehicleCondition.tires,
+  };
+
+  vehicleCondition.engine = clamp(vehicleCondition.engine - (damage.engine || 0) * armorFactor * weakenedBody, 0, 100);
+  vehicleCondition.body = clamp(vehicleCondition.body - (damage.body || 0) * armorFactor, 0, 100);
+  vehicleCondition.tires = clamp(vehicleCondition.tires - (damage.tires || 0) * Math.max(0.78, 1 - armorLevel * 0.035), 0, 100);
+
+  const totalDamage = Object.keys(previous).reduce((sum, part) => sum + previous[part] - vehicleCondition[part], 0);
+  if (totalDamage < 0.25) return;
+  const nextLevel = vehicleConditionLevel();
+  if (nextLevel !== previousLevel && ["worn", "damaged", "critical"].includes(nextLevel)) {
+    showNotification(`${source}: vehicle ${vehicleConditionLabel(nextLevel).toLowerCase()}`, nextLevel === "critical");
+    vehicleCondition.lastStatus = nextLevel;
+  }
+  updateVehicleConditionHud();
+}
+
+function applyVehicleImpactDamage(impactSpeed, frontness = 0.5, source = "Collision") {
+  if (impactSpeed < 42 || performance.now() < vehicleCondition.nextImpactAt) return;
+  vehicleCondition.nextImpactAt = performance.now() + 360;
+  const severity = clamp((impactSpeed - 34) / 145, 0.06, 1.45);
+  const front = clamp(frontness, 0, 1);
+  const side = 1 - front;
+  applyVehicleDamage({
+    engine: (1.8 + severity * 13.5) * (0.32 + front * 0.88),
+    body: 2.8 + severity * 15.5,
+    tires: (0.8 + severity * 6.2) * (0.38 + side * 0.75),
+  }, source);
+}
+
+function updateVehicleConditionHud() {
+  const visible = running && !gameOver && gameMode === "driving" && !gameIntroState.active
+    && !paused && !worldMapState.open && !garageState.open;
+  vehicleConditionHudEl.classList.toggle("hidden", !visible);
+  if (!visible) return;
+  const level = vehicleConditionLevel();
+  vehicleConditionHudEl.classList.toggle("warning", level === "worn" || level === "damaged");
+  vehicleConditionHudEl.classList.toggle("critical", level === "critical");
+  vehicleConditionStatusEl.textContent = vehicleConditionLabel(level);
+  vehicleConditionStatusEl.style.color = conditionColor(Math.min(vehicleCondition.engine, vehicleCondition.body, vehicleCondition.tires));
+  for (const part of Object.keys(VEHICLE_REPAIR_DEFINITIONS)) {
+    const value = vehicleCondition[part];
+    const row = vehicleConditionHudEl.querySelector(`[data-condition-hud="${part}"]`);
+    if (!row) continue;
+    const bar = row.querySelector("i");
+    bar.style.transform = `scaleX(${value / 100})`;
+    bar.style.background = conditionColor(value);
+  }
+}
+
+function vehicleRepairCost(part) {
+  const missing = 100 - vehicleCondition[part];
+  if (missing < 0.5) return 0;
+  const upgradeSurcharge = part === "engine"
+    ? (garageState.levels.engine || 0) * 7 + (garageState.levels.turbo || 0) * 4
+    : part === "body"
+      ? (garageState.levels.armor || 0) * 8
+      : (garageState.levels.tires || 0) * 7;
+  const rate = VEHICLE_REPAIR_DEFINITIONS[part].baseRate + upgradeSurcharge;
+  return Math.max(150, Math.ceil((missing * rate) / 50) * 50);
+}
+
+function totalVehicleRepairCost() {
+  const total = Object.keys(VEHICLE_REPAIR_DEFINITIONS).reduce((sum, part) => sum + vehicleRepairCost(part), 0);
+  return total > 0 ? Math.max(150, Math.ceil((total * 0.9) / 50) * 50) : 0;
+}
+
+function updateGarageDiagnostics() {
+  const damagedParts = Object.keys(VEHICLE_REPAIR_DEFINITIONS).filter((part) => vehicleCondition[part] < 99.5);
+  const lowest = Math.min(vehicleCondition.engine, vehicleCondition.body, vehicleCondition.tires);
+  const level = vehicleConditionLevel(lowest);
+  garageDiagnosticStatusEl.textContent = damagedParts.length
+    ? `${damagedParts.length} ${damagedParts.length === 1 ? "fault" : "faults"} found`
+    : "No faults";
+  garageDiagnosticStatusEl.style.color = conditionColor(lowest);
+  garageConditionScoreEl.textContent = `${Math.round(vehicleConditionAverage())}%`;
+
+  for (const part of Object.keys(VEHICLE_REPAIR_DEFINITIONS)) {
+    const value = vehicleCondition[part];
+    const cost = vehicleRepairCost(part);
+    const row = garageDiagnosticsEl.querySelector(`[data-repair-part="${part}"]`);
+    if (!row) continue;
+    row.classList.toggle("warning", value < 82 && value >= 28);
+    row.classList.toggle("critical", value < 28);
+    row.querySelector("em i").style.transform = `scaleX(${value / 100})`;
+    row.querySelector("em i").style.background = conditionColor(value);
+    row.querySelector(":scope > strong").textContent = `${Math.round(value)}%`;
+    const button = row.querySelector("button");
+    button.disabled = cost === 0;
+    button.textContent = cost === 0 ? "Good" : formatGarageCash(cost);
+  }
+
+  const allCost = totalVehicleRepairCost();
+  repairAllButton.disabled = allCost === 0;
+  repairAllButton.querySelector("span").textContent = allCost === 0 ? "Fully repaired" : "Repair all";
+  repairAllButton.querySelector("strong").textContent = allCost === 0 ? "READY" : formatGarageCash(allCost);
+  garageDiagnosticsEl.dataset.level = level;
+}
+
+function playGarageRepairAnimation() {
+  garageDiagnosticsEl.classList.remove("repairing");
+  garageCarPreviewEl.classList.remove("install-pulse");
+  void garageDiagnosticsEl.offsetWidth;
+  garageDiagnosticsEl.classList.add("repairing");
+  garageCarPreviewEl.classList.add("install-pulse");
+  window.setTimeout(() => garageDiagnosticsEl.classList.remove("repairing"), 650);
+  playPurchaseSound();
+  playTone(310, 0.1, "square", 0.045);
+  playTone(620, 0.18, "triangle", 0.055, 0.1);
+}
+
+function repairVehiclePart(part) {
+  if (!garageState.open || !VEHICLE_REPAIR_DEFINITIONS[part]) return;
+  const cost = vehicleRepairCost(part);
+  if (cost === 0) return;
+  if (money < cost) {
+    updateGarageScreen(`Not enough cash to repair the ${VEHICLE_REPAIR_DEFINITIONS[part].label.toLowerCase()}.`);
+    playUiError();
+    return;
+  }
+  money -= cost;
+  vehicleCondition[part] = 100;
+  moneyEl.textContent = `$${Math.floor(money)}`;
+  updateGarageScreen(`${VEHICLE_REPAIR_DEFINITIONS[part].label} repaired for ${formatGarageCash(cost)}.`);
+  updateVehicleConditionHud();
+  playGarageRepairAnimation();
+}
+
+function repairEntireVehicle() {
+  if (!garageState.open) return;
+  const cost = totalVehicleRepairCost();
+  if (cost === 0) return;
+  if (money < cost) {
+    updateGarageScreen(`Full repair costs ${formatGarageCash(cost)}. Earn more cash or repair one fault at a time.`);
+    playUiError();
+    return;
+  }
+  money -= cost;
+  setVehicleCondition({ engine: 100, body: 100, tires: 100 });
+  moneyEl.textContent = `$${Math.floor(money)}`;
+  updateGarageScreen(`Full service completed for ${formatGarageCash(cost)}. Vehicle condition restored.`);
+  playGarageRepairAnimation();
+}
+
+function updateVehicleDamageEffects(dt) {
+  const engineDamage = 1 - vehicleCondition.engine / 100;
+  if (engineDamage < 0.42 || gameMode !== "driving") {
+    vehicleCondition.smokeTimer = 0;
+    vehicleCondition.criticalSparkTimer = 0;
+    return;
+  }
+  vehicleCondition.smokeTimer -= dt;
+  const forward = vehicleForward(player);
+  const hoodX = player.x + forward.x * (player.halfLength * 0.58);
+  const hoodZ = player.z + forward.z * (player.halfLength * 0.58);
+  if (vehicleCondition.smokeTimer <= 0) {
+    vehicleCondition.smokeTimer = lerp(0.65, 0.16, clamp((engineDamage - 0.42) / 0.58, 0, 1));
+    makeSmoke(hoodX, hoodZ, 2.5 + engineDamage * 3.8, engineDamage > 0.74 ? 0x303438 : 0x777975, 0.55 + engineDamage * 0.28);
+  }
+  vehicleCondition.criticalSparkTimer -= dt;
+  if (engineDamage > 0.82 && vehicleCondition.criticalSparkTimer <= 0) {
+    vehicleCondition.criticalSparkTimer = 0.8 + Math.random() * 0.9;
+    makeImpactSparks(hoodX, hoodZ, 34);
+    playTone(72, 0.08, "sawtooth", 0.025);
+  }
+}
+
 function refreshGarageVehiclePreview() {
   if (garagePreviewVehicle) {
     garagePreviewTurntable.remove(garagePreviewVehicle);
@@ -5235,6 +5481,7 @@ function renderGarageVehiclePreview(dt) {
 
 function updateGarageScreen(status = "") {
   garageMoneyEl.textContent = formatGarageCash(money);
+  updateGarageDiagnostics();
   for (const [id, definition] of Object.entries(GARAGE_UPGRADES)) {
     const level = garageState.levels[id] || 0;
     const card = garageScreenEl.querySelector(`[data-upgrade="${id}"]`);
@@ -5281,7 +5528,10 @@ function openGarage() {
   if (document.pointerLockElement === canvas) document.exitPointerLock();
   garageScreenEl.classList.remove("hidden");
   mobileControlsEl.classList.add("hidden");
-  updateGarageScreen("Vehicle secured. Choose a performance upgrade.");
+  const faults = Object.keys(VEHICLE_REPAIR_DEFINITIONS).filter((part) => vehicleCondition[part] < 99.5).length;
+  updateGarageScreen(faults
+    ? `Diagnostics found ${faults} ${faults === 1 ? "fault" : "faults"}. Repairs are only available here.`
+    : "Vehicle secured. No faults found.");
   refreshGarageVehiclePreview();
   requestAnimationFrame(resizeGarageVehiclePreview);
   playTone(180, 0.22, "sawtooth", 0.04);
@@ -6298,6 +6548,7 @@ function collideWorld(v) {
       if (v !== player && v.escapeTimer > 0) continue;
       const speed = Math.hypot(v.vx, v.vz);
       if (v === player && !c.knocked && speed > 92 && collideVehicleCircle(v, c.x, c.z, c.r + 2, 0.68)) {
+        applyVehicleImpactDamage(speed, 0.82, "Tree impact");
         knockTree(c, v.x, v.z, speed);
         c.disabled = true;
         cameraState.shake = Math.max(cameraState.shake, 1.35);
@@ -6308,6 +6559,11 @@ function collideWorld(v) {
       const before = Math.hypot(v.vx, v.vz);
       const hit = vehicleRectCollision(v, c);
       if (hit) pushVehicleNormal(v, hit.nx, hit.nz, hit.overlap + 0.3, v === player && before > 115 ? 0.58 : 0.34);
+      if (hit && v === player && before > 42) {
+        const forward = vehicleForward(v);
+        const frontness = clamp(forward.x * -hit.nx + forward.z * -hit.nz, 0, 1);
+        applyVehicleImpactDamage(before, frontness, "Crash damage");
+      }
       if (hit && v === player && before > 115 && performance.now() > (player.nextCrashFx || 0)) {
         player.nextCrashFx = performance.now() + 450;
         hardCrashFx(v.x - hit.nx * (v.halfWidth || 12.8), v.z - hit.nz * (v.halfLength || 24.2), before);
@@ -7092,12 +7348,18 @@ function updateDriveEffects(dt) {
 }
 
 function updatePlayer(dt) {
-  const steer = inputState.mobile
+  let steer = inputState.mobile
     ? inputState.steer
     : (keys.has("a") || keys.has("arrowleft") ? 1 : 0) + (keys.has("d") || keys.has("arrowright") ? -1 : 0);
   const throttle = inputState.mobile
     ? inputState.throttle
     : (keys.has("w") || keys.has("arrowup") ? 1 : 0) + (keys.has("s") || keys.has("arrowdown") ? -1 : 0);
+  const tireDamage = 1 - vehicleCondition.tires / 100;
+  if (tireDamage > 0.38) {
+    const instability = clamp((tireDamage - 0.38) / 0.62, 0, 1);
+    const speedFactor = clamp(vehicleSpeed(player) / 170, 0, 1);
+    steer = clamp(steer + Math.sin(performance.now() * 0.0047) * instability * speedFactor * 0.24, -1, 1);
+  }
   const surface = playerSurfaceTuning();
   const motion = driveVehicle(player, { steer, throttle }, dt, surface.tune);
   collideWorld(player);
@@ -7138,6 +7400,8 @@ function updatePlayer(dt) {
     driftRewardState.active = false;
   }
   updateSmashCombo(dt, motion.total);
+  updateVehicleDamageEffects(dt);
+  updateVehicleConditionHud();
 
   moneyEl.textContent = "$" + Math.floor(money);
   const boostText = megaforceBoostActive() ? ` | Megaforce ${Math.ceil(megaforceBoostRemaining())}s` : "";
@@ -7246,6 +7510,13 @@ function updateVehicleRagdoll(v, dt) {
       const landingForce = Math.abs(v.vy || 0);
       v.y = 0;
       if (landingForce > 35) {
+        if (v === player) {
+          applyVehicleDamage({
+            engine: Math.max(0, landingForce - 42) * 0.08,
+            body: Math.max(0, landingForce - 30) * 0.16,
+            tires: Math.max(0, landingForce - 38) * 0.12,
+          }, "Hard landing");
+        }
         makeSmoke(v.x, v.z, 4.2, 0xc0bbb2, 0.5);
         makeDebrisBurst(v.x, v.z, 5, clamp(landingForce * 0.35, 20, 52), 0x77736b);
         playNoiseHit(0.12, 0.09, 720);
@@ -7473,13 +7744,16 @@ function collidePoliceRoadblocks(dt) {
       halfLength: 15,
     });
     if (barrierHit && Math.abs(across) < ROAD * 0.47) {
+      const speedBefore = vehicleSpeed(player);
       pushVehicleNormal(player, barrierHit.nx, barrierHit.nz, barrierHit.overlap + 0.4, 0.42);
+      applyVehicleImpactDamage(speedBefore, 0.75, "Roadblock impact");
     }
     if (roadblock.hasSpikes && roadblock.hitCooldown <= 0 && Math.abs(across) < ROAD * 0.48 && Math.abs(along - 25) < 15) {
       roadblock.hitCooldown = 2;
       player.vx *= 0.48;
       player.vz *= 0.48;
       player.steerCharge = clamp((player.steerCharge || 0) + (Math.random() < 0.5 ? -0.7 : 0.7), -1, 1);
+      applyVehicleDamage({ tires: 34, body: 2 }, "Spike strip");
       cameraState.shake = Math.max(cameraState.shake, 1.1);
       for (let p = 0; p < 9; p++) makeTireSpray(player, 0.9, true);
       showNotification("Police spike strip hit", true);
@@ -7861,6 +8135,11 @@ function collideVehicles(a, b) {
   if (a === player || b === player) {
     const collisionShake = rearPoliceContact ? 0.22 : lerp(0.55, 0.3, armorStrength);
     cameraState.shake = Math.max(cameraState.shake, collisionShake);
+    const forward = vehicleForward(player);
+    const toOtherX = a === player ? -nx : nx;
+    const toOtherZ = a === player ? -nz : nz;
+    const frontness = clamp(forward.x * toOtherX + forward.z * toOtherZ, 0, 1);
+    applyVehicleImpactDamage(impactSpeed, frontness, isPoliceVehicle(a === player ? b : a) ? "Police collision" : "Vehicle collision");
   }
   if (impactSpeed > 32) playCrashSound(impactSpeed * 0.72);
   if (impactSpeed > 105 && (a === player || b === player)) {
@@ -10218,6 +10497,7 @@ function resetGame() {
   setTransition(false);
   world.visible = true;
   restoreDefaultPlayerVehicle();
+  setVehicleCondition({ engine: 100, body: 100, tires: 100 });
   player.group.visible = true;
   if (outsideState.character) outsideState.character.visible = false;
   outsideState.carjackTarget = null;
@@ -10607,6 +10887,7 @@ function update(dt) {
   updateMissionSystem(dt);
   sendNetworkState(dt);
   updateWantedMeter();
+  updateVehicleConditionHud();
   updateMobileControlLayout();
   updateSpawnNavigator();
   updatePoliceLights(dt);
@@ -10712,6 +10993,10 @@ missionMenuEl.querySelectorAll("[data-start-mission]").forEach((button) => {
 garageScreenEl.querySelectorAll("[data-buy-upgrade]").forEach((button) => {
   button.addEventListener("click", () => buyGarageUpgrade(button.dataset.buyUpgrade));
 });
+garageScreenEl.querySelectorAll("[data-repair-vehicle]").forEach((button) => {
+  button.addEventListener("click", () => repairVehiclePart(button.dataset.repairVehicle));
+});
+repairAllButton.addEventListener("click", repairEntireVehicle);
 mobilePauseButton.addEventListener("pointerdown", (event) => {
   if (!inputState.mobile || !running || gameOver || transitionLock) return;
   unlockAudio();
