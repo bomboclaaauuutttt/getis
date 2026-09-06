@@ -1,5 +1,6 @@
 import * as THREE from "./assets/three.module.js";
 import { GLTFLoader } from "./assets/GLTFLoader.js";
+import { createPedestrians } from "./pedestrians.js";
 
 const canvas = document.getElementById("game");
 const moneyEl = document.getElementById("money");
@@ -9979,6 +9980,7 @@ function vehicleNetworkState(v) {
 
 function worldNetworkState() {
   return {
+    pedestrians: pedestrianSystem.snapshot(),
     seed,
     chaseTime,
     backupTime,
@@ -10298,6 +10300,7 @@ function applyWorldState(state) {
   syncNetworkVehicleList(traffic, Array.isArray(state.traffic) ? state.traffic : []);
   syncNetworkHelicopters(Array.isArray(state.helicopters) ? state.helicopters : []);
   syncNetworkRoadblocks(Array.isArray(state.roadblocks) ? state.roadblocks : []);
+  pedestrianSystem.sync(Array.isArray(state.pedestrians) ? state.pedestrians : []);
   const vendor = state.storeVendor;
   if (vendor && storeState.vendor) {
     const vendorJustDied = !storeState.vendorDead && !!vendor.dead;
@@ -10455,6 +10458,20 @@ function updateRemotePlayers(dt) {
 
 function handleNetworkMessage(fromPeer, message) {
   if (!message || typeof message !== "object") return;
+  if (message.type === "pedestrian-punch" && multiplayer.mode === "host") {
+    const actor = pedestrianActors().find(a => a.id === fromPeer);
+    const now = performance.now();
+    const remote = remotePlayers.get(fromPeer);
+    if (remote && now >= (remote.nextPedestrianPunch || 0)) {
+      remote.nextPedestrianPunch = now + 750;
+      pedestrianSystem.punch(message.id, actor);
+    }
+    return;
+  }
+  if (message.type === "pedestrian-attack" && multiplayer.mode === "client" && fromPeer === multiplayer.hostConnection?.peer) {
+    if (gameMode === "walking") pedestrianPlayerDamage();
+    return;
+  }
 
   if (message.type === "state") {
     applyRemoteState(fromPeer, message.state);
@@ -10846,7 +10863,7 @@ function updateMobileControlLayout() {
   if (mobileControlsEl.dataset.mode !== gameMode) mobileControlsEl.dataset.mode = gameMode;
   mobileActionButton.classList.toggle("hidden", !["driving", "walking", "store"].includes(gameMode));
   mobileJumpButton.classList.toggle("hidden", gameMode !== "store" || storeState.dead);
-  mobilePunchButton.classList.toggle("hidden", gameMode !== "store" || storeState.dead);
+  mobilePunchButton.classList.toggle("hidden", !["store", "walking"].includes(gameMode) || storeState.dead);
   mobileUseButton.classList.toggle("hidden", gameMode === "store"
     ? storeState.dead || storeState.purchaseTimer > 0
     : !boardUse);
@@ -10894,6 +10911,7 @@ function updateJoystickFromPointer(event) {
 }
 
 function resetGame() {
+  pedestrianSystem.reset();
   if (worldMapState.open) closeWorldMap();
   if (document.pointerLockElement === canvas) document.exitPointerLock();
   resetJoystick();
@@ -11296,6 +11314,18 @@ function update(dt) {
     updateStoreHealthHud();
   }
   updateMissionSystem(dt);
+  if (running && !gameOver && !gameIntroState.active) {
+    const actors = pedestrianActors();
+    const vehicles = [...traffic, ...cops];
+    if (gameMode === "driving") vehicles.push({ ...player, actorId: multiplayer.peerId || "local" });
+    for (const [peerId, remote] of remotePlayers) if (remote.remoteTarget?.gameMode === "driving") {
+      vehicles.push({ ...remote.remoteTarget, actorId: peerId });
+    }
+    pedestrianSystem.update(dt, worldHostControlsSimulation(), actors, vehicles);
+    if (gameMode === "walking" && outsideState.character && performance.now() < pedestrianPunchUntil) {
+      outsideState.character.userData.rightArm.rotation.x = -1.6;
+    }
+  }
   sendNetworkState(dt);
   updateWantedMeter();
   updateVehicleConditionHud();
@@ -11580,6 +11610,68 @@ window.addEventListener("beforeunload", saveExploredMap);
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) saveExploredMap();
 });
+
+let pedestrianPunchUntil = 0;
+let nextPedestrianPunch = 0;
+function pedestrianActors() {
+  const actors = [];
+  if (!gameOver && gameMode !== "store") actors.push({ id: multiplayer.peerId || "local", mode: gameMode,
+    x: gameMode === "walking" ? outsideState.x : player.x, z: gameMode === "walking" ? outsideState.z : player.z,
+    angle: gameMode === "walking" ? outsideState.angle : player.angle });
+  for (const [id, remote] of remotePlayers) {
+    const s = remote.remoteTarget;
+    if (!s || s.gameOver || s.gameMode === "store") continue;
+    actors.push({ id, mode: s.gameMode, x: s.gameMode === "walking" ? s.outsideX : s.x,
+      z: s.gameMode === "walking" ? s.outsideZ : s.z, angle: s.outsideAngle || 0 });
+  }
+  return actors;
+}
+function pedestrianPlayerDamage() {
+  storeState.hp = Math.max(0, storeState.hp - 100);
+  damageFxEl.style.opacity = "0.6";
+  setTimeout(() => { damageFxEl.style.opacity = "0"; }, 220);
+  cameraState.shake = 2;
+  playPunchSound(true);
+  showNotification(`Pedestrian hit you | HP ${storeState.hp}/300`, true);
+  if (!storeState.hp) loseGame();
+}
+const pedestrianSystem = createPedestrians(scene, {
+  near: (x, z) => Math.hypot(x - focusX(), z - focusZ()) < 450,
+  impact: () => { playNoiseHit(.12, .08, 700); },
+  crime: () => { policeState.level = Math.min(5, policeState.level + 1); policeState.decayTimer = 0; },
+  clear: (x, z) => outsideWorldPositionIsClear(x, z, 9),
+  road: isRoad,
+  spawn: actor => {
+    const angle = Math.random() * Math.PI * 2;
+    const x = actor.x + Math.sin(angle) * (600 + Math.random() * 220);
+    const z = actor.z + Math.cos(angle) * (600 + Math.random() * 220);
+    const road = nearestRoad(x, z);
+    const side = Math.random() < .5 ? -1 : 1;
+    const spot = road.axis === "z" ? { x: roadCenterX(road.id, z) + side * 76, z }
+      : { x, z: roadCenterZ(road.id, x) + side * 76 };
+    if (pedestrianActors().some(a => Math.hypot(a.x - spot.x, a.z - spot.z) < 500)) return null;
+    return outsideWorldPositionIsClear(spot.x, spot.z, 12) ? spot : null;
+  },
+  attack: id => {
+    if (id === (multiplayer.peerId || "local")) pedestrianPlayerDamage();
+    else sendToConnection(multiplayer.connections.get(id), { type: "pedestrian-attack" });
+  },
+});
+function punchPedestrian(event) {
+  if (event.button !== 0 || gameMode !== "walking" || !running || gameOver || paused || worldMapState.open || outsideState.carjackTarget) return;
+  const now = performance.now();
+  if (now < nextPedestrianPunch) return;
+  nextPedestrianPunch = now + 750;
+  pedestrianPunchUntil = now + 250;
+  const actor = pedestrianActors().find(a => a.id === (multiplayer.peerId || "local"));
+  const id = actor && pedestrianSystem.target(actor);
+  playPunchSound(!!id);
+  if (!id) return;
+  if (worldHostControlsSimulation()) pedestrianSystem.punch(id, actor);
+  else sendToConnection(multiplayer.hostConnection, { type: "pedestrian-punch", id });
+}
+canvas.addEventListener("pointerdown", punchPedestrian);
+mobilePunchButton.addEventListener("pointerdown", punchPedestrian);
 
 resize();
 buildCharacterCustomisation();
