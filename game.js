@@ -9004,6 +9004,47 @@ function drawWorldMapPlayer(ctx) {
   ctx.restore();
 }
 
+function drawMapBuildings(ctx, project, scale, bounds, exploredOnly = false) {
+  ctx.save();
+  ctx.lineWidth = Math.max(.7, Math.min(1.5, scale * 5));
+  for (const building of colliders) {
+    if (building.type !== "building" || building.disabled || !building.w || !building.d) continue;
+    const left = building.x - building.w / 2, top = building.z - building.d / 2;
+    if (left > bounds.maxX || left + building.w < bounds.minX || top > bounds.maxZ || top + building.d < bounds.minZ) continue;
+    if (exploredOnly && !isWorldExplored(building.x, building.z)) continue;
+    const p = project(left, top);
+    const bw = building.w * scale, bh = building.d * scale;
+    ctx.fillStyle = "rgba(0,0,0,0.28)";
+    ctx.fillRect(p.x + 2, p.y + 2, bw, bh);
+    ctx.fillStyle = building.w > 100 ? "#a3aeb4" : "#78878c";
+    ctx.strokeStyle = "#c6d4d3";
+    ctx.fillRect(p.x, p.y, bw, bh);
+    ctx.strokeRect(p.x, p.y, bw, bh);
+  }
+  ctx.restore();
+}
+
+function drawMapPlayerArrow(ctx, x, y, heading, size = 10) {
+  ctx.save();
+  ctx.translate(x, y);
+  // World forward is (-sin(angle), -cos(angle)); the map remains north-up.
+  ctx.rotate(-heading);
+  ctx.fillStyle = "#ff493f";
+  ctx.strokeStyle = "#ffffff";
+  ctx.lineWidth = 2;
+  ctx.shadowColor = "#101b20";
+  ctx.shadowBlur = 5;
+  ctx.beginPath();
+  ctx.moveTo(0, -size);
+  ctx.lineTo(size * .72, size * .7);
+  ctx.lineTo(0, size * .35);
+  ctx.lineTo(-size * .72, size * .7);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  ctx.restore();
+}
+
 function renderWorldMap() {
   if (!worldMapState.open) return;
   resizeWorldMapCanvas();
@@ -9024,6 +9065,7 @@ function renderWorldMap() {
   drawWorldMapTerrain(ctx, bounds);
   drawWorldMapRoads(ctx, bounds, false);
   if (worldMapState.zoom >= 0.075) drawWorldMapRoads(ctx, bounds, true);
+  drawMapBuildings(ctx, worldMapScreenPoint, worldMapState.zoom, bounds, true);
   for (const marker of worldMapPointsOfInterest()) drawWorldMapMarker(ctx, marker);
   if (missionState.active && missionState.objectiveGroup?.visible) {
     drawWorldMapMarker(ctx, {
@@ -9130,7 +9172,7 @@ function drawMinimap() {
   c.beginPath();
   c.arc(w / 2, h / 2, w / 2 - 2, 0, Math.PI * 2);
   c.clip();
-  c.fillStyle = "#5f9a57";
+  c.fillStyle = "#354d42";
   c.fillRect(0, 0, w, h);
 
   const centerX = focusX();
@@ -9138,7 +9180,7 @@ function drawMinimap() {
   const mx = (x) => w / 2 + (x - centerX) * scale;
   const mz = (z) => h / 2 + (z - centerZ) * scale;
 
-  c.strokeStyle = "#383832";
+  c.strokeStyle = "#202b30";
   c.lineWidth = ROAD * scale;
   c.lineCap = "round";
   c.lineJoin = "round";
@@ -9155,6 +9197,7 @@ function drawMinimap() {
     let started = false;
     for (let z = minZ; z <= maxZ; z += 24) {
       const x = roadCenterX(id, z);
+      if (inSpawnRoadKeepout(x, z)) { started = false; continue; }
       if (!started) {
         c.moveTo(mx(x), mz(z));
         started = true;
@@ -9173,6 +9216,7 @@ function drawMinimap() {
     let started = false;
     for (let x = minX; x <= maxX; x += 24) {
       const z = roadCenterZ(id, x);
+      if (inSpawnRoadKeepout(x, z)) { started = false; continue; }
       if (!started) {
         c.moveTo(mx(x), mz(z));
         started = true;
@@ -9183,6 +9227,22 @@ function drawMinimap() {
     c.stroke();
   }
 
+  c.fillStyle = "#526166";
+  for (const pad of [{ x: 0, z: 48, w: 340, d: 250 }, { x: 338, z: 50, w: 300, d: 220 },
+    { x: -470, z: 32, w: 680, d: 340 }, { x: 340, z: -212, w: 258, d: 178 }]) {
+    c.fillRect(mx(pad.x - pad.w / 2), mz(pad.z - pad.d / 2), pad.w * scale, pad.d * scale);
+  }
+  drawMapBuildings(c, (x, z) => ({ x: mx(x), y: mz(z) }), scale, { minX, minZ, maxX, maxZ });
+  for (const marker of worldMapPointsOfInterest()) {
+    if (marker.label === "SPAWN" || marker.label === "GARAGE" || marker.label === "JOBS") continue;
+    const px = mx(marker.x), py = mz(marker.z);
+    if (Math.hypot(px - w / 2, py - h / 2) > w / 2 - 20) continue;
+    c.fillStyle = marker.color;
+    c.strokeStyle = "#102126";
+    c.lineWidth = 2;
+    c.fillRect(px - 4, py - 4, 8, 8);
+    c.strokeRect(px - 4, py - 4, 8, 8);
+  }
   const spawnDx = (SPAWN_POINT.x - centerX) * scale;
   const spawnDz = (SPAWN_POINT.z - centerZ) * scale;
   const spawnMapDistance = Math.hypot(spawnDx, spawnDz);
@@ -9263,10 +9323,12 @@ function drawMinimap() {
     c.lineWidth = 2;
     c.stroke();
   }
-  c.fillStyle = "#f01818";
-  c.beginPath();
-  c.arc(w / 2, h / 2, 5, 0, Math.PI * 2);
-  c.fill();
+  const heading = gameMode === "walking" ? outsideState.angle : player.angle;
+  drawMapPlayerArrow(c, w / 2, h / 2, heading);
+  c.fillStyle = "#e6f2ed";
+  c.font = "bold 11px Arial";
+  c.textAlign = "center";
+  c.fillText("N", w / 2, 18);
   c.restore();
 }
 
