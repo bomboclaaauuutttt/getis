@@ -1,6 +1,7 @@
 import * as THREE from "./assets/three.module.js";
 import { GLTFLoader } from "./assets/GLTFLoader.js";
 import { createPedestrians } from "./pedestrians.js";
+import { buildArchitecture } from "./architecture.js";
 
 const canvas = document.getElementById("game");
 const moneyEl = document.getElementById("money");
@@ -2492,6 +2493,15 @@ function makeBuildingLabel(text, background = "#174e86", foreground = "#ffffff")
 }
 
 function makeBuilding(x, z, w, d, h, type, rng, parent) {
+  if (type !== "special") {
+    const district = districtForPosition(x, z);
+    const building = buildArchitecture({ x, z, w, d, rng, district, shop: type === "shop", mats });
+    const road = nearestRoad(x, z);
+    building.rotation.y = road.axis === "x" && road.centerZ > z ? Math.PI : 0;
+    parent.add(building);
+    addSolidRect(parent, x, z, w, d);
+    return;
+  }
   const group = new THREE.Group();
   const specialVariant = type === "special" ? (hash(Math.round(x), Math.round(z), 804) % 2 ? "school" : "civic") : "";
   const mat = type === "shop" ? buildingMats[3] : type === "special" ? buildingMats[4] : buildingMats[Math.floor(rng() * 3)];
@@ -5665,6 +5675,8 @@ function returnToMainMenu() {
 }
 
 function biomeForChunk(cx, cz) {
+  const district = districtForPosition(cx * CHUNK, cz * CHUNK);
+  if (district === "urban" || district === "industrial") return "open";
   const biomeRng = rngFor(Math.floor(cx / 3), Math.floor(cz / 3), 901);
   const roll = biomeRng();
   if (roll < 0.1) return "denseForest";
@@ -5673,6 +5685,11 @@ function biomeForChunk(cx, cz) {
   if (roll < 0.56) return "playground";
   if (roll < 0.66) return "smashyard";
   return "open";
+}
+
+function districtForPosition(x, z) {
+  const roll = rngFor(Math.floor(x / 1560), Math.floor(z / 1560), 1984)();
+  return roll < .28 ? "urban" : roll < .43 ? "industrial" : "residential";
 }
 
 function addFieldPatch(parent, x, z, w, d, rng) {
@@ -6730,7 +6747,9 @@ function generateChunk(cx, cz) {
 
   const special = rng() < 0.04;
   const shop = !special && rng() < 0.08;
-  const buildingCount = forestZone ? (rng() < 0.04 ? 1 : 0) : special || shop ? 1 : openZone ? (rng() < 0.42 ? 1 : 0) : 1 + (rng() < 0.18 ? 1 : 0);
+  const district = districtForPosition(baseX, baseZ);
+  const buildingCount = forestZone ? (rng() < .04 ? 1 : 0) : district === "urban" ? 3
+    : district === "industrial" ? 2 : special || shop ? 1 : openZone ? (rng() < .72 ? 1 : 0) : 2;
   const placed = [];
   for (let i = 0; i < buildingCount; i++) {
     const type = special && i === 0 ? "special" : shop && i === 0 ? "shop" : "house";
